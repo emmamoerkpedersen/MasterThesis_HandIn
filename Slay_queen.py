@@ -5,3 +5,4 @@ import numpy as np
 #få det til at virke
 #DILLLER!!!!
 #få det til at virke
+#diller 2
