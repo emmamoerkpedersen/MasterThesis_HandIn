@@ -12,12 +12,40 @@ folders = ['21006845', '21006846', '21006847']
 # Dictionary to store dataframes
 vst_dfs = {}
 
+# Get the repository root path (assuming we're in the Oliver directory)
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+data_dir = os.path.join(repo_root, 'Sample data')
+
 # Load each VST_RAW.txt file
 for folder in folders:
-    file_path = os.path.join('Data', 'Sample data', folder, 'VST_RAW.txt')
+    file_path = os.path.join(data_dir, folder, 'VST_RAW.txt')
     try:
-        df = pd.read_csv(file_path, delimiter=';', decimal=',')
-        vst_dfs[folder] = df
+        # Try different encodings
+        encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+        for encoding in encodings:
+            try:
+                # First try to read a few lines to check the format
+                with open(file_path, 'r', encoding=encoding) as f:
+                    first_lines = [next(f) for _ in range(5)]
+                    print(f"\nFirst few lines of {folder}:")
+                    print(''.join(first_lines))
+                
+                # Then try to read the file, skipping metadata and setting column names
+                df = pd.read_csv(file_path, 
+                               encoding=encoding,
+                               delimiter=';',
+                               decimal=',',
+                               skiprows=3,  # Skip the metadata lines
+                               names=['Date', 'Value'])  # Set column names
+                vst_dfs[folder] = df
+                break  # If successful, break the encoding loop
+            except UnicodeDecodeError:
+                continue  # Try next encoding
+            except StopIteration:
+                print(f"File {folder} has fewer than 5 lines")
+                break
+        if folder not in vst_dfs:
+            print(f"Warning: Could not read file in folder {folder} with any supported encoding")
     except FileNotFoundError:
         print(f"Warning: VST_RAW.txt not found in folder {folder}")
 
@@ -31,10 +59,10 @@ for (folder, df), ax in zip(vst_dfs.items(), axes):
     df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y %H:%M')
     
     # Convert value column to float, replacing any invalid values with NaN
-    df[' value'] = pd.to_numeric(df[' value'], errors='coerce')
+    df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
     
     # Plot on the specific subplot
-    ax.plot(df['Date'], df[' value'])
+    ax.plot(df['Date'], df['Value'])
     
     # Customize each subplot
     ax.set_title(f'Dataset {folder}')
@@ -93,7 +121,7 @@ df = vst_dfs[folder]
 
 # Convert Date column to datetime and value column to float (if not already done)
 df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y %H:%M')
-df[' value'] = pd.to_numeric(df[' value'], errors='coerce')
+df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
 
 # Before defining time_windows, let's analyze data availability
 print("\nData Availability Analysis:")
@@ -132,7 +160,7 @@ colors = ['red', 'green', 'black', 'purple', 'orange']
 
 # Main plot spanning all columns
 ax_main = fig.add_subplot(gs[0, :])
-ax_main.plot(df['Date'], df[' value'], 'b-', label='Full Dataset')
+ax_main.plot(df['Date'], df['Value'], 'b-', label='Full Dataset')
 ax_main.set_title(f'Complete Dataset {folder}')
 ax_main.grid(True)
 
@@ -150,7 +178,7 @@ for (start_date, end_date), title in time_windows:
     mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
     window_data = df.loc[mask]
     if len(window_data) > 0:
-        valid_values = window_data[' value'].dropna()
+        valid_values = window_data['Value'].dropna()
         if len(valid_values) > 0:
             y_min = min(y_min, valid_values.min())
             y_max = max(y_max, valid_values.max())
@@ -191,7 +219,7 @@ for i in range(5):
     if len(window_data) > 0:
         print(f"Actual data range: {window_data['Date'].min()} to {window_data['Date'].max()}")
         print(f"Number of data points: {len(window_data)}")
-        print(f"Value range: {window_data[' value'].min():.2f} to {window_data[' value'].max():.2f}")
+        print(f"Value range: {window_data['Value'].min():.2f} to {window_data['Value'].max():.2f}")
     
     # Create subplot in bottom row
     if i == 0:
@@ -202,7 +230,7 @@ for i in range(5):
         plt.setp(ax.get_yticklabels(), visible=False)
     
     if len(window_data) > 0:
-        ax.plot(window_data['Date'], window_data[' value'], color=colors[i])
+        ax.plot(window_data['Date'], window_data['Value'], color=colors[i])
         ax.set_ylim(y_min, y_max)
     
     # Remove gridlines
@@ -246,7 +274,7 @@ for i in range(5):
     window_data = df.loc[mask]
     
     # Calculate y limits with valid data only
-    valid_values = window_data[' value'].dropna()
+    valid_values = window_data['Value'].dropna()
     if len(valid_values) > 0:
         y_min = valid_values.min()
         y_max = valid_values.max()
