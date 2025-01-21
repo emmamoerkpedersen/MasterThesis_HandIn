@@ -49,6 +49,29 @@ for folder in folders:
     except FileNotFoundError:
         print(f"Warning: VST_RAW.txt not found in folder {folder}")
 
+# Load VINGE_LEVEL.txt data
+vinge_df = pd.read_csv(os.path.join(data_dir, '21006845', 'VINGE.txt'), 
+                       delimiter='\t',
+                       encoding='latin1',
+                       decimal=',',
+                       quotechar='"')
+
+# Clean up the data
+vinge_df['Date'] = pd.to_datetime(vinge_df['Date'], format='%d.%m.%Y %H:%M')
+# Convert from cm to mm (multiply by 10)
+vinge_df['W.L [cm]'] = pd.to_numeric(vinge_df['W.L [cm]'], errors='coerce') * 10
+
+# Filter for dates after 1990
+vinge_df = vinge_df[vinge_df['Date'].dt.year >= 1990]
+
+# Inspect the data
+print("\nVINGE_LEVEL Data Inspection:")
+print("Number of records:", len(vinge_df))
+print("\nWater Level values (mm) summary:")
+print(vinge_df['W.L [cm]'].describe())
+print("\nFirst few rows of Water Level data (mm):")
+print(vinge_df[['Date', 'W.L [cm]']].head())
+
 # Create a figure with 3 subplots stacked vertically
 fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
 axes = [ax1, ax2, ax3]
@@ -66,7 +89,7 @@ for (folder, df), ax in zip(vst_dfs.items(), axes):
     
     # Customize each subplot
     ax.set_title(f'Dataset {folder}')
-    ax.set_ylabel('Value')
+    ax.set_ylabel('Water level (mm)')
     ax.grid(True)
     ax.tick_params(axis='x', rotation=45)
 
@@ -138,100 +161,105 @@ for idx in gaps.index:
     gap_end = df_sorted['Date'][idx]
     print(f"Gap from {gap_start} to {gap_end} ({(gap_end - gap_start).days} days)")
 
-# Define time windows based on specific periods of interest with custom titles
 time_windows = [
-    ((pd.to_datetime('1994-04-01'), pd.to_datetime('1994-10-01')), "Spike Error"),  # 1994 period
-    ((pd.to_datetime('2002-10-01'), pd.to_datetime('2004-03-01')), "Missing Data Error"),  # 2003-2004 period
-    ((pd.to_datetime('2011-01-01'), pd.to_datetime('2011-06-01')), "Offset Error"),  # 2011 period
-    ((pd.to_datetime('2012-01-01'), pd.to_datetime('2012-06-01')), "Linear Interpolation"),  # 2012 period
-    ((pd.to_datetime('2013-01-01'), pd.to_datetime('2013-06-01')), "Flat Line Error"),  # 2013 period
+    {
+        "title": "Data gaps",
+        "start_date": pd.to_datetime('1994-01-01'),
+        "end_date": pd.to_datetime('1995-01-01'),
+        "y_range": (250, 2000)
+    },
+    {
+        "title": "Linear Interpolation segment",
+        "start_date": pd.to_datetime('1998-01-01'),
+        "end_date": pd.to_datetime('2002-11-01'),
+        "y_range": None
+    },
+    {
+        "title": "Offset error",
+        "start_date": pd.to_datetime('2007-03-21'),
+        "end_date": pd.to_datetime('2007-03-23'),
+        "y_range": (-7820, -7700)
+    },
+    {
+        "title": "Spike error",
+        "start_date": pd.to_datetime('2011-01-01'),
+        "end_date": pd.to_datetime('2011-05-01'),
+        "y_range": None
+    },
+    {
+        "title": "Long offset error",
+        "start_date": pd.to_datetime('2016-08-16'),
+        "end_date": pd.to_datetime('2016-09-02'),
+        "y_range": (10, 45)
+    },
+    {
+        "title": "Spike fluctuations & flatline",
+        "start_date": pd.to_datetime('2016-12-11'),
+        "end_date": pd.to_datetime('2016-12-23'),
+        "y_range": None
+    }
 ]
 
 # If fewer than 5 windows specified, fill rest with empty dates
-while len(time_windows) < 5:
-    time_windows.append(((pd.to_datetime('1900-01-01'), pd.to_datetime('1900-01-02')), "Empty Section"))
+while len(time_windows) < 6:
+    time_windows.append({
+        "title": "Empty Section",
+        "start_date": pd.to_datetime('1900-01-01'),
+        "end_date": pd.to_datetime('1900-01-02'),
+        "y_range": None  # Use default y-axis range
+    })
 
-# Create figure with subplots - 2 rows, 5 columns for bottom row
-fig = plt.figure(figsize=(20, 12))
-gs = fig.add_gridspec(2, 5, height_ratios=[2, 1], hspace=0.3)
+# Create figure with subplots - 2 rows, 6 columns for bottom row
+fig = plt.figure(figsize=(24, 12))  # Increased width to accommodate 6 plots
+gs = fig.add_gridspec(2, 6, height_ratios=[2, 1], hspace=0.3)
 
-# Define colors for the subplots
-colors = ['red', 'green', 'black', 'purple', 'orange']
+# Define colors for the subplots (added one more color)
+colors = ['red', 'green', 'orange', 'yellow', 'purple', 'lightblue']
 
 # Main plot spanning all columns
 ax_main = fig.add_subplot(gs[0, :])
-ax_main.plot(df['Date'], df['Value'], 'b-', label='Full Dataset')
-ax_main.set_title(f'Complete Dataset {folder}')
+ax_main.plot(df['Date'], df['Value'], 'b-', label='Water Level')
+ax_main.scatter(vinge_df['Date'], vinge_df['W.L [cm]'], color='red', s=30, label='Manual Measurements')
+ax_main.set_title(f'Dataset: {folder}')
 ax_main.grid(True)
+ax_main.legend()
 
-# Add major (year) and minor (month) ticks to main plot
-ax_main.xaxis.set_major_locator(mdates.YearLocator())
-ax_main.xaxis.set_minor_locator(mdates.MonthLocator())
-ax_main.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+# Add dynamic date formatter that changes based on zoom level
+locator = mdates.AutoDateLocator()
+formatter = mdates.ConciseDateFormatter(locator)
+ax_main.xaxis.set_major_locator(locator)
+ax_main.xaxis.set_major_formatter(formatter)
 ax_main.tick_params(axis='x', rotation=45)
 ax_main.set_ylabel('Value')
 
-# Find global y-limits for all subplots
-y_min = float('inf')
-y_max = float('-inf')
-for (start_date, end_date), title in time_windows:
-    mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
-    window_data = df.loc[mask]
-    if len(window_data) > 0:
-        valid_values = window_data['Value'].dropna()
-        if len(valid_values) > 0:
-            y_min = min(y_min, valid_values.min())
-            y_max = max(y_max, valid_values.max())
-
-# Add padding to y-limits
-y_padding = (y_max - y_min) * 0.1
-y_min -= y_padding
-y_max += y_padding
-
-# Calculate total duration and default window size for random windows
-total_duration = df['Date'].max() - df['Date'].min()
-window_size = pd.Timedelta(days=30)  # Default to 30-day windows
-
-# If fewer than 5 windows specified, fill rest with random windows
-while len(time_windows) < 5:
-    # Random start time for the window
-    random_start = df['Date'].min() + pd.Timedelta(seconds=np.random.random() * total_duration.total_seconds())
-    random_end = random_start + window_size
-    time_windows.append((random_start.strftime('%Y-%m-%d'), random_end.strftime('%Y-%m-%d')))
-
-# Convert string dates to datetime for all windows
-time_windows = [
-    ((pd.to_datetime(start) if isinstance(start, str) else start,
-     pd.to_datetime(end) if isinstance(end, str) else end), title)
-    for (start, end), title in time_windows
-]
-
-for i in range(5):
-    (start_date, end_date), title = time_windows[i]  # Unpack both dates and title
-    
-    # Get y-range for the window
-    mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
-    window_data = df.loc[mask].copy()
-    
-    # Enhanced debug information
-    print(f"\nSection {i+1} ({colors[i]}):")
-    print(f"Time window requested: {start_date} to {end_date}")
-    if len(window_data) > 0:
-        print(f"Actual data range: {window_data['Date'].min()} to {window_data['Date'].max()}")
-        print(f"Number of data points: {len(window_data)}")
-        print(f"Value range: {window_data['Value'].min():.2f} to {window_data['Value'].max():.2f}")
+# Plot each subplot without sharing the y-axis
+for i in range(6):
+    window = time_windows[i]
+    start_date = window["start_date"]
+    end_date = window["end_date"]
+    title = window["title"]
+    y_range = window["y_range"]
     
     # Create subplot in bottom row
-    if i == 0:
-        ax = fig.add_subplot(gs[1, i])
-        first_ax = ax
-    else:
-        ax = fig.add_subplot(gs[1, i], sharey=first_ax)
-        plt.setp(ax.get_yticklabels(), visible=False)
+    ax = fig.add_subplot(gs[1, i])
+    
+    # Get data for the time window
+    mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
+    window_data = df.loc[mask]
+    
+    # Get board data for the time window
+    board_mask = (vinge_df['Date'] >= start_date) & (vinge_df['Date'] <= end_date)
+    board_window_data = vinge_df.loc[board_mask]
     
     if len(window_data) > 0:
         ax.plot(window_data['Date'], window_data['Value'], color=colors[i])
-        ax.set_ylim(y_min, y_max)
+        # Add board data points
+        ax.scatter(board_window_data['Date'], board_window_data['W.L [cm]'], 
+                  color='red', s=30)
+        
+        # Set custom y-axis range if specified
+        if y_range is not None:
+            ax.set_ylim(y_range[0], y_range[1])
     
     # Remove gridlines
     ax.grid(False)
@@ -259,15 +287,19 @@ for i in range(5):
     ax.grid(False)
     ax.tick_params(axis='x', rotation=45, labelsize=8)
     if i == 0:
-        ax.set_ylabel('Value')
+        ax.set_ylabel('Water level (mm)')
 
 # Adjust layout first
 plt.tight_layout()
 
 # Now add rectangles and connection lines after tight_layout
-for i in range(5):
+for i in range(6):
     ax = fig.axes[i+1]
-    (start_date, end_date), title = time_windows[i]  # Unpack both dates and title
+    window = time_windows[i]
+    start_date = window["start_date"]
+    end_date = window["end_date"]
+    title = window["title"]
+    y_range = window["y_range"]
     
     # Get data for the time window
     mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
@@ -276,17 +308,30 @@ for i in range(5):
     # Calculate y limits with valid data only
     valid_values = window_data['Value'].dropna()
     if len(valid_values) > 0:
-        y_min = valid_values.min()
-        y_max = valid_values.max()
+        y_min = valid_values.min() if y_range is None else y_range[0]
+        y_max = valid_values.max() if y_range is None else y_range[1]
         
         if np.isfinite(y_min) and np.isfinite(y_max):
-            padding = (y_max - y_min) * 0.1
+            # Calculate the width of the time window in x-axis units
+            x_width = mdates.date2num(end_date) - mdates.date2num(start_date)
+            
+            # Calculate the height of the rectangle to make it square-like
+            # Scale the height to match the width, considering the y-axis range
+            y_range_global = ax_main.get_ylim()[1] - ax_main.get_ylim()[0]
+            x_range_global = mdates.date2num(df['Date'].max()) - mdates.date2num(df['Date'].min())
+            scaling_factor = y_range_global / x_range_global
+            y_height = x_width * scaling_factor
+            
+            # Apply a scale factor only to the last 4 subplots (index 2, 3, 4, 5)
+            if i >= 2 and y_range is not None:
+                scale_factor = 2.0  # Adjust this value to make the rectangle larger
+                y_height = (y_max - y_min) * scale_factor  # Scale the height of the rectangle
             
             # Draw rectangle in main plot
             rect = plt.Rectangle(
-                (mdates.date2num(start_date), y_min - padding), 
-                mdates.date2num(end_date) - mdates.date2num(start_date), 
-                (y_max - y_min + 2*padding),
+                (mdates.date2num(start_date), y_min),  # Bottom-left corner
+                x_width,  # Width of the rectangle
+                y_height,  # Height of the rectangle (scaled for selected subplots)
                 fill=False, 
                 color=colors[i],
                 linewidth=1.5,
@@ -297,7 +342,7 @@ for i in range(5):
             
             # Get the center point of the data section
             rect_center_x = mdates.date2num(start_date + (end_date - start_date) / 2)
-            rect_center_y = y_min + (y_max - y_min) / 2
+            rect_center_y = y_min + (y_height / 2)  # Center the arrow within the scaled rectangle
             
             # Create dotted connection lines with higher endpoint
             con = ConnectionPatch(
