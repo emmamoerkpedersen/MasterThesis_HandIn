@@ -4,11 +4,13 @@ from matplotlib.patches import ConnectionPatch
 import numpy as np
 import pandas as pd
 
+from matplotlib.ticker import MaxNLocator
+
 def create_detailed_plot(df, vinge_df, time_windows, folder):
     """Create the main detailed plot with subplots showing anomaly examples."""
     # Create figure with subplots - 2 rows, 6 columns for bottom row
     fig = plt.figure(figsize=(24, 12))
-    gs = fig.add_gridspec(2, 6, height_ratios=[2, 1], hspace=0.3)
+    gs = fig.add_gridspec(2, 6, height_ratios=[2, 1], hspace=0.3, wspace=0.3)
 
     # Define colors using a gradient from red through orange and green to dark blues
     colors = ['#FF0000', '#FF8000', '#00B000', '#00A0FF', '#0040FF', '#000080']
@@ -65,20 +67,11 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
         # Always set the x-axis limits to the requested time window
         ax.set_xlim(start_date, end_date)
         
-        # Calculate time span and set ticks
-        time_span = end_date - start_date
-        days_span = time_span.days
-        
-        # Use 4 ticks for all plots by setting appropriate locator
-        if days_span > 365:
-            # For periods longer than a year, show ticks every 6 months
-            ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=[1, 7]))
-        else:
-            # For shorter periods, show quarterly ticks
-            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        # Set a fixed number of ticks (e.g., 4 ticks)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
         
         # Always use the same date format (YYYY-MM)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         
         # Customize subplot
         ax.set_title(title)
@@ -89,7 +82,6 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
 
     # Adjust layout first
     plt.tight_layout()
-
     # Now add rectangles and connection lines after tight_layout
     for i in range(6):
         ax = fig.axes[i+1]
