@@ -35,7 +35,7 @@ class MetObsAPI:
         """
         assert limit < 300000, "The limit is too large"
         time_arg = self.construct_datetime(time_from, time_to)
-        url = f"{self.base_url}observation/items?stationId={station_id}&parameterId=precip_past1h&datetime={time_arg}&limit={limit}&api-key={self.api_key}"
+        url = f"{self.base_url}observation/items?stationId={station_id}&parameterId=precip_past10min&datetime={time_arg}&limit={limit}&api-key={self.api_key}"
         response = requests.get(url).json()
         response = response.get("features")
         location = response[0].get("geometry").get("coordinates")
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     client = MetObsAPI(my_api_key)
     station_id = "05225"  # <- your station ids
     data, location = client.get_precipitation_from_station(
-        station_id, datetime(1990, 1, 1), datetime(2023, 1, 7), limit=299999
+        station_id, datetime(1990, 1, 1), datetime(2025, 1, 7), limit=299999
     )
 
 
