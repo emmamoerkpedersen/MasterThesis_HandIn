@@ -81,7 +81,7 @@ if __name__ == "__main__":
             )
             
             # Delete negative values
-            data = data[data['precipitation (mm)'] >= 0]
+            # data = data[data['precipitation (mm)'] >= 0]
             
             # Save to CSV with station ID in filename
             output_filename = f'RainData_{station_id}.csv'
@@ -93,13 +93,13 @@ if __name__ == "__main__":
             continue
 
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 
-plt.figure(figsize=(15, 8))
-plt.plot(data)
-plt.xlabel('Time [days]')
-plt.ylabel('Water level [m]')
-#plt.legend((key[i],))
-plt.show()
+# plt.figure(figsize=(15, 8))
+# plt.plot(data)
+# plt.xlabel('Time [days]')
+# plt.ylabel('Water level [m]')
+# #plt.legend((key[i],))
+# plt.show()
 
