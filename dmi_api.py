@@ -64,14 +64,33 @@ if __name__ == "__main__":
     # Example of how to use the API
     my_api_key = "762c2c0b-caa9-4c96-a8a7-4eb2c719b359"
     client = MetObsAPI(my_api_key)
-    station_id = "05135"  # <- your station ids
-    data, location = client.get_precipitation_from_station(
-        station_id, datetime(1990, 1, 1), datetime(2025, 1, 7), limit=299999
-    )
-
-#Delete negative values
-data = data[data['precipitation (mm)'] >= 0]
-data.to_csv('RainData_05135.csv')
+    
+    # Read station IDs from CSV file with dtype specification
+    stations_df = pd.read_csv('closest_rain_stations.csv', dtype={'Closest_Rain_Station': str})
+    station_ids = stations_df['Closest_Rain_Station'].unique()
+    
+    # Loop through each station and save its data
+    for station_id in station_ids:
+        print(f"Processing station {station_id}")
+        try:
+            data, location = client.get_precipitation_from_station(
+                str(station_id),  # Convert to string in case IDs are numeric
+                datetime(1990, 1, 1), 
+                datetime(2025, 1, 7), 
+                limit=299999
+            )
+            
+            # Delete negative values
+            data = data[data['precipitation (mm)'] >= 0]
+            
+            # Save to CSV with station ID in filename
+            output_filename = f'RainData_{station_id}.csv'
+            data.to_csv(output_filename)
+            print(f"Saved data to {output_filename}")
+            
+        except Exception as e:
+            print(f"Error processing station {station_id}: {str(e)}")
+            continue
 
 
 import matplotlib.pyplot as plt

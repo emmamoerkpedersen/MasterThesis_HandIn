@@ -8,6 +8,8 @@ catchments = gpd.read_file('oplande.gpkg', engine="pyogrio")
 stations_of_interest = gpd.read_file('Stations_45_46_46.shp', engine="pyogrio")
 stations_of_interest = stations_of_interest.drop_duplicates(subset=['StedID'])
 rain_stations = pd.read_csv('DMIStations.csv')
+
+
 # Filter rain stations to only include Synop and Pluvio types as these holds precipitation data
 rain_stations = rain_stations[rain_stations['type'].isin(['Synop', 'Pluvio'])]
 # Create geometry for stations of interest from x and y coordinates
@@ -53,14 +55,15 @@ for idx, station in stations_of_interest.iterrows():
     
     results.append({
         'Station_of_Interest': station['StedID'],
-        'Closest_Rain_Station': closest_station['stationId'],
+        'Closest_Rain_Station': f"{closest_station['stationId']:05d}",
         'Distance_m': distances[closest_station_idx],
         'Catchment_ID': containing_catchment.iloc[0].name
     })
 
 # Convert results to DataFrame
 results_df = pd.DataFrame(results)
-
 # Save results to CSV
-results_df.to_csv('closest_rain_stations.csv', index=False)
-print("Analysis complete. Results saved to 'closest_rain_stations.csv'")
+output_path = '/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/closest_rain_stations.csv'
+results_df.to_csv(output_path, index=False)
+print(f"Analysis complete. Results saved to '{output_path}'")
+
