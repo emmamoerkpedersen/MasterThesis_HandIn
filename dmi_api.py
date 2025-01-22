@@ -35,7 +35,7 @@ class MetObsAPI:
         """
         assert limit < 300000, "The limit is too large"
         time_arg = self.construct_datetime(time_from, time_to)
-        url = f"{self.base_url}observation/items?stationId={station_id}&parameterId=precip_past10min&datetime={time_arg}&limit={limit}&api-key={self.api_key}"
+        url = f"{self.base_url}observation/items?stationId={station_id}&parameterId=precip_past1h&datetime={time_arg}&limit={limit}&api-key={self.api_key}"
         response = requests.get(url).json()
         response = response.get("features")
         location = response[0].get("geometry").get("coordinates")
@@ -64,13 +64,14 @@ if __name__ == "__main__":
     # Example of how to use the API
     my_api_key = "762c2c0b-caa9-4c96-a8a7-4eb2c719b359"
     client = MetObsAPI(my_api_key)
-    station_id = "05225"  # <- your station ids
+    station_id = "05135"  # <- your station ids
     data, location = client.get_precipitation_from_station(
         station_id, datetime(1990, 1, 1), datetime(2025, 1, 7), limit=299999
     )
 
-
-data.to_csv('RainData_05225.csv')
+#Delete negative values
+data = data[data['precipitation (mm)'] >= 0]
+data.to_csv('RainData_05135.csv')
 
 
 import matplotlib.pyplot as plt
@@ -82,3 +83,4 @@ plt.xlabel('Time [days]')
 plt.ylabel('Water level [m]')
 #plt.legend((key[i],))
 plt.show()
+
