@@ -3,6 +3,10 @@ import pandas as pd
 from shapely.geometry import Point
 import numpy as np
 
+## Script to find the closest rain station to each station of interest. 
+## The results are saved to a csv file. 
+
+
 # Read input files
 catchments = gpd.read_file('oplande.gpkg', engine="pyogrio")
 stations_of_interest = gpd.read_file('Stations_45_46_46.shp', engine="pyogrio")

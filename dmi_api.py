@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import requests
 
+# Get the MasterThesis directory (parent directory of the script)
+master_thesis_dir = os.path.dirname(os.path.abspath(__file__))
 
 class MetObsAPI:
     """
@@ -65,8 +67,9 @@ if __name__ == "__main__":
     my_api_key = "762c2c0b-caa9-4c96-a8a7-4eb2c719b359"
     client = MetObsAPI(my_api_key)
     
-    # Read station IDs from CSV file with dtype specification
-    stations_df = pd.read_csv('closest_rain_stations.csv', dtype={'Closest_Rain_Station': str})
+    # Build path to read from data folder
+    input_path = os.path.join(master_thesis_dir, 'data', 'closest_rain_stations.csv')
+    stations_df = pd.read_csv(input_path, dtype={'Closest_Rain_Station': str})
     station_ids = stations_df['Closest_Rain_Station'].unique()
     
     # Loop through each station and save its data
@@ -85,8 +88,10 @@ if __name__ == "__main__":
             
             # Save to CSV with station ID in filename
             output_filename = f'RainData_{station_id}.csv'
-            data.to_csv(output_filename)
-            print(f"Saved data to {output_filename}")
+            # Build path to save in data folder
+            output_path = os.path.join(master_thesis_dir, 'data', output_filename)
+            data.to_csv(output_path)
+            print(f"Saved data to {output_path}")
             
         except Exception as e:
             print(f"Error processing station {station_id}: {str(e)}")
