@@ -14,6 +14,13 @@ def get_data_path():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(repo_root, 'Sample data')
 
+def get_plot_path():
+    """Get the path to the plots directory."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plot_dir = os.path.join(repo_root, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)  # Create plots directory if it doesn't exist
+    return plot_dir
+
 def load_vst_data(folders, data_dir):
     """Load VST_RAW.txt files from multiple folders."""
     vst_dfs = {}
@@ -125,6 +132,7 @@ def main():
     """Main function to orchestrate the data exploration."""
     folders = ['21006845', '21006846', '21006847']
     data_dir = get_data_path()
+    plot_dir = get_plot_path()
     
     # Load data
     vst_dfs = load_vst_data(folders, data_dir)
@@ -132,12 +140,19 @@ def main():
     
     # Create plots
     plot_datasets_overview(vst_dfs, vinge_df)
+    plt.savefig(os.path.join(plot_dir, 'datasets_overview.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
     plot_vst_vs_vinge_comparison(vst_dfs, vinge_df)
+    plt.savefig(os.path.join(plot_dir, 'vst_vs_vinge_comparison.png'), dpi=300, bbox_inches='tight')
+    plt.close()
     
     # Create VST files comparison for each folder
     for folder in folders:
         folder_path = os.path.join(data_dir, folder)
         plot_vst_files_comparison(folder_path)
+        plt.savefig(os.path.join(plot_dir, f'vst_files_comparison_{folder}.png'), dpi=300, bbox_inches='tight')
+        plt.close()
     
     # Analyze first dataset in detail
     folder = list(vst_dfs.keys())[0]
@@ -153,8 +168,8 @@ def main():
     # Create detailed plot
     time_windows = get_time_windows()
     create_detailed_plot(df, vinge_df, time_windows, folder)
-    
-    plt.show()
+    plt.savefig(os.path.join(plot_dir, f'detailed_analysis_{folder}.png'), dpi=300, bbox_inches='tight')
+    plt.close()
 
 if __name__ == "__main__":
     main()

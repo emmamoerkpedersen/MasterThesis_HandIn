@@ -30,7 +30,7 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
     ax_main.xaxis.set_major_locator(locator)
     ax_main.xaxis.set_major_formatter(formatter)
     ax_main.tick_params(axis='x', rotation=45)
-    ax_main.set_ylabel('Value')
+    ax_main.set_ylabel('Water level (mm)')
 
     # Plot each subplot without sharing the y-axis
     for i in range(6):
