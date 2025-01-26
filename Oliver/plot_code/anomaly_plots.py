@@ -6,8 +6,12 @@ import pandas as pd
 
 from matplotlib.ticker import MaxNLocator
 
-def create_detailed_plot(df, vinge_df, time_windows, folder):
+def create_detailed_plot(data, time_windows, folder):
     """Create the main detailed plot with subplots showing anomaly examples."""
+    if data['vst_raw'] is None:
+        print(f"Missing VST_RAW data for detailed plot in folder {folder}")
+        return
+        
     # Create figure with subplots - 2 rows, 6 columns for bottom row
     fig = plt.figure(figsize=(24, 12))
     gs = fig.add_gridspec(2, 6, height_ratios=[2, 1], hspace=0.3, wspace=0.3)
@@ -17,10 +21,14 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
 
     # Main plot spanning all columns
     ax_main = fig.add_subplot(gs[0, :])
-    ax_main.plot(df['Date'], df['Value'], 'b-', label='Sensor Water Level')
-    ax_main.scatter(vinge_df['Date'], vinge_df['W.L [cm]'], 
-                   color='red', s=20, label='Manual Board Measurements')
-    ax_main.set_title(f'Dataset: {folder}')
+    ax_main.plot(data['vst_raw']['Date'], data['vst_raw']['Value'], 
+                'b-', label='Sensor Water Level')
+    
+    if data['vinge'] is not None:
+        ax_main.scatter(data['vinge']['Date'], data['vinge']['W.L [cm]'], 
+                       color='red', s=20, label='Manual Board Measurements')
+    
+    ax_main.set_title(f'Detailed Analysis - {folder}')
     ax_main.grid(True)
     ax_main.legend()
 
@@ -44,18 +52,19 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
         ax = fig.add_subplot(gs[1, i])
         
         # Get data for the time window
-        mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
-        window_data = df.loc[mask]
+        mask = (data['vst_raw']['Date'] >= start_date) & (data['vst_raw']['Date'] <= end_date)
+        window_data = data['vst_raw'][mask]
         
-        # Get board data for the time window
-        board_mask = (vinge_df['Date'] >= start_date) & (vinge_df['Date'] <= end_date)
-        board_window_data = vinge_df.loc[board_mask]
+        # Get board data for the time window if available
+        if data['vinge'] is not None:
+            board_mask = (data['vinge']['Date'] >= start_date) & (data['vinge']['Date'] <= end_date)
+            board_window_data = data['vinge'][board_mask]
+            
+            ax.scatter(board_window_data['Date'], board_window_data['W.L [cm]'], 
+                      color='red', s=30)
         
         if len(window_data) > 0:
             ax.plot(window_data['Date'], window_data['Value'], color=colors[i])
-            # Add board data points
-            ax.scatter(board_window_data['Date'], board_window_data['W.L [cm]'], 
-                      color='red', s=30)
             
             # Set custom y-axis range if specified
             if y_range is not None:
@@ -67,10 +76,10 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
         # Always set the x-axis limits to the requested time window
         ax.set_xlim(start_date, end_date)
         
-        # Set a fixed number of ticks (e.g., 4 ticks)
+        # Set a fixed number of ticks
         ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
         
-        # Always use the same date format (YYYY-MM)
+        # Always use the same date format
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         
         # Customize subplot
@@ -82,18 +91,18 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
 
     # Adjust layout first
     plt.tight_layout()
-    # Now add rectangles and connection lines after tight_layout
+    
+    # Add rectangles and connection lines
     for i in range(6):
         ax = fig.axes[i+1]
         window = time_windows[i]
         start_date = window["start_date"]
         end_date = window["end_date"]
-        title = window["title"]
         y_range = window["y_range"]
         
         # Get data for the time window
-        mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
-        window_data = df.loc[mask]
+        mask = (data['vst_raw']['Date'] >= start_date) & (data['vst_raw']['Date'] <= end_date)
+        window_data = data['vst_raw'][mask]
         
         # Calculate y limits with valid data only
         valid_values = window_data['Value'].dropna()
@@ -107,11 +116,11 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
                 
                 # Calculate the height of the rectangle to make it square-like
                 y_range_global = ax_main.get_ylim()[1] - ax_main.get_ylim()[0]
-                x_range_global = mdates.date2num(df['Date'].max()) - mdates.date2num(df['Date'].min())
+                x_range_global = mdates.date2num(data['vst_raw']['Date'].max()) - mdates.date2num(data['vst_raw']['Date'].min())
                 scaling_factor = y_range_global / x_range_global
                 y_height = x_width * scaling_factor
                 
-                # Apply a scale factor only to the last 4 subplots (index 2, 3, 4, 5)
+                # Apply a scale factor only to the last 4 subplots
                 if i >= 2 and y_range is not None:
                     scale_factor = 2.0
                     y_height = (y_max - y_min) * scale_factor
@@ -133,7 +142,7 @@ def create_detailed_plot(df, vinge_df, time_windows, folder):
                 rect_center_x = mdates.date2num(start_date + (end_date - start_date) / 2)
                 rect_center_y = y_min + (y_height / 2)
                 
-                # Create dotted connection lines with higher endpoint
+                # Create dotted connection lines
                 con = ConnectionPatch(
                     xyA=(rect_center_x, rect_center_y),
                     coordsA=ax_main.transData,
