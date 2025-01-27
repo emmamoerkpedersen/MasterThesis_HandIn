@@ -48,14 +48,35 @@ def run_pipeline(data_path: str, output_path: str):
         data_path: Path to input data
         output_path: Path for results
     """
+    # Load configuration
+    from error_detection.config import SYNTHETIC_ERROR_PARAMS, PHYSICAL_LIMITS
+    
     # Create training data with synthetic errors
-    train_data, modified_data, validation_results = create_synthetic_training_data(data_path)
+    error_generator = synthetic_errors.SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
+    train_data, modified_data, validation_results = create_synthetic_training_data(
+        data_path, 
+        error_generator
+    )
     
-    # Detect errors
-    detector = error_detection.SpikeDetector()
-    error_flags = detector.detect(modified_data)
+    # Initialize detectors for each error type
+    detectors = {
+        'spike': error_detection.SpikeDetector(),
+        'flatline': error_detection.FlatlineDetector(),
+        'drift': error_detection.DriftDetector(),
+        'offset': error_detection.OffsetDetector(),
+        'noise': error_detection.NoiseDetector()
+    }
     
-    # Impute errors
+    # Detect all error types
+    error_flags = pd.DataFrame()
+    for error_type, detector in detectors.items():
+        current_flags = detector.detect(modified_data)
+        error_flags = pd.concat([error_flags, current_flags])
+    
+    # Resolve any conflicting detections
+    error_flags = resolve_conflicting_detections(error_flags)
+    
+    # Impute errors based on their type
     imputer = imputation.SimpleImputer()
     imputed_data = imputer.impute(modified_data, error_flags)
     
@@ -67,7 +88,11 @@ def run_pipeline(data_path: str, output_path: str):
     error_plots.plot_imputation_results(modified_data, imputed_data, error_flags)
     
     # Export results
-    export_results(metrics, output_path)
+    export_results({
+        'metrics': metrics,
+        'config': SYNTHETIC_ERROR_PARAMS,
+        'physical_limits': PHYSICAL_LIMITS
+    }, output_path)
 
 if __name__ == "__main__":
     run_pipeline("path/to/data", "path/to/output") 

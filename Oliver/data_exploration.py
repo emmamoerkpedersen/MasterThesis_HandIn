@@ -2,7 +2,7 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 from data_loading import load_all_folders
-from plot_code.overview_plots import plot_datasets_overview
+from plot_code.overview_plots import plot_datasets_overview, plot_vst_raw_overview
 from plot_code.comparison_plots import plot_vst_vs_vinge_comparison, plot_vst_files_comparison
 from plot_code.anomaly_plots import create_detailed_plot
 
@@ -87,6 +87,12 @@ def main():
     # Create plots
     for folder, data in all_data.items():
         if data['vst_raw'] is not None:
+            # Create raw data overview plot
+            plot_vst_raw_overview(data, folder)
+            plt.savefig(os.path.join(plot_dir, f'vst_raw_overview_{folder}.png'), 
+                       dpi=300, bbox_inches='tight')
+            plt.close()
+            
             # Create overview plot
             plot_datasets_overview(data, folder)
             plt.savefig(os.path.join(plot_dir, f'datasets_overview_{folder}.png'), 
