@@ -6,6 +6,7 @@ from plot_code.overview_plots import plot_datasets_overview, plot_vst_raw_overvi
 from plot_code.comparison_plots import plot_vst_vs_vinge_comparison, plot_vst_files_comparison
 from plot_code.anomaly_plots import create_detailed_plot
 
+plt.ion()
 def get_data_path():
     """Get the path to the data directory."""
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -91,34 +92,34 @@ def main():
             plot_vst_raw_overview(data, folder)
             plt.savefig(os.path.join(plot_dir, f'vst_raw_overview_{folder}.png'), 
                        dpi=300, bbox_inches='tight')
-            plt.close()
+            plt.show()
             
             # Create overview plot
             plot_datasets_overview(data, folder)
             plt.savefig(os.path.join(plot_dir, f'datasets_overview_{folder}.png'), 
                        dpi=300, bbox_inches='tight')
-            plt.close()
+            plt.show()
             
             # Create comparison plots
-            if data['vinge'] is not None:
-                plot_vst_vs_vinge_comparison(data, folder)
-                plt.savefig(os.path.join(plot_dir, f'vst_vs_vinge_comparison_{folder}.png'),
-                           dpi=300, bbox_inches='tight')
-                plt.close()
+            # if data['vinge'] is not None:
+            #     plot_vst_vs_vinge_comparison(data, folder)
+            #     plt.savefig(os.path.join(plot_dir, f'vst_vs_vinge_comparison_{folder}.png'),
+            #                dpi=300, bbox_inches='tight')
+            #     plt.close()
             
-            # Create VST files comparison
-            if data['vst_edt'] is not None:
-                plot_vst_files_comparison(data, folder)
-                plt.savefig(os.path.join(plot_dir, f'vst_files_comparison_{folder}.png'),
-                           dpi=300, bbox_inches='tight')
-                plt.close()
+            # # Create VST files comparison
+            # if data['vst_edt'] is not None:
+            #     plot_vst_files_comparison(data, folder)
+            #     plt.savefig(os.path.join(plot_dir, f'vst_files_comparison_{folder}.png'),
+            #                dpi=300, bbox_inches='tight')
+            #     plt.close()
             
             # Create detailed analysis plot
             time_windows = get_time_windows()
             create_detailed_plot(data, time_windows, folder)
             plt.savefig(os.path.join(plot_dir, f'detailed_analysis_{folder}.png'),
                        dpi=300, bbox_inches='tight')
-            plt.close()
+            plt.show()
 
 if __name__ == "__main__":
     main()
