@@ -79,7 +79,7 @@ if __name__ == "__main__":
             data, location = client.get_precipitation_from_station(
                 str(station_id),  # Convert to string in case IDs are numeric
                 datetime(1990, 1, 1), 
-                datetime(2025, 1, 7), 
+                datetime(2010, 1, 7), 
                 limit=299999
             )
             
