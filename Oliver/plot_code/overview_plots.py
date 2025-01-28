@@ -1,23 +1,45 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 
-def plot_datasets_overview(vst_dfs, vinge_df):
-    """Create overview plots for all datasets including VINGE data."""
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
-    axes = [ax1, ax2, ax3]
+def plot_datasets_overview(data, folder):
+    """Create overview plot for a single dataset including VST and VINGE data."""
+    fig, ax = plt.subplots(figsize=(12, 6))
     
-    # Plot VST datasets
-    for (folder, df), ax in zip(vst_dfs.items(), axes):
-        df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y %H:%M')
-        df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
-        
-        ax.plot(df['Date'], df['Value'], label='Sensor data')
-        ax.scatter(vinge_df['Date'], vinge_df['W.L [cm]'], 
+    # Plot VST_RAW data
+    if data['vst_raw'] is not None:
+        ax.plot(data['vst_raw']['Date'], data['vst_raw']['Value'], 
+                label='Sensor data (VST_RAW)', alpha=0.7)
+    
+    # Plot VST_EDT data if available
+    if data['vst_edt'] is not None:
+        ax.plot(data['vst_edt']['Date'], data['vst_edt']['Value'],
+                label='Edited sensor data (VST_EDT)', alpha=0.7)
+    
+    # Plot VINGE data if available
+    if data['vinge'] is not None:
+        ax.scatter(data['vinge']['Date'], data['vinge']['W.L [cm]'],
                   color='red', s=20, alpha=0.5, label='Manual measurements')
-        ax.set_title(f'Dataset {folder}')
-        ax.set_ylabel('Water level (mm)')
-        ax.grid(True)
-        ax.tick_params(axis='x', rotation=45)
-        ax.legend()
+    
+    ax.set_title(f'Dataset Overview - {folder}')
+    ax.set_ylabel('Water level (mm)')
+    ax.grid(True)
+    ax.tick_params(axis='x', rotation=45)
+    ax.legend()
+    
+    plt.tight_layout()
+
+def plot_vst_raw_overview(data, folder):
+    """Create overview plot showing only VST_RAW data."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    if data['vst_raw'] is not None:
+        ax.plot(data['vst_raw']['Date'], data['vst_raw']['Value'], 
+                label='Sensor data (VST_RAW)', alpha=0.7)
+    
+    ax.set_title(f'Raw Sensor Data Overview - {folder}')
+    ax.set_ylabel('Water level (mm)')
+    ax.grid(True)
+    ax.tick_params(axis='x', rotation=45)
+    ax.legend()
     
     plt.tight_layout() 

@@ -1,13 +1,10 @@
-import pandas as pd
 import os
 import matplotlib.pyplot as plt
-import numpy as np
-from datetime import datetime
-import matplotlib.dates as mdates
-from matplotlib.patches import ConnectionPatch
-from plots.overview_plots import plot_datasets_overview
-from plots.comparison_plots import plot_vst_vs_vinge_comparison, plot_vst_files_comparison
-from plots.anomaly_plots import create_detailed_plot
+import pandas as pd
+from data_loading import load_all_folders
+from plot_code.overview_plots import plot_datasets_overview, plot_vst_raw_overview
+from plot_code.comparison_plots import plot_vst_vs_vinge_comparison, plot_vst_files_comparison
+from plot_code.anomaly_plots import create_detailed_plot
 
 def get_data_path():
     """Get the path to the data directory."""
@@ -18,58 +15,8 @@ def get_plot_path():
     """Get the path to the plots directory."""
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     plot_dir = os.path.join(repo_root, 'plots')
-    os.makedirs(plot_dir, exist_ok=True)  # Create plots directory if it doesn't exist
+    os.makedirs(plot_dir, exist_ok=True)
     return plot_dir
-
-def load_vst_data(folders, data_dir):
-    """Load VST_RAW.txt files from multiple folders."""
-    vst_dfs = {}
-    
-    for folder in folders:
-        file_path = os.path.join(data_dir, folder, 'VST_RAW.txt')
-        try:
-            encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
-            for encoding in encodings:
-                try:
-                    # First try to read a few lines to check the format
-                    with open(file_path, 'r', encoding=encoding) as f:
-                        first_lines = [next(f) for _ in range(5)]
-                        print(f"\nFirst few lines of {folder}:")
-                        print(''.join(first_lines))
-                    
-                    df = pd.read_csv(file_path, 
-                                   encoding=encoding,
-                                   delimiter=';',
-                                   decimal=',',
-                                   skiprows=3,
-                                   names=['Date', 'Value'])
-                    vst_dfs[folder] = df
-                    break
-                except UnicodeDecodeError:
-                    continue
-                except StopIteration:
-                    print(f"File {folder} has fewer than 5 lines")
-                    break
-            if folder not in vst_dfs:
-                print(f"Warning: Could not read file in folder {folder} with any supported encoding")
-        except FileNotFoundError:
-            print(f"Warning: VST_RAW.txt not found in folder {folder}")
-    
-    return vst_dfs
-
-def load_vinge_data(data_dir):
-    """Load and process VINGE.txt data."""
-    vinge_df = pd.read_csv(os.path.join(data_dir, '21006845', 'VINGE.txt'), 
-                          delimiter='\t',
-                          encoding='latin1',
-                          decimal=',',
-                          quotechar='"')
-    
-    vinge_df['Date'] = pd.to_datetime(vinge_df['Date'], format='%d.%m.%Y %H:%M')
-    vinge_df['W.L [cm]'] = pd.to_numeric(vinge_df['W.L [cm]'], errors='coerce') * 10
-    vinge_df = vinge_df[vinge_df['Date'].dt.year >= 1990]
-    
-    return vinge_df
 
 def analyze_data_availability(df):
     """Analyze and print data availability information."""
@@ -134,42 +81,44 @@ def main():
     data_dir = get_data_path()
     plot_dir = get_plot_path()
     
-    # Load data
-    vst_dfs = load_vst_data(folders, data_dir)
-    vinge_df = load_vinge_data(data_dir)
+    # Load all data
+    all_data = load_all_folders(data_dir, folders)
     
     # Create plots
-    plot_datasets_overview(vst_dfs, vinge_df)
-    plt.savefig(os.path.join(plot_dir, 'datasets_overview.png'), dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    plot_vst_vs_vinge_comparison(vst_dfs, vinge_df)
-    plt.savefig(os.path.join(plot_dir, 'vst_vs_vinge_comparison.png'), dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Create VST files comparison for each folder
-    for folder in folders:
-        folder_path = os.path.join(data_dir, folder)
-        plot_vst_files_comparison(folder_path)
-        plt.savefig(os.path.join(plot_dir, f'vst_files_comparison_{folder}.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-    
-    # Analyze first dataset in detail
-    folder = list(vst_dfs.keys())[0]
-    df = vst_dfs[folder]
-    
-    # Convert data types
-    df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y %H:%M')
-    df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
-    
-    # Analyze data availability
-    analyze_data_availability(df)
-    
-    # Create detailed plot
-    time_windows = get_time_windows()
-    create_detailed_plot(df, vinge_df, time_windows, folder)
-    plt.savefig(os.path.join(plot_dir, f'detailed_analysis_{folder}.png'), dpi=300, bbox_inches='tight')
-    plt.close()
+    for folder, data in all_data.items():
+        if data['vst_raw'] is not None:
+            # Create raw data overview plot
+            plot_vst_raw_overview(data, folder)
+            plt.savefig(os.path.join(plot_dir, f'vst_raw_overview_{folder}.png'), 
+                       dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            # Create overview plot
+            plot_datasets_overview(data, folder)
+            plt.savefig(os.path.join(plot_dir, f'datasets_overview_{folder}.png'), 
+                       dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            # Create comparison plots
+            if data['vinge'] is not None:
+                plot_vst_vs_vinge_comparison(data, folder)
+                plt.savefig(os.path.join(plot_dir, f'vst_vs_vinge_comparison_{folder}.png'),
+                           dpi=300, bbox_inches='tight')
+                plt.close()
+            
+            # Create VST files comparison
+            if data['vst_edt'] is not None:
+                plot_vst_files_comparison(data, folder)
+                plt.savefig(os.path.join(plot_dir, f'vst_files_comparison_{folder}.png'),
+                           dpi=300, bbox_inches='tight')
+                plt.close()
+            
+            # Create detailed analysis plot
+            time_windows = get_time_windows()
+            create_detailed_plot(data, time_windows, folder)
+            plt.savefig(os.path.join(plot_dir, f'detailed_analysis_{folder}.png'),
+                       dpi=300, bbox_inches='tight')
+            plt.close()
 
 if __name__ == "__main__":
     main()
