@@ -78,13 +78,13 @@ if __name__ == "__main__":
         try:
             data, location = client.get_precipitation_from_station(
                 str(station_id),  # Convert to string in case IDs are numeric
-                datetime(1990, 1, 1), 
-                datetime(2010, 1, 7), 
+                datetime(2024, 1, 1), 
+                datetime(2025, 1, 1), 
                 limit=299999
             )
             
-            # Delete negative values
-            # data = data[data['precipitation (mm)'] >= 0]
+            #Delete negative values
+            data = data[data['precipitation (mm)'] >= 0]
             
             # Save to CSV with station ID in filename
             output_filename = f'RainData_{station_id}.csv'
