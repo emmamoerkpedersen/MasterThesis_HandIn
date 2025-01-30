@@ -6,13 +6,13 @@ import os
 import webbrowser
 from tempfile import NamedTemporaryFile
 from plotly.subplots import make_subplots
+import matplotlib.pyplot as plt
 
 
-
-raw_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data/21006845/VST_RAW.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
-editted_level_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data/21006845/VST_EDT.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
-vinge_data = pd.read_excel('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/21006845/VINGE.xlsm', decimal = ',', header = 0)
-precipitation_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/RainData_05135.csv', parse_dates=['datetime'])
+raw_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data/21006846/VST_RAW.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
+editted_level_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data/21006846/VST_EDT.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
+vinge_data = pd.read_excel('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/21006846/VINGE.xlsm', decimal = ',', header = 0)
+precipitation_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/RainData_05225.csv', parse_dates=['datetime'])
 
 
 # Convert Date column to datetime with specified format (DD-MM-YYYY HH:MM)
@@ -21,7 +21,7 @@ editted_level_data['Date'] = pd.to_datetime(editted_level_data['Date'], format='
 vinge_data['Date'] = pd.to_datetime(vinge_data['Date'], format='%d.%m.%Y %H:%M')
 
 # Crop all dataframes to start from 2010-01-01
-start_date = '2010-01-01'
+start_date = '2000-01-01'
 raw_data = raw_data[raw_data['Date'] >= start_date]
 editted_level_data = editted_level_data[editted_level_data['Date'] >= start_date]
 vinge_data = vinge_data[vinge_data['Date'] >= start_date]
@@ -29,6 +29,7 @@ precipitation_data = precipitation_data[precipitation_data['datetime'] >= start_
 
 # Multiply W.L [cm] by 100 to convert to mm
 vinge_data['W.L [cm]'] = vinge_data['W.L [cm]']*10
+
 # Create figure with secondary y-axis
 fig = make_subplots(rows=2, cols=1, 
                     shared_xaxes=True,
@@ -50,7 +51,7 @@ fig.add_trace(
 fig.add_trace(
     go.Scatter(
         x=raw_data['Date'],
-        y=raw_data['Value'],
+        y=raw_data['Value'].astype(float),
         name='Raw Data',
         opacity=0.7
     ),
@@ -60,7 +61,7 @@ fig.add_trace(
 fig.add_trace(
     go.Scatter(
         x=editted_level_data['Date'],
-        y=editted_level_data['Value'],
+        y=editted_level_data['Value'].astype(float),
         name='Edited Data',
         opacity=0.7
     ),
@@ -88,23 +89,23 @@ average_gap_duration = gap_durations.mean()
 print(f"Number of gaps: {len(gaps)}")
 print(f"Average gap duration: {average_gap_duration}")
 
-# Add colored background rectangles for gaps
-for idx, gap_row in gaps.iterrows():
-    # Find the index position in raw_data
-    raw_data_idx = raw_data.index.get_loc(idx)
-    if raw_data_idx > 0:  # Only process if there's a previous row
-        prev_time = raw_data.iloc[raw_data_idx-1]['Date']
-        current_time = gap_row['Date']
+# # Add colored background rectangles for gaps
+# for idx, gap_row in gaps.iterrows():
+#     # Find the index position in raw_data
+#     raw_data_idx = raw_data.index.get_loc(idx)
+#     if raw_data_idx > 0:  # Only process if there's a previous row
+#         prev_time = raw_data.iloc[raw_data_idx-1]['Date']
+#         current_time = gap_row['Date']
         
-        fig.add_vrect(
-            x0=prev_time,
-            x1=current_time,
-            fillcolor="red",
-            opacity=0.2,
-            layer="below",
-            line_width=0,
-            row=2, col=1
-        )
+#         fig.add_vrect(
+#             x0=prev_time,
+#             x1=current_time,
+#             fillcolor="red",
+#             opacity=0.2,
+#             layer="below",
+#             line_width=0,
+#             row=2, col=1
+#         )
 
 # Update layout
 fig.update_layout(
@@ -122,4 +123,14 @@ fig.update_yaxes(title_text="Water Level [m]", row=2, col=1)
 temp = NamedTemporaryFile(delete=False, suffix='.html')
 fig.write_html(temp.name)
 webbrowser.open('file://' + temp.name)
+
+# Create a simple matplotlib plot for raw data
+plt.figure(figsize=(12, 6))
+plt.plot(raw_data['Date'], raw_data['Value'].astype(float), label='Raw Data', alpha=0.7)
+plt.xlabel('Date')
+plt.ylabel('Water Level [m]')
+plt.title('Raw Water Level Data')
+plt.legend()
+plt.grid(True)
+plt.show()
 
