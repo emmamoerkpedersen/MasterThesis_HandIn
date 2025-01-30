@@ -9,12 +9,12 @@ from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 
 
-raw_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data/21006846/VST_RAW.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
-editted_level_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data/21006846/VST_EDT.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
-vinge_data = pd.read_excel('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/21006846/VINGE.xlsm', decimal = ',', header = 0)
-precipitation_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/RainData_05225.csv', parse_dates=['datetime'])
+raw_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data/21006845/VST_RAW.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
+editted_level_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data/21006845/VST_EDT.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
+vinge_data = pd.read_excel('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/21006845/VINGE.xlsm', decimal = ',', header = 0)
+#precipitation_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/RainData_05205.csv', parse_dates=['datetime'])
 
-
+raw_data['Value'] = raw_data['Value'].astype(float)
 # Convert Date column to datetime with specified format (DD-MM-YYYY HH:MM)
 raw_data['Date'] = pd.to_datetime(raw_data['Date'], format='%d-%m-%Y %H:%M')
 editted_level_data['Date'] = pd.to_datetime(editted_level_data['Date'], format='%d-%m-%Y %H:%M')
@@ -25,7 +25,7 @@ start_date = '2000-01-01'
 raw_data = raw_data[raw_data['Date'] >= start_date]
 editted_level_data = editted_level_data[editted_level_data['Date'] >= start_date]
 vinge_data = vinge_data[vinge_data['Date'] >= start_date]
-precipitation_data = precipitation_data[precipitation_data['datetime'] >= start_date]
+#precipitation_data = precipitation_data[precipitation_data['datetime'] >= start_date]
 
 # Multiply W.L [cm] by 100 to convert to mm
 vinge_data['W.L [cm]'] = vinge_data['W.L [cm]']*10
@@ -36,14 +36,14 @@ merged_data = pd.merge_asof(
     raw_data.sort_values('Date'),
     on='Date',
     direction='nearest',
-    tolerance=pd.Timedelta(minutes=30)  # Allow 30 minutes tolerance for matching
+    tolerance=pd.Timedelta(minutes=15)  # Allow 30 minutes tolerance for matching
 )
 
 # Calculate the absolute difference between values
 merged_data['difference'] = abs(merged_data['Value'].astype(float) - merged_data['W.L [cm]'])
 
 # Find significant discrepancies (you can adjust the threshold)
-lower_threshold = 5  # difference of 5mm
+lower_threshold = 10  # difference of 5mm
 upper_threshold = 150
 discrepancies = merged_data[(merged_data['difference'] > lower_threshold) & (merged_data['difference'] < upper_threshold)]
 
@@ -60,17 +60,6 @@ plt.figure(figsize=(12, 6))
 plt.scatter(discrepancies['Date'], discrepancies['difference'], alpha=0.5)
 plt.xlabel('Date')
 plt.ylabel('Absolute Difference (mm)')
-plt.title('Differences Between Raw Data and Vinge Data')
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.show()
-
-
-# Optional: Create a scatter plot to visualize the differences
-plt.figure(figsize=(12, 6))
-plt.scatter(discrepancies['Value'], discrepancies['W.L [cm]'], alpha=0.5)
-plt.xlabel('Value (mm)')
-plt.ylabel('W.L (mm)')
 plt.title('Differences Between Raw Data and Vinge Data')
 plt.xticks(rotation=45)
 plt.tight_layout()
@@ -105,4 +94,54 @@ print(f"Average drift difference: {avg_drift_difference:.2f} mm")
 print("\nDetailed drift statistics:")
 print(drift_stats.sort_values('duration_days', ascending=False).head())
 
-drift_stats.to_csv('drift_stats.csv', index=False)
+drift_stats.to_csv('drift_stats_21006845.csv', index=False)
+
+# Create an interactive plot using Plotly
+fig = go.Figure()
+
+# Add raw data line
+fig.add_trace(go.Scatter(
+    x=raw_data['Date'],
+    y=raw_data['Value'],
+    name='Raw Data',
+    line=dict(color='blue', width=1),
+    opacity=0.7
+))
+
+# Add vinge data points
+fig.add_trace(go.Scatter(
+    x=vinge_data['Date'],
+    y=vinge_data['W.L [cm]'],
+    name='Vinge Data',
+    mode='markers',
+    marker=dict(color='green', size=3),
+    opacity=0.7
+))
+
+# Add colored rectangles for drift periods
+for _, drift in drift_stats.iterrows():
+    fig.add_vrect(
+        x0=drift['start_date'],
+        x1=drift['end_date'],
+        fillcolor="red",
+        opacity=0.2,
+        layer="below",
+        name="Drift Period",
+        line_width=0
+    )
+
+# Update layout
+fig.update_layout(
+    title='Water Level Data Comparison with Highlighted Drift Periods',
+    xaxis_title='Date',
+    yaxis_title='Water Level (mm)',
+    showlegend=True,
+    hovermode='x unified',
+    template='plotly_white'
+)
+
+# Save the plot to a specific location
+output_path = 'plots/drift_analysis_21006845.html'  # Change this path as needed
+os.makedirs('plots', exist_ok=True)  # Create the directory if it doesn't exist
+fig.write_html(output_path)
+webbrowser.open('file://' + os.path.abspath(output_path))
