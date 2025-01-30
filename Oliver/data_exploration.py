@@ -2,7 +2,7 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 from data_loading import load_all_folders
-from plot_code.overview_plots import plot_datasets_overview, plot_vst_raw_overview
+from plot_code.overview_plots import plot_vst_raw_overview, plot_datasets_overview
 from plot_code.comparison_plots import plot_vst_vs_vinge_comparison, plot_vst_files_comparison
 from plot_code.anomaly_plots import create_detailed_plot
 
@@ -75,26 +75,54 @@ def get_time_windows():
         }
     ]
 
+def load_rainfall_data(data_dir, station_id):
+    """Load rainfall data for a specific station.
+    
+    Args:
+        data_dir (str): Base directory path
+        station_id (int): Rain station ID
+        
+    Returns:
+        pd.DataFrame: DataFrame with datetime and rainfall values, or None if file not found
+    """
+    rain_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+    station_id_padded = f"{int(station_id):05d}"
+    rain_file = os.path.join(rain_data_dir, f'RainData_{station_id_padded}.csv')
+    
+    if os.path.exists(rain_file):
+        df = pd.read_csv(rain_file)
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        # Keep the original column names - they'll be handled in the plotting function
+        return df
+    return None
+
 def main():
     """Main function to orchestrate the data exploration."""
     folders = ['21006845', '21006846', '21006847']
     data_dir = get_data_path()
     plot_dir = get_plot_path()
     
+    # Load rain station mapping
+    rain_stations = pd.read_csv('data/closest_rain_stations.csv')
+    
     # Load all data
     all_data = load_all_folders(data_dir, folders)
     
-    # Create plots
+    # Create VST raw data plots with resampling
+    plot_vst_raw_overview(all_data)
+    
+    # Create other plots
     for folder, data in all_data.items():
+        print(folder)
         if data['vst_raw'] is not None:
-            # Create raw data overview plot
-            plot_vst_raw_overview(data, folder)
-            plt.savefig(os.path.join(plot_dir, f'vst_raw_overview_{folder}.png'), 
-                       dpi=300, bbox_inches='tight')
-            plt.close()
+            # Get corresponding rain station
+            rain_station = rain_stations[rain_stations['Station_of_Interest'] == int(folder)]['Closest_Rain_Station'].iloc[0]
+            print(rain_station)
+            rain_data = load_rainfall_data(data_dir, rain_station)
+            print(rain_data)
             
-            # Create overview plot
-            plot_datasets_overview(data, folder)
+            # Create overview plot with rainfall data
+            plot_datasets_overview(data, folder, rain_data)
             plt.savefig(os.path.join(plot_dir, f'datasets_overview_{folder}.png'), 
                        dpi=300, bbox_inches='tight')
             plt.close()

@@ -1,0 +1,4 @@
+plotly>=5.7.0
+plotly-resampler>=0.9.1
+kaleido  # for static image export
+ipywidgets>=7.0.0  # needed for FigureWidgetResampler 

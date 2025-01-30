@@ -34,7 +34,7 @@ def load_vinge_file(file_path):
                         encoding='latin1',
                         decimal=',',
                         quotechar='"',
-                        on_bad_lines='skip')  # Updated from error_bad_lines
+                        on_bad_lines='skip')
         
         # If that fails, try reading only the needed columns
         if df is None or df.empty:
@@ -45,18 +45,31 @@ def load_vinge_file(file_path):
                            quotechar='"',
                            usecols=['Date', 'W.L [cm]'],
                            on_bad_lines='skip')
-        
-        # Handle date parsing more robustly
-        try:
-            df['Date'] = pd.to_datetime(df['Date'], format='%d.%m.%Y %H:%M')
-        except:
-            print(f"Warning: Could not parse dates in standard format for {file_path}")
+
+        # Try multiple date formats
+        date_formats = [
+            '%d.%m.%Y %H:%M',  # Standard format
+            '%Y-%m-%d %H:%M:%S',  # ISO format
+            '%d-%m-%Y %H:%M',  # Alternative format
+            '%d/%m/%Y %H:%M'   # Another common format
+        ]
+
+        for date_format in date_formats:
             try:
-                df['Date'] = pd.to_datetime(df['Date'])  # Let pandas guess the format
+                df['Date'] = pd.to_datetime(df['Date'], format=date_format)
+                break  # If successful, exit the loop
+            except:
+                continue
+        
+        # If none of the specific formats worked, let pandas try to guess
+        if not pd.api.types.is_datetime64_any_dtype(df['Date']):
+            try:
+                df['Date'] = pd.to_datetime(df['Date'])
             except:
                 print(f"Error: Failed to parse dates in {file_path}")
                 return None
         
+        # Convert water level to mm and filter years
         df['W.L [cm]'] = pd.to_numeric(df['W.L [cm]'], errors='coerce') * 10  # Convert to mm
         df = df[df['Date'].dt.year >= 1990]
         
