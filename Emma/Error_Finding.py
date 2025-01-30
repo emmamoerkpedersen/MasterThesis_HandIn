@@ -114,7 +114,7 @@ fig.add_trace(go.Scatter(
     y=vinge_data['W.L [cm]'],
     name='Vinge Data',
     mode='markers',
-    marker=dict(color='green', size=3),
+    marker=dict(color='green', size=5),
     opacity=0.7
 ))
 
