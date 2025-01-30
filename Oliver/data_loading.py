@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from pathlib import Path
 
 def load_vst_file(file_path):
     """Load a VST file with multiple encoding attempts."""
@@ -138,4 +139,32 @@ def prepare_data_for_error_detection(file_path: str) -> pd.DataFrame:
     assert not clean_data['Value'].isna().any(), "Missing values in clean data"
     assert clean_data.index.is_monotonic_increasing, "Time index not monotonic"
     
-    return clean_data 
+    return clean_data
+
+def get_data_path():
+    """Get the path to the data directory."""
+    return Path(r"C:\Users\olive\OneDrive\GitHub\MasterThesis\Sample data")
+
+def get_plot_path():
+    """Get the path to the plots directory."""
+    plot_dir = Path(r"C:\Users\olive\OneDrive\GitHub\MasterThesis\plots")
+    plot_dir.mkdir(exist_ok=True)
+    return plot_dir
+
+def load_rainfall_data(data_dir: Path, station_id: int) -> pd.DataFrame:
+    """Load rainfall data for a specific station."""
+    rain_data_dir = data_dir.parent / 'data'
+    station_id_padded = f"{int(station_id):05d}"
+    rain_file = rain_data_dir / f'RainData_{station_id_padded}.csv'
+    
+    if rain_file.exists():
+        try:
+            df = pd.read_csv(rain_file)
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            return df
+        except Exception as e:
+            print(f"Error loading rainfall data for station {station_id}: {str(e)}")
+            return None
+    else:
+        print(f"Rainfall data file not found for station {station_id}")
+        return None 
