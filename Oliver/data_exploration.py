@@ -99,17 +99,19 @@ def main():
             
             # Create analyzer instance and run analysis
             analyzer = ErrorAnalyzer(data['vst_raw'])
-            analyzer.analyze_data_characteristics()
+            #analyzer.analyze_data_characteristics()
             
             # Save individual station statistics and collect for combined analysis
-            analyzer.save_error_statistics(folder, results_dir)
-            all_stats.append(analyzer.generate_error_statistics())
+            #analyzer.save_error_statistics(folder, results_dir)
+            #all_stats.append(analyzer.generate_error_statistics())
             
+
             # Get corresponding rain station
             rain_station = rain_stations[
                 rain_stations['Station_of_Interest'] == int(folder)
             ]['Closest_Rain_Station'].iloc[0]
             rain_data = load_rainfall_data(data_dir, rain_station)
+            data['rain'] = rain_data  # Add rainfall data to the data dictionary
             """
             # Create overview plots
             plot_data_overview(
@@ -126,11 +128,21 @@ def main():
          #       plot_vst_files_comparison(data, folder)
             
             # Create detailed analysis plots
-           # time_windows = get_time_windows()
-           # create_detailed_plot(data, time_windows, folder)
-            
-            # Create error analysis plot
-            plot_all_errors(data, folder)
+            time_windows = get_time_windows()
+            #create_detailed_plot(data, time_windows, folder)
+
+
+            # Create error analysis plot with all data
+            plot_all_errors(data, folder)  # Default: include both rain and edt
+
+            # Or without rainfall data
+            #plot_all_errors(data, folder, include_rain=False)
+
+            # Or without edited data
+            #plot_all_errors(data, folder, include_edt=False)
+
+            # Or without both
+            #plot_all_errors(data, folder, include_rain=False, include_edt=False)
             
     # Generate combined statistics
     ErrorAnalyzer.save_combined_statistics(all_stats, folders, results_dir)
