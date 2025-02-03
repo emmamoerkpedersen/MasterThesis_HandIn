@@ -28,23 +28,23 @@ def create_detailed_plot(data, time_windows, folder):
     # Main plot spanning all columns
     ax_main = fig.add_subplot(gs[0, :])
     ax_main.plot(data['vst_raw']['Date'], data['vst_raw']['Value'], 
-                'b-', label='Sensor Water Level')
+                'b-', label='Sensor Water Level', linewidth=1)
     
     if data['vinge'] is not None:
         ax_main.scatter(data['vinge']['Date'], data['vinge']['W.L [cm]'], 
                        color='red', s=20, label='Manual Board Measurements')
     
-    ax_main.set_title(f'Detailed Analysis - {folder}')
-    ax_main.grid(True)
-    ax_main.legend()
+    ax_main.grid(True, alpha=0.3)
+    ax_main.legend(fontsize=14)
 
     # Add dynamic date formatter that changes based on zoom level
     locator = mdates.AutoDateLocator()
     formatter = mdates.ConciseDateFormatter(locator)
     ax_main.xaxis.set_major_locator(locator)
     ax_main.xaxis.set_major_formatter(formatter)
-    ax_main.tick_params(axis='x', rotation=45)
-    ax_main.set_ylabel('Water level (mm)')
+    ax_main.tick_params(axis='x', rotation=45, labelsize=12)
+    ax_main.tick_params(axis='y', labelsize=12)
+    ax_main.set_ylabel('Water level (mm)', fontsize=14)
 
     # Plot each subplot without sharing the y-axis
     for i in range(6):
@@ -70,7 +70,7 @@ def create_detailed_plot(data, time_windows, folder):
                       color='red', s=30)
         
         if len(window_data) > 0:
-            ax.plot(window_data['Date'], window_data['Value'], color=colors[i])
+            ax.plot(window_data['Date'], window_data['Value'], color=colors[i], linewidth=1)
             
             # Set custom y-axis range if specified
             if y_range is not None:
@@ -89,11 +89,12 @@ def create_detailed_plot(data, time_windows, folder):
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         
         # Customize subplot
-        ax.set_title(title)
+        ax.set_title(title, fontsize=12, pad=8)
         ax.grid(False)
-        ax.tick_params(axis='x', rotation=45, labelsize=8)
+        ax.tick_params(axis='x', rotation=45, labelsize=10)
+        ax.tick_params(axis='y', labelsize=10)
         if i == 0:
-            ax.set_ylabel('Water level (mm)')
+            ax.set_ylabel('Water level (mm)', fontsize=12)
 
     # Adjust layout first
     plt.tight_layout()
@@ -164,33 +165,86 @@ def create_detailed_plot(data, time_windows, folder):
                 fig.add_artist(con)
     
     # Save the plot
+    dpi = 300
     plot_dir = Path(r"C:\Users\olive\OneDrive\GitHub\MasterThesis\plots")
     plot_dir.mkdir(exist_ok=True)
-    plt.savefig(plot_dir / f'detailed_analysis_{folder}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(plot_dir / f'detailed_analysis_{folder}.png', dpi=dpi, bbox_inches='tight')
     plt.close()
 
-def plot_all_errors(data, folder):
-    """Create a comprehensive plot showing all detected error types using Plotly."""
+
+def plot_all_errors(data, folder, include_rain=True, include_edt=True):
+    """Create a comprehensive plot showing all detected error types using Plotly.
+    
+    Args:
+        data (dict): Dictionary containing all data
+        folder (str): Folder name/station ID
+        include_rain (bool): Whether to include rainfall data in plot (default: True)
+        include_edt (bool): Whether to include edited data in plot (default: True)
+    """
     # Initialize error analyzer
     analyzer = ErrorAnalyzer(data['vst_raw'])
     
-    # Create figure with plotly-resampler
-    fig = FigureResampler(go.Figure())
+    # Create figure with two rows and shared x-axis
+    fig = make_subplots(
+        rows=2, cols=1,
+        row_heights=[0.2, 0.8],  # Rainfall plot takes 20% of height
+        vertical_spacing=0.02,
+        specs=[[{"secondary_y": False}],
+               [{"secondary_y": False}]],
+        shared_xaxes=True
+    )
+    fig = FigureResampler(fig)
     
+    # Add rainfall data in top subplot if available and requested
+    if include_rain and 'rain' in data and data['rain'] is not None:
+        daily_rain = data['rain'].set_index('datetime')\
+            .resample('D')['precipitation (mm)']\
+            .sum()\
+            .reset_index()
+        
+        fig.add_trace(
+            go.Bar(
+                name='Daily Rainfall',
+                x=daily_rain['datetime'],
+                y=daily_rain['precipitation (mm)'],
+                marker_color='blue',
+                opacity=0.3,
+                width=24*60*60*1000,
+                showlegend=True,
+                hovertemplate='Date: %{x}<br>Daily Rainfall: %{y:.1f} mm<extra></extra>'
+            ),
+            row=1, col=1
+        )
+
+    # Add edited data if available and requested
+    if include_edt and data['vst_edt'] is not None:
+        fig.add_trace(
+            go.Scattergl(
+                name='Edited Data',
+                line=dict(color='red', width=1, dash='dash'),
+                showlegend=True,
+                hovertemplate='Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
+            ),
+            hf_x=data['vst_edt']['Date'],
+            hf_y=data['vst_edt']['Value'],
+            row=2, col=1
+        )
+
     # Add main water level data with reduced opacity
     fig.add_trace(
         go.Scattergl(
-            name='Water Level',
+            name='Original Data',
             showlegend=True,
-            opacity=0.5,
             line=dict(color='black', width=1),
+            opacity=0.5,
             hovertemplate='Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
         ),
         hf_x=analyzer.df.index,
-        hf_y=analyzer.df[analyzer.value_column]
+        hf_y=analyzer.df[analyzer.value_column],
+        row=2, col=1
     )
-    
-    # Add manual measurements if available with smaller markers
+
+    # Add manual measurements if available
     if data['vinge'] is not None:
         fig.add_trace(
             go.Scatter(
@@ -198,15 +252,17 @@ def plot_all_errors(data, folder):
                 mode='markers',
                 marker=dict(
                     color='red',
-                    size=6,  # Reduced from 10
+                    size=6,
                     symbol='diamond'
                 ),
                 x=data['vinge']['Date'],
                 y=data['vinge']['W.L [cm]'],
+                showlegend=True,
                 hovertemplate='Manual Reading<br>Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
-            )
+            ),
+            row=2, col=1
         )
-    
+
     # Detect and add gaps with vertical lines
     gaps = analyzer.detect_gaps(min_gap_hours=48.0)
     gap_dates = analyzer.df[gaps].index
@@ -222,7 +278,8 @@ def plot_all_errors(data, folder):
                 y=[value - 200, value + 200],  # Vertical line ±200mm
                 showlegend=False,
                 hovertemplate='Data Gap<br>At: %{x}<extra></extra>'
-            )
+            ),
+            row=2, col=1
         )
     
     # Detect and add frozen values with highlighted regions
@@ -241,7 +298,8 @@ def plot_all_errors(data, folder):
                 x=frozen_dates,
                 y=frozen_values,
                 hovertemplate='Frozen Values<br>Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
-            )
+            ),
+            row=2, col=1
         )
     
     # Detect and add point anomalies with single markers at their center
@@ -268,8 +326,10 @@ def plot_all_errors(data, folder):
                 x=anomaly_x,
                 y=anomaly_y,
                 hovertemplate='Point Anomaly<br>Date: %{x}<br>Value: %{y:.1f}mm<extra></extra>'
-            )
+            ),
+            row=2, col=1
         )
+
     
     # Detect and add offsets with highlighted regions and annotations
     offsets = analyzer.detect_offsets()
@@ -296,7 +356,8 @@ def plot_all_errors(data, folder):
                     f'Magnitude: {magnitude:.1f}mm'
                     '<extra></extra>'
                 )
-            )
+            ),
+            row=2, col=1
         )
         
         # Calculate middle of offset period
@@ -308,7 +369,8 @@ def plot_all_errors(data, folder):
             line_dash="dot",
             line_color="green",
             line_width=1,
-            opacity=0.7
+            opacity=0.7,
+            row=2, col=1
         )
         
         # Add annotation for offset magnitude
@@ -320,8 +382,9 @@ def plot_all_errors(data, folder):
                 text=[f'↕ {magnitude:.0f}mm'],
                 textposition='middle right',
                 showlegend=False,
-                hoverinfo='skip'
-            )
+                hoverinfo='skip',
+            ),
+            row=2, col=1
         )
         first_offset = False
     
@@ -336,12 +399,14 @@ def plot_all_errors(data, folder):
                 y=[None],
                 mode='lines',
                 line=dict(width=10, color='rgba(255, 0, 0, 0.1)'),
-                name='Drift Period'
-            )
+                name='Drift Period',
+            ),
+            row=2, col=1
         )
         
         # Add colored rectangles for drift periods
         for _, drift in drift_stats.iterrows():
+            # Add vrect without row parameter in the dict
             fig.add_vrect(
                 x0=drift['start_date'],
                 x1=drift['end_date'],
@@ -364,43 +429,29 @@ def plot_all_errors(data, folder):
                     textposition='top center',
                     showlegend=False,
                     hoverinfo='skip'
-                )
+                ),
+                row=2, col=1
             )
     
-    # Update layout with improved styling
+    # Update layout
     fig.update_layout(
-        title=dict(
-            text=f'Error Analysis Overview - Station {folder}',
-            font=dict(size=24)
-        ),
-        yaxis_title='Water level (mm)',
-        xaxis_title='Date',
-        template='plotly_white',
         height=800,
-        hovermode='x unified',
+        title_text=f"Error Analysis Overview - Station {folder}",
         showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01,
-            bgcolor='rgba(255, 255, 255, 0.8)',
-            bordercolor='rgba(0, 0, 0, 0.3)',
-            borderwidth=1
-        ),
+        hovermode='closest',
+        margin=dict(t=100, b=50, l=50, r=50),
+        font=dict(size=14),
+        title_font=dict(size=24),
+        template='plotly_white',
         plot_bgcolor='white',
-        paper_bgcolor='white',
-        xaxis=dict(
-            showgrid=True,
-            gridcolor='rgba(0, 0, 0, 0.1)',
-            zeroline=False
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor='rgba(0, 0, 0, 0.1)',
-            zeroline=False
-        )
+        paper_bgcolor='white'
     )
+    
+    # Update axes labels
+    fig.update_xaxes(title_text="Time", title_font=dict(size=16), row=2, col=1)
+    fig.update_xaxes(showticklabels=False, row=1, col=1)
+    fig.update_yaxes(title_text="Rainfall (mm)", title_font=dict(size=16), row=1, col=1)
+    fig.update_yaxes(title_text="Water Level (mm)", title_font=dict(size=16), row=2, col=1)
     
     # Show the figure
     fig.show_dash(mode='inline', port=8050 + int(folder[-1])) 
