@@ -177,115 +177,202 @@ def plot_all_errors(data, folder):
     # Create figure with plotly-resampler
     fig = FigureResampler(go.Figure())
     
-    # Add main water level data
+    # Add main water level data with reduced opacity
     fig.add_trace(
         go.Scattergl(
             name='Water Level',
             showlegend=True,
+            opacity=0.5,
             line=dict(color='black', width=1),
             hovertemplate='Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
         ),
-        hf_x=data['vst_raw']['Date'],
-        hf_y=data['vst_raw']['Value']
+        hf_x=analyzer.df.index,
+        hf_y=analyzer.df[analyzer.value_column]
     )
     
-    # Add manual measurements if available
+    # Add manual measurements if available with smaller markers
     if data['vinge'] is not None:
         fig.add_trace(
             go.Scatter(
                 name='Manual Measurements',
                 mode='markers',
-                marker=dict(color='red', size=8),
+                marker=dict(
+                    color='red',
+                    size=6,  # Reduced from 10
+                    symbol='diamond'
+                ),
                 x=data['vinge']['Date'],
                 y=data['vinge']['W.L [cm]'],
-                hovertemplate='Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
+                hovertemplate='Manual Reading<br>Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
             )
         )
     
-    # Detect and add gaps
-    gaps = analyzer.detect_gaps(max_gap_hours=3.0)
-    gap_dates = data['vst_raw'].loc[gaps, 'Date']
-    gap_values = data['vst_raw'].loc[gaps, 'Value']
-    fig.add_trace(
-        go.Scatter(
-            name='Gaps',
-            mode='markers',
-            marker=dict(color='red', size=5, symbol='x'),
-            x=gap_dates,
-            y=gap_values,
-            hovertemplate='Gap at: %{x}<extra></extra>'
-        )
-    )
+    # Detect and add gaps with vertical lines
+    gaps = analyzer.detect_gaps(min_gap_hours=48.0)
+    gap_dates = analyzer.df[gaps].index
+    gap_values = analyzer.df[gaps][analyzer.value_column]
     
-    # Detect and add noise
-    noise = analyzer.detect_noise()
-    noise_dates = data['vst_raw'].loc[noise, 'Date']
-    noise_values = data['vst_raw'].loc[noise, 'Value']
-    fig.add_trace(
-        go.Scatter(
-            name='Noise',
-            mode='markers',
-            marker=dict(color='yellow', size=5),
-            x=noise_dates,
-            y=noise_values,
-            hovertemplate='Noise at: %{x}<extra></extra>'
-        )
-    )
-    
-    # Detect and add frozen values
-    frozen = analyzer.detect_frozen_values(min_consecutive=10)
-    frozen_dates = data['vst_raw'].loc[frozen, 'Date']
-    frozen_values = data['vst_raw'].loc[frozen, 'Value']
-    fig.add_trace(
-        go.Scatter(
-            name='Frozen Values',
-            mode='markers',
-            marker=dict(color='blue', size=5),
-            x=frozen_dates,
-            y=frozen_values,
-            hovertemplate='Frozen at: %{x}<extra></extra>'
-        )
-    )
-    
-    # Detect and add point anomalies
-    anomaly_segments = analyzer.detect_point_anomalies()
-    first_anomaly = True
-    for start_idx, end_idx in anomaly_segments:
-        # Add some context before and after the anomaly
-        context_start = max(0, start_idx - int(analyzer.SAMPLES_PER_HOUR))
-        context_end = min(len(data['vst_raw']), end_idx + int(analyzer.SAMPLES_PER_HOUR))
-        
-        # Plot the context period
+    for date, value in zip(gap_dates, gap_values):
         fig.add_trace(
             go.Scatter(
-                x=data['vst_raw']['Date'].iloc[context_start:context_end],
-                y=data['vst_raw']['Value'].iloc[context_start:context_end],
+                name='Data Gap',
                 mode='lines',
-                line=dict(color='orange', width=2),
-                name='Point Anomaly',
-                showlegend=first_anomaly,
-                hovertemplate='Anomaly at: %{x}<br>Value: %{y:.1f}mm<extra></extra>'
+                line=dict(color='red', width=2, dash='dot'),
+                x=[date, date],
+                y=[value - 200, value + 200],  # Vertical line ±200mm
+                showlegend=False,
+                hovertemplate='Data Gap<br>At: %{x}<extra></extra>'
             )
         )
-        first_anomaly = False
     
-    # Detect and add offsets
-    offsets = analyzer.detect_offsets()
-    for start_idx, end_idx, magnitude in offsets:
+    # Detect and add frozen values with highlighted regions
+    frozen = analyzer.detect_frozen_values(min_consecutive=10)
+    frozen_dates = analyzer.df[frozen].index
+    frozen_values = analyzer.df[frozen][analyzer.value_column]
+    
+    if len(frozen_dates) > 0:
         fig.add_trace(
             go.Scatter(
-                name=f'Offset ({magnitude:.1f}mm)',
-                mode='markers',
-                marker=dict(color='green', size=5),
-                x=data['vst_raw']['Date'].iloc[start_idx:end_idx],
-                y=data['vst_raw']['Value'].iloc[start_idx:end_idx],
-                hovertemplate='Offset: %{y:.1f}mm<extra></extra>'
+                name='Frozen Values',
+                mode='markers+lines',
+                opacity=0.3,
+                marker=dict(color='blue', size=4, symbol='square'),
+                line=dict(color='lightblue', width=10),
+                x=frozen_dates,
+                y=frozen_values,
+                hovertemplate='Frozen Values<br>Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
             )
         )
     
-    # Update layout
+    # Detect and add point anomalies with single markers at their center
+    anomaly_segments = analyzer.detect_point_anomalies()
+    if anomaly_segments:
+        anomaly_x = []
+        anomaly_y = []
+        for start_idx, end_idx in anomaly_segments:
+            # Find the middle point of the anomaly
+            mid_idx = start_idx + (end_idx - start_idx) // 2
+            anomaly_x.append(analyzer.df.index[mid_idx])
+            anomaly_y.append(analyzer.df[analyzer.value_column].iloc[mid_idx])
+        
+        fig.add_trace(
+            go.Scatter(
+                name='Point Anomaly',
+                mode='markers',
+                marker=dict(
+                    color='orange',
+                    size=8,
+                    symbol='x',
+                    line=dict(width=2)
+                ),
+                x=anomaly_x,
+                y=anomaly_y,
+                hovertemplate='Point Anomaly<br>Date: %{x}<br>Value: %{y:.1f}mm<extra></extra>'
+            )
+        )
+    
+    # Detect and add offsets with highlighted regions and annotations
+    offsets = analyzer.detect_offsets()
+    first_offset = True
+    for start_idx, end_idx, magnitude in offsets:
+        offset_dates = analyzer.df.index[start_idx:end_idx]
+        offset_values = analyzer.df[analyzer.value_column].iloc[start_idx:end_idx]
+        
+        # Add the offset period with highlighting
+        fig.add_trace(
+            go.Scatter(
+                x=offset_dates,
+                y=offset_values,
+                mode='lines',
+                line=dict(color='green', width=3),
+                fill='tonexty',
+                fillcolor='rgba(0, 255, 0, 0.1)',
+                name='Offset Error',
+                showlegend=first_offset,
+                hovertemplate=(
+                    'Offset Error<br>'
+                    'Start: %{x}<br>'
+                    'Value: %{y:.1f}mm<br>'
+                    f'Magnitude: {magnitude:.1f}mm'
+                    '<extra></extra>'
+                )
+            )
+        )
+        
+        # Calculate middle of offset period
+        mid_point = offset_dates[0] + pd.Timedelta((offset_dates[-1] - offset_dates[0]) / 2)
+        
+        # Add a dotted vertical line for the offset
+        fig.add_vline(
+            x=mid_point,
+            line_dash="dot",
+            line_color="green",
+            line_width=1,
+            opacity=0.7
+        )
+        
+        # Add annotation for offset magnitude
+        fig.add_trace(
+            go.Scatter(
+                x=[mid_point],
+                y=[offset_values.iloc[0]],
+                mode='text',
+                text=[f'↕ {magnitude:.0f}mm'],
+                textposition='middle right',
+                showlegend=False,
+                hoverinfo='skip'
+            )
+        )
+        first_offset = False
+    
+    # Add drift periods if vinge data is available
+    if data['vinge'] is not None:
+        drift_stats = analyzer.detect_drift(data['vinge'])
+        
+        # Add a dummy trace for the legend
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode='lines',
+                line=dict(width=10, color='rgba(255, 0, 0, 0.1)'),
+                name='Drift Period'
+            )
+        )
+        
+        # Add colored rectangles for drift periods
+        for _, drift in drift_stats.iterrows():
+            fig.add_vrect(
+                x0=drift['start_date'],
+                x1=drift['end_date'],
+                fillcolor="rgba(255, 0, 0, 0.1)",  # Light red
+                opacity=0.5,
+                layer="below",  # Place the rectangle behind the data
+                line_width=0,  # No border
+                name="Drift Period",
+                showlegend=False  # Don't show individual rectangles in legend
+            )
+            
+            # Add annotation for drift magnitude
+            mid_point = drift['start_date'] + pd.Timedelta((drift['end_date'] - drift['start_date']) / 2)
+            fig.add_trace(
+                go.Scatter(
+                    x=[mid_point],
+                    y=[analyzer.df[analyzer.value_column].loc[drift['start_date']:drift['end_date']].mean()],
+                    mode='text',
+                    text=[f'Drift: {drift["mean_difference"]:.0f}mm'],
+                    textposition='top center',
+                    showlegend=False,
+                    hoverinfo='skip'
+                )
+            )
+    
+    # Update layout with improved styling
     fig.update_layout(
-        title=f'Error Analysis Overview - Station {folder}',
+        title=dict(
+            text=f'Error Analysis Overview - Station {folder}',
+            font=dict(size=24)
+        ),
         yaxis_title='Water level (mm)',
         xaxis_title='Date',
         template='plotly_white',
@@ -296,7 +383,22 @@ def plot_all_errors(data, folder):
             yanchor="top",
             y=0.99,
             xanchor="left",
-            x=0.01
+            x=0.01,
+            bgcolor='rgba(255, 255, 255, 0.8)',
+            bordercolor='rgba(0, 0, 0, 0.3)',
+            borderwidth=1
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(0, 0, 0, 0.1)',
+            zeroline=False
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(0, 0, 0, 0.1)',
+            zeroline=False
         )
     )
     

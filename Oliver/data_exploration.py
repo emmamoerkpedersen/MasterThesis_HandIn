@@ -14,7 +14,7 @@ from plotting import (
     create_detailed_plot,
     plot_all_errors
 )
-from analysis import ErrorAnalyzer
+from analysis.error_analysis import ErrorAnalyzer  # Only import the ErrorAnalyzer class
 
 def analyze_data_availability(df):
     """Analyze and print data availability information."""
@@ -79,15 +79,32 @@ def main():
     data_dir = get_data_path()
     plot_dir = get_plot_path()
     
+    # Create results directory if it doesn't exist
+    results_dir = Path('results')
+    results_dir.mkdir(exist_ok=True)
+    
     # Load rain station mapping
     rain_stations = pd.read_csv('data/closest_rain_stations.csv')
     
     # Load all data
     all_data = load_all_folders(data_dir, folders)
     
-    # Create plots
+    # Collect statistics from all stations
+    all_stats = []
+    
+    # Create plots and analyze data
     for folder, data in all_data.items():
         if data['vst_raw'] is not None:
+            print(f"\nAnalyzing station {folder}:")
+            
+            # Create analyzer instance and run analysis
+            analyzer = ErrorAnalyzer(data['vst_raw'])
+            analyzer.analyze_data_characteristics()
+            
+            # Save individual station statistics and collect for combined analysis
+            analyzer.save_error_statistics(folder, results_dir)
+            all_stats.append(analyzer.generate_error_statistics())
+            
             # Get corresponding rain station
             rain_station = rain_stations[
                 rain_stations['Station_of_Interest'] == int(folder)
@@ -102,7 +119,6 @@ def main():
                 data['vinge']
             )
             """
-            
          #   if data['vinge'] is not None:
          #       plot_vst_vs_vinge_comparison(data, folder)
             
@@ -115,6 +131,9 @@ def main():
             
             # Create error analysis plot
             plot_all_errors(data, folder)
+            
+    # Generate combined statistics
+    ErrorAnalyzer.save_combined_statistics(all_stats, folders, results_dir)
 
 if __name__ == "__main__":
     main()
