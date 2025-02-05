@@ -9,9 +9,9 @@ from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 
 
-raw_data = pd.read_csv('Sample data/21006845/VST_RAW.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
-editted_level_data = pd.read_csv('Sample data/21006845/VST_EDT.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
-vinge_data = pd.read_excel('Sample data/21006845/VINGE.xlsm', decimal = ',', header = 0)
+raw_data = pd.read_csv('Sample data/21006846/VST_RAW.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
+editted_level_data = pd.read_csv('Sample data/21006846/VST_EDT.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
+vinge_data = pd.read_excel('Sample data/21006846/VINGE.xlsm', decimal = ',', header = 0)
 #precipitation_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/RainData_05205.csv', parse_dates=['datetime'])
 
 raw_data['Value'] = raw_data['Value'].astype(float)
@@ -36,14 +36,14 @@ merged_data = pd.merge_asof(
     raw_data.sort_values('Date'),
     on='Date',
     direction='nearest',
-    tolerance=pd.Timedelta(minutes=15)  # Allow 30 minutes tolerance for matching
+    tolerance=pd.Timedelta(minutes=30)  # Allow 30 minutes tolerance for matching
 )
 
 # Calculate the absolute difference between values
 merged_data['difference'] = abs(merged_data['Value'].astype(float) - merged_data['W.L [cm]'])
 
 # Find significant discrepancies (you can adjust the threshold)
-lower_threshold = 10  # difference of 5mm
+lower_threshold = 5  # difference of 5mm
 upper_threshold = 150
 discrepancies = merged_data[(merged_data['difference'] > lower_threshold) & (merged_data['difference'] < upper_threshold)]
 
@@ -94,7 +94,27 @@ print(f"Average drift difference: {avg_drift_difference:.2f} mm")
 print("\nDetailed drift statistics:")
 print(drift_stats.sort_values('duration_days', ascending=False).head())
 
-drift_stats.to_csv('Data Errors/drift_stats_21006845.csv', index=False)
+# Calculate summary statistics
+summary_stats = pd.DataFrame({
+    'drift_group': ['SUMMARY'],
+    'start_date': [drift_stats['start_date'].min()],
+    'end_date': [drift_stats['end_date'].max()],
+    'duration_days': [drift_stats['duration_days'].mean()],
+    'mean_difference': [drift_stats['mean_difference'].mean()],
+    'max_difference': [drift_stats['max_difference'].max()],
+    'num_points': [drift_stats['num_points'].sum()]
+})
+
+# Add percentile statistics
+summary_stats['min_difference'] = drift_stats['mean_difference'].min()
+summary_stats['25th_percentile'] = drift_stats['mean_difference'].quantile(0.25)
+summary_stats['75th_percentile'] = drift_stats['mean_difference'].quantile(0.75)
+
+# Concatenate the summary stats with the drift_stats
+drift_stats_with_summary = pd.concat([drift_stats, summary_stats], ignore_index=True)
+
+# Save to CSV
+drift_stats_with_summary.to_csv('Data Errors/drift_stats_21006846.csv', index=False)
 
 # Create an interactive plot using Plotly
 fig = go.Figure()
@@ -108,6 +128,13 @@ fig.add_trace(go.Scatter(
     opacity=0.7
 ))
 
+fig.add_trace(go.Scatter(
+    x=editted_level_data['Date'],
+    y=editted_level_data['Value'],
+    name='Editted Data',
+    line=dict(color='red', width=1),
+    opacity=0.7
+))
 # Add vinge data points
 fig.add_trace(go.Scatter(
     x=vinge_data['Date'],
@@ -141,7 +168,7 @@ fig.update_layout(
 )
 
 # Save the plot to a specific location
-output_path = 'plots/drift_analysis_21006845.html'  # Change this path as needed
+output_path = 'plots/drift_analysis_21006846.html'  # Change this path as needed
 os.makedirs('plots', exist_ok=True)  # Create the directory if it doesn't exist
 fig.write_html(output_path)
 webbrowser.open('file://' + os.path.abspath(output_path))

@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from pathlib import Path
 
 def load_vst_file(file_path):
     """Load a VST file with multiple encoding attempts."""
@@ -34,7 +35,7 @@ def load_vinge_file(file_path):
                         encoding='latin1',
                         decimal=',',
                         quotechar='"',
-                        on_bad_lines='skip')  # Updated from error_bad_lines
+                        on_bad_lines='skip')
         
         # If that fails, try reading only the needed columns
         if df is None or df.empty:
@@ -45,18 +46,31 @@ def load_vinge_file(file_path):
                            quotechar='"',
                            usecols=['Date', 'W.L [cm]'],
                            on_bad_lines='skip')
-        
-        # Handle date parsing more robustly
-        try:
-            df['Date'] = pd.to_datetime(df['Date'], format='%d.%m.%Y %H:%M')
-        except:
-            print(f"Warning: Could not parse dates in standard format for {file_path}")
+
+        # Try multiple date formats
+        date_formats = [
+            '%d.%m.%Y %H:%M',  # Standard format
+            '%Y-%m-%d %H:%M:%S',  # ISO format
+            '%d-%m-%Y %H:%M',  # Alternative format
+            '%d/%m/%Y %H:%M'   # Another common format
+        ]
+
+        for date_format in date_formats:
             try:
-                df['Date'] = pd.to_datetime(df['Date'])  # Let pandas guess the format
+                df['Date'] = pd.to_datetime(df['Date'], format=date_format)
+                break  # If successful, exit the loop
+            except:
+                continue
+        
+        # If none of the specific formats worked, let pandas try to guess
+        if not pd.api.types.is_datetime64_any_dtype(df['Date']):
+            try:
+                df['Date'] = pd.to_datetime(df['Date'])
             except:
                 print(f"Error: Failed to parse dates in {file_path}")
                 return None
         
+        # Convert water level to mm and filter years
         df['W.L [cm]'] = pd.to_numeric(df['W.L [cm]'], errors='coerce') * 10  # Convert to mm
         df = df[df['Date'].dt.year >= 1990]
         
@@ -125,4 +139,32 @@ def prepare_data_for_error_detection(file_path: str) -> pd.DataFrame:
     assert not clean_data['Value'].isna().any(), "Missing values in clean data"
     assert clean_data.index.is_monotonic_increasing, "Time index not monotonic"
     
-    return clean_data 
+    return clean_data
+
+def get_data_path():
+    """Get the path to the data directory."""
+    return Path(r"/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Sample data")
+
+def get_plot_path():
+    """Get the path to the plots directory."""
+    plot_dir = Path(r"/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/plots")
+    plot_dir.mkdir(exist_ok=True)
+    return plot_dir
+
+def load_rainfall_data(data_dir: Path, station_id: int) -> pd.DataFrame:
+    """Load rainfall data for a specific station."""
+    rain_data_dir = data_dir.parent / 'data'
+    station_id_padded = f"{int(station_id):05d}"
+    rain_file = rain_data_dir / f'RainData_{station_id_padded}.csv'
+    
+    if rain_file.exists():
+        try:
+            df = pd.read_csv(rain_file)
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            return df
+        except Exception as e:
+            print(f"Error loading rainfall data for station {station_id}: {str(e)}")
+            return None
+    else:
+        print(f"Rainfall data file not found for station {station_id}")
+        return None 
