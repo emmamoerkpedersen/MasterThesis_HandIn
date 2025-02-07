@@ -167,4 +167,64 @@ def load_rainfall_data(data_dir: Path, station_id: int) -> pd.DataFrame:
     current_dir = Path(__file__).parent
     rain_data_dir = current_dir / 'Rain_data'
     
-    # First, read the mapping file to find the clos
+    # First, read the mapping file to find the closest rain station
+    mapping_file = rain_data_dir / 'closest_rain_stations.csv'
+    try:
+        mapping_df = pd.read_csv(mapping_file)
+        # Find the corresponding rain station
+        closest_station = mapping_df[mapping_df['Station_of_Interest'] == station_id]['Closest_Rain_Station'].iloc[0]
+        
+        # Now load the rain data using the closest station ID
+        station_id_padded = f"{int(closest_station):05d}"
+        rain_file = rain_data_dir / f'RainData_{station_id_padded}.csv'
+        
+        if rain_file.exists():
+            df = pd.read_csv(rain_file)
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            return df
+        else:
+            print(f"Rainfall data file not found for closest rain station {closest_station}")
+            return None
+            
+    except Exception as e:
+        print(f"Error loading rainfall data for measuring station {station_id}: {str(e)}")
+        return None
+
+def load_all_station_data() -> dict:
+    """
+    Main function to load and consolidate all station data.
+    
+    Returns:
+        dict: Dictionary with station names as keys and DataFrames containing:
+            - vst_raw: Raw VST data
+            - vst_edt: Edited VST data
+            - vinge: VINGE data
+            - rainfall: Associated rainfall data (if available)
+    """
+    data_path = get_data_path()
+    stations = [d for d in data_path.iterdir() if d.is_dir()]
+    
+    all_station_data = {}
+    
+    for station_path in stations:
+        station_name = station_path.name
+        
+        # Load the station's data using existing function
+        station_data = load_folder_data(station_path)
+        
+        # Try to load associated rainfall data if station ID can be extracted
+        try:
+            station_id = int(station_name.split('_')[0])  # Assuming format: "XXXXX_StationName"
+            rainfall_data = load_rainfall_data(data_path, station_id)
+            if rainfall_data is not None:
+                station_data['rainfall'] = rainfall_data
+        except (ValueError, IndexError):
+            print(f"Could not extract station ID from {station_name}, skipping rainfall data")
+        
+        all_station_data[station_name] = station_data
+    
+    return all_station_data
+
+# Example usage in another script:
+# from data_loading import load_all_station_data
+# station_data = load_all_station_data() 
