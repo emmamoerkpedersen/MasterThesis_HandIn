@@ -68,4 +68,58 @@ def find_closest_rain_stations(catchments, stations_of_interest, rain_stations_g
         
         results.append({
             'Station_of_Interest': station['StedID'],
-            'Closest_Rain_Station': f"{int(closest_stat
+            'Closest_Rain_Station': f"{int(closest_station['StationId']):05d}",
+            'Rain_Distance_m': distances[closest_station_idx],
+            'Catchment_ID': containing_catchment.iloc[0].name
+        })
+    
+    return pd.DataFrame(results)
+
+def find_closest_temp_stations(stations_of_interest, temp_stations_gdf):
+    """
+    Find the closest temperature station for each station of interest
+    """
+    results = []
+    
+    for idx, station in stations_of_interest.iterrows():
+        # Calculate distances to all temperature stations
+        distances = temp_stations_gdf.geometry.distance(station.geometry)
+        
+        # Find the closest station
+        closest_station_idx = distances.idxmin()
+        closest_station = temp_stations_gdf.loc[closest_station_idx]
+        
+        results.append({
+            'Station_of_Interest': station['StedID'],
+            'Closest_Temp_Station': f"{int(closest_station['StationId']):05d}",
+            'Temp_Distance_m': distances[closest_station_idx]
+        })
+    
+    return pd.DataFrame(results)
+
+def main():
+    # Define input paths
+    catchments_path = '../QGIS_data/oplande.gpkg'
+    stations_path = '../QGIS_data/Stations_45_46_46.shp'
+    dmi_stations_path = '../QGIS_data/DMIStationsUpdated.csv'
+    output_path = 'closest_rain_temp_stations.csv'
+    
+    # Load and prepare data
+    catchments, stations_of_interest, rain_stations_gdf, temp_stations_gdf = load_and_prepare_data(
+        catchments_path, stations_path, dmi_stations_path
+    )
+    
+    # Find closest stations
+    rain_results = find_closest_rain_stations(catchments, stations_of_interest, rain_stations_gdf)
+    temp_results = find_closest_temp_stations(stations_of_interest, temp_stations_gdf)
+    
+    # Merge results
+    final_results = pd.merge(rain_results, temp_results, on='Station_of_Interest')
+    
+    # Save results
+    final_results.to_csv(output_path, index=False)
+    print(f"Analysis complete. Results saved to '{output_path}'")
+
+if __name__ == "__main__":
+    main()
+

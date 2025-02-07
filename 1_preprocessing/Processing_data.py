@@ -9,4 +9,9 @@ from data_utils.data_loading import load_all_station_data
 
 
 def preprocess_data():
-    All_st
+    All_station_data = load_all_station_data()
+
+    
+
+
+
