@@ -8,167 +8,214 @@ from tempfile import NamedTemporaryFile
 from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 
+def load_station_data(station_id):
+    """Load raw, edited and vinge data for a given station."""
+    base_path = f'Sample data/{station_id}'
+    
+    # Load raw data
+    raw_data = pd.read_csv(f'{base_path}/VST_RAW.txt', 
+                          sep=';', decimal=',', skiprows=3, 
+                          names=['Date', 'Value'], encoding='latin-1')
+    
+    # Load edited data
+    edited_data = pd.read_csv(f'{base_path}/VST_EDT.txt', 
+                            sep=';', decimal=',', skiprows=3, 
+                            names=['Date', 'Value'], encoding='latin-1')
+    
+    # Load vinge data
+    vinge_data = pd.read_excel(f'{base_path}/VINGE.xlsm', decimal=',', header=0)
+    
+    # Process data
+    raw_data['Value'] = raw_data['Value'].astype(float)
+    raw_data['Date'] = pd.to_datetime(raw_data['Date'], format='%Y-%m-%d %H:%M:%S')
+    edited_data['Date'] = pd.to_datetime(edited_data['Date'], format='%d-%m-%Y %H:%M')
+    vinge_data['Date'] = pd.to_datetime(vinge_data['Date'], format='%d.%m.%Y %H:%M')
+    
+    # Convert Vinge water level to mm
+    vinge_data['W.L [cm]'] = vinge_data['W.L [cm]'] * 10
+    
+    return raw_data, edited_data, vinge_data
 
-raw_data = pd.read_csv('Sample data/21006846/VST_RAW.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
-editted_level_data = pd.read_csv('Sample data/21006846/VST_EDT.txt', sep = ';', decimal = ',', skiprows = 3, names = ['Date', 'Value'], encoding = 'latin-1')
-vinge_data = pd.read_excel('Sample data/21006846/VINGE.xlsm', decimal = ',', header = 0)
-#precipitation_data = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/Emma/Sample data/RainData_05205.csv', parse_dates=['datetime'])
-
-raw_data['Value'] = raw_data['Value'].astype(float)
-# Convert Date column to datetime with specified format (YYYY-MM-DD HH:MM:SS)
-raw_data['Date'] = pd.to_datetime(raw_data['Date'], format='%Y-%m-%d %H:%M:%S')
-editted_level_data['Date'] = pd.to_datetime(editted_level_data['Date'], format='%d-%m-%Y %H:%M')
-vinge_data['Date'] = pd.to_datetime(vinge_data['Date'], format='%d.%m.%Y %H:%M')
-
-# Crop all dataframes to start from 2010-01-01
-start_date = '2000-01-01'
-raw_data = raw_data[raw_data['Date'] >= start_date]
-editted_level_data = editted_level_data[editted_level_data['Date'] >= start_date]
-vinge_data = vinge_data[vinge_data['Date'] >= start_date]
-#precipitation_data = precipitation_data[precipitation_data['datetime'] >= start_date]
-
-# Multiply W.L [cm] by 100 to convert to mm
-vinge_data['W.L [cm]'] = vinge_data['W.L [cm]']*10
-
-# First merge the datasets on the nearest timestamp, but in reverse order
-merged_data = pd.merge_asof(
-    vinge_data[['Date', 'W.L [cm]']].sort_values('Date'),  # Make Vinge data the left dataframe
-    raw_data.sort_values('Date'),
-    on='Date',
-    direction='nearest',
-    tolerance=pd.Timedelta(minutes=30)  # Allow 30 minutes tolerance for matching
-)
-
-# Calculate the absolute difference between values
-merged_data['difference'] = abs(merged_data['Value'].astype(float) - merged_data['W.L [cm]'])
-
-# Find significant discrepancies (you can adjust the threshold)
-lower_threshold = 5  # difference of 5mm
-upper_threshold = 150
-discrepancies = merged_data[(merged_data['difference'] > lower_threshold) & (merged_data['difference'] < upper_threshold)]
-
-# Sort by difference to see the largest discrepancies first
-discrepancies = discrepancies.sort_values('difference', ascending=False)
-
-# Display the results
-print(f"Found {len(discrepancies)} points with significant differences")
-print("\nTop 10 largest discrepancies:")
-print(discrepancies[['Date', 'Value', 'W.L [cm]', 'difference']].head(10))
-
-# Optional: Create a scatter plot to visualize the differences
-plt.figure(figsize=(12, 6))
-plt.scatter(discrepancies['Date'], discrepancies['difference'], alpha=0.5)
-plt.xlabel('Date')
-plt.ylabel('Absolute Difference (mm)')
-plt.title('Differences Between Raw Data and Vinge Data')
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.show()
-
-
-# Create a boolean mask for points with differences
-has_difference = (merged_data['difference'] > lower_threshold) & (merged_data['difference'] < upper_threshold)
-
-# Create groups of continuous drift periods
-merged_data['drift_group'] = (~has_difference).cumsum()[has_difference]
-
-# Calculate drift statistics
-drift_stats = merged_data[has_difference].groupby('drift_group').agg({
-    'Date': ['min', 'max', lambda x: (x.max() - x.min()).total_seconds() / (60 * 60 * 24)],  # Start, end, and duration in days
-    'difference': ['mean', 'max', 'count']
-}).reset_index()
-
-# Rename columns for clarity
-drift_stats.columns = ['drift_group', 'start_date', 'end_date', 'duration_days', 'mean_difference', 'max_difference', 'num_points']
-
-# Calculate overall averages
-avg_drift_duration = drift_stats['duration_days'].mean()
-avg_drift_difference = drift_stats['mean_difference'].mean()
-
-print("\nDrift Statistics:")
-print(f"Number of distinct drifts: {len(drift_stats)}")
-print(f"Average drift duration: {avg_drift_duration:.2f} days")
-print(f"Average drift difference: {avg_drift_difference:.2f} mm")
-
-# Display detailed drift statistics
-print("\nDetailed drift statistics:")
-print(drift_stats.sort_values('duration_days', ascending=False).head())
-
-# Calculate summary statistics
-summary_stats = pd.DataFrame({
-    'drift_group': ['SUMMARY'],
-    'start_date': [drift_stats['start_date'].min()],
-    'end_date': [drift_stats['end_date'].max()],
-    'duration_days': [drift_stats['duration_days'].mean()],
-    'mean_difference': [drift_stats['mean_difference'].mean()],
-    'max_difference': [drift_stats['max_difference'].max()],
-    'num_points': [drift_stats['num_points'].sum()]
-})
-
-# Add percentile statistics
-summary_stats['min_difference'] = drift_stats['mean_difference'].min()
-summary_stats['25th_percentile'] = drift_stats['mean_difference'].quantile(0.25)
-summary_stats['75th_percentile'] = drift_stats['mean_difference'].quantile(0.75)
-
-# Concatenate the summary stats with the drift_stats
-drift_stats_with_summary = pd.concat([drift_stats, summary_stats], ignore_index=True)
-
-# Save to CSV
-drift_stats_with_summary.to_csv('Data Errors/drift_stats_21006846.csv', index=False)
-
-# Create an interactive plot using Plotly
-fig = go.Figure()
-
-# Add raw data line
-fig.add_trace(go.Scatter(
-    x=raw_data['Date'],
-    y=raw_data['Value'],
-    name='Raw Data',
-    line=dict(color='blue', width=1),
-    opacity=0.7
-))
-
-fig.add_trace(go.Scatter(
-    x=editted_level_data['Date'],
-    y=editted_level_data['Value'],
-    name='Editted Data',
-    line=dict(color='red', width=1),
-    opacity=0.7
-))
-# Add vinge data points
-fig.add_trace(go.Scatter(
-    x=vinge_data['Date'],
-    y=vinge_data['W.L [cm]'],
-    name='Vinge Data',
-    mode='markers',
-    marker=dict(color='green', size=5),
-    opacity=0.7
-))
-
-# Add colored rectangles for drift periods
-for _, drift in drift_stats.iterrows():
-    fig.add_vrect(
-        x0=drift['start_date'],
-        x1=drift['end_date'],
-        fillcolor="red",
-        opacity=0.2,
-        layer="below",
-        name="Drift Period",
-        line_width=0
+def process_station_data(raw_data, vinge_data, start_date='2000-01-01', 
+                        lower_threshold=5, upper_threshold=150):
+    """Process and analyze data for drift detection."""
+    # Crop data to start date
+    raw_data = raw_data[raw_data['Date'] >= start_date]
+    vinge_data = vinge_data[vinge_data['Date'] >= start_date]
+    
+    # Merge datasets
+    merged_data = pd.merge_asof(
+        vinge_data[['Date', 'W.L [cm]']].sort_values('Date'),
+        raw_data.sort_values('Date'),
+        on='Date',
+        direction='nearest',
+        tolerance=pd.Timedelta(minutes=30)
     )
+    
+    # Calculate differences
+    merged_data['difference'] = abs(merged_data['Value'].astype(float) - merged_data['W.L [cm]'])
+    
+    return analyze_drift(merged_data, lower_threshold, upper_threshold)
 
-# Update layout
-fig.update_layout(
-    title='Water Level Data Comparison with Highlighted Drift Periods',
-    xaxis_title='Date',
-    yaxis_title='Water Level (mm)',
-    showlegend=True,
-    hovermode='x unified',
-    template='plotly_white'
-)
+def analyze_drift(merged_data, lower_threshold, upper_threshold):
+    """Analyze drift patterns in the data."""
+    has_difference = (merged_data['difference'] > lower_threshold) & (merged_data['difference'] < upper_threshold)
+    merged_data['drift_group'] = (~has_difference).cumsum()[has_difference]
+    
+    drift_stats = merged_data[has_difference].groupby('drift_group').agg({
+        'Date': ['min', 'max', lambda x: (x.max() - x.min()).total_seconds() / (60 * 60 * 24)],
+        'difference': ['mean', 'max', 'count']
+    }).reset_index()
+    
+    drift_stats.columns = ['drift_group', 'start_date', 'end_date', 'duration_days', 
+                          'mean_difference', 'max_difference', 'num_points']
+    
+    return merged_data, drift_stats
 
-# Save the plot to a specific location
-output_path = 'plots/drift_analysis_21006846.html'  # Change this path as needed
-os.makedirs('plots', exist_ok=True)  # Create the directory if it doesn't exist
-fig.write_html(output_path)
-webbrowser.open('file://' + os.path.abspath(output_path))
+def create_drift_plot(raw_data, edited_data, vinge_data, drift_stats, station_id):
+    """Create and save interactive plot."""
+    fig = go.Figure()
+    
+    # Add traces
+    fig.add_trace(go.Scatter(x=raw_data['Date'], y=raw_data['Value'],
+                            name='Raw Data', line=dict(color='blue', width=1), opacity=0.7))
+    
+    fig.add_trace(go.Scatter(x=edited_data['Date'], y=edited_data['Value'],
+                            name='Edited Data', line=dict(color='red', width=1), opacity=0.7))
+    
+    fig.add_trace(go.Scatter(x=vinge_data['Date'], y=vinge_data['W.L [cm]'],
+                            name='Vinge Data', mode='markers',
+                            marker=dict(color='green', size=5), opacity=0.7))
+    
+    # Add drift period highlights
+    for _, drift in drift_stats.iterrows():
+        fig.add_vrect(x0=drift['start_date'], x1=drift['end_date'],
+                     fillcolor="red", opacity=0.2, layer="below",
+                     name="Drift Period", line_width=0)
+    
+    # Update layout
+    fig.update_layout(
+        title=f'Water Level Data Comparison - Station {station_id}',
+        xaxis_title='Date',
+        yaxis_title='Water Level (mm)',
+        showlegend=True,
+        hovermode='x unified',
+        template='plotly_white'
+    )
+    
+    # Save plot
+    output_path = f'plots/drift_analysis_{station_id}.html'
+    os.makedirs('plots', exist_ok=True)
+    fig.write_html(output_path)
+    return output_path
+
+def create_cross_station_summary(station_ids):
+    """Create a summary of drift statistics across all stations."""
+    all_drift_stats = []
+    
+    for station_id in station_ids:
+        drift_stats_path = f'Data Errors/drift_stats_{station_id}.csv'
+        if os.path.exists(drift_stats_path):
+            station_stats = pd.read_csv(drift_stats_path)
+            # Filter out the summary row
+            station_stats = station_stats[station_stats['drift_group'] != 'SUMMARY']
+            station_stats['station_id'] = station_id
+            all_drift_stats.append(station_stats)
+    
+    if not all_drift_stats:
+        print("No drift statistics found for any station.")
+        return
+    
+    combined_stats = pd.concat(all_drift_stats, ignore_index=True)
+    
+    cross_station_summary = pd.DataFrame({
+        'metric': ['Cross-Station Summary'],
+        'start_date': [combined_stats['start_date'].min()],
+        'end_date': [combined_stats['end_date'].max()],
+        'mean_duration_days': [combined_stats['duration_days'].mean()],
+        'mean_difference': [combined_stats['mean_difference'].mean()],
+        'median_difference': [combined_stats['mean_difference'].median()],
+        'min_difference': [combined_stats['mean_difference'].min()],
+        'max_difference': [combined_stats['max_difference'].max()],
+        '25th_percentile': [combined_stats['mean_difference'].quantile(0.25)],
+        '75th_percentile': [combined_stats['mean_difference'].quantile(0.75)],
+        'avg_points_per_drift': [combined_stats['num_points'].mean()],
+        'total_drift_periods': [len(combined_stats)],
+        'total_points': [combined_stats['num_points'].sum()]
+    })
+    
+    # Save cross-station summary
+    os.makedirs('Data Errors', exist_ok=True)
+    cross_station_summary.to_csv('Data Errors/cross_station_summary.csv', index=False)
+    print("\nCross-station summary saved to 'Data Errors/cross_station_summary.csv'")
+    
+    return cross_station_summary
+
+def print_station_statistics(drift_stats, station_id):
+    """Print summary statistics for a single station."""
+    print(f"\nStation {station_id} Statistics:")
+    print("-" * 50)
+    print(f"Date Range: {drift_stats['start_date'].min()} to {drift_stats['end_date'].max()}")
+    print(f"Mean Duration of Drift Periods: {drift_stats['duration_days'].mean():.2f} days")
+    print(f"Mean Difference: {drift_stats['mean_difference'].mean():.2f} mm")
+    print(f"Median Difference: {drift_stats['mean_difference'].median():.2f} mm")
+    print(f"Min Difference: {drift_stats['mean_difference'].min():.2f} mm")
+    print(f"Max Difference: {drift_stats['max_difference'].max():.2f} mm")
+    print(f"25th Percentile: {drift_stats['mean_difference'].quantile(0.25):.2f} mm")
+    print(f"75th Percentile: {drift_stats['mean_difference'].quantile(0.75):.2f} mm")
+    print(f"Average Points per Drift: {drift_stats['num_points'].mean():.2f}")
+    print(f"Total Drift Periods: {len(drift_stats)}")
+    print(f"Total Points: {drift_stats['num_points'].sum()}")
+    print("-" * 50)
+
+def main():
+    """Main function to process all stations."""
+    station_ids = ['21006845', '21006846', '21006847']
+    
+    for station_id in station_ids:
+        print(f"\nProcessing station {station_id}")
+        
+        # Load data
+        raw_data, edited_data, vinge_data = load_station_data(station_id)
+        
+        # Process data
+        merged_data, drift_stats = process_station_data(raw_data, vinge_data)
+        
+        # Print station statistics
+        print_station_statistics(drift_stats, station_id)
+        
+        # Create summary statistics
+        summary_stats = pd.DataFrame({
+            'drift_group': ['SUMMARY'],
+            'start_date': [drift_stats['start_date'].min()],
+            'end_date': [drift_stats['end_date'].max()],
+            'duration_days': [drift_stats['duration_days'].mean()],
+            'mean_difference': [drift_stats['mean_difference'].mean()],
+            'median_difference': [drift_stats['mean_difference'].median()],
+            'max_difference': [drift_stats['max_difference'].max()],
+            'num_points': [drift_stats['num_points'].sum()]
+        })
+        
+        # Add percentile statistics and save
+        summary_stats['min_difference'] = drift_stats['mean_difference'].min()
+        summary_stats['25th_percentile'] = drift_stats['mean_difference'].quantile(0.25)
+        summary_stats['75th_percentile'] = drift_stats['mean_difference'].quantile(0.75)
+        
+        drift_stats_with_summary = pd.concat([drift_stats, summary_stats], ignore_index=True)
+        drift_stats_with_summary.to_csv(f'Data Errors/drift_stats_{station_id}.csv', index=False)
+        
+        # Create and save plot
+        plot_path = create_drift_plot(raw_data, edited_data, vinge_data, drift_stats, station_id)
+        webbrowser.open('file://' + os.path.abspath(plot_path))
+    
+    # Create cross-station summary after processing all stations
+    print("\nGenerating cross-station summary...")
+    cross_station_summary = create_cross_station_summary(station_ids)
+    if cross_station_summary is not None:
+        print("\nCross-station summary statistics:")
+        print("=" * 50)
+        print(cross_station_summary.to_string(index=False))
+        print("=" * 50)
+
+if __name__ == "__main__":
+    main()
