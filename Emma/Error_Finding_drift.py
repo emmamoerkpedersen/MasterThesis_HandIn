@@ -211,4 +211,11 @@ def main():
     # Create cross-station summary after processing all stations
     print("\nGenerating cross-station summary...")
     cross_station_summary = create_cross_station_summary(station_ids)
-    if cr
+    if cross_station_summary is not None:
+        print("\nCross-station summary statistics:")
+        print("=" * 50)
+        print(cross_station_summary.to_string(index=False))
+        print("=" * 50)
+
+if __name__ == "__main__":
+    main()

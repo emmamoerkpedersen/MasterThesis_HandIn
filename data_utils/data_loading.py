@@ -143,28 +143,28 @@ def prepare_data_for_error_detection(file_path: str) -> pd.DataFrame:
 
 def get_data_path():
     """Get the path to the data directory."""
-    return Path(r"C:\Users\olive\OneDrive\GitHub\MasterThesis\Sample data")
+    # Get the current file's directory and navigate to the sample data
+    current_dir = Path(__file__).parent  # We're already in '0. Data'
+    return current_dir / "Sample data"
 
 def get_plot_path():
     """Get the path to the plots directory."""
-    plot_dir = Path(r"C:\Users\olive\OneDrive\GitHub\MasterThesis\plots")
+    current_dir = Path(__file__).parent  # We're already in '0. Data'
+    plot_dir = current_dir / "plots"
     plot_dir.mkdir(exist_ok=True)
     return plot_dir
 
 def load_rainfall_data(data_dir: Path, station_id: int) -> pd.DataFrame:
-    """Load rainfall data for a specific station."""
-    rain_data_dir = data_dir.parent / 'data'
-    station_id_padded = f"{int(station_id):05d}"
-    rain_file = rain_data_dir / f'RainData_{station_id_padded}.csv'
+    """Load rainfall data for a specific measuring station by finding its closest rain station.
     
-    if rain_file.exists():
-        try:
-            df = pd.read_csv(rain_file)
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            return df
-        except Exception as e:
-            print(f"Error loading rainfall data for station {station_id}: {str(e)}")
-            return None
-    else:
-        print(f"Rainfall data file not found for station {station_id}")
-        return None 
+    Args:
+        data_dir: Path to the data directory
+        station_id: ID of the measuring station (Station_of_Interest)
+        
+    Returns:
+        DataFrame with rainfall data from the closest rain station, or None if not found
+    """
+    current_dir = Path(__file__).parent
+    rain_data_dir = current_dir / 'Rain_data'
+    
+    # First, read the mapping file to find the clos
