@@ -184,6 +184,10 @@ def plot_all_errors(data, folder, include_rain=True, include_edt=True):
     # Initialize error analyzer
     analyzer = ErrorAnalyzer(data['vst_raw'])
     
+    # If vinge data exists, detect drifts and store results
+    if data['vinge'] is not None:
+        analyzer.drift_stats = analyzer.detect_drift(data['vinge'])  # Store as class attribute
+    
     # Create figure with two rows and shared x-axis
     fig = make_subplots(
         rows=2, cols=1,
@@ -244,6 +248,64 @@ def plot_all_errors(data, folder, include_rain=True, include_edt=True):
         row=2, col=1
     )
 
+    # Add linear interpolation segments with purple highlighting
+    linear_interp = analyzer.detect_linear_interpolation()
+    linear_dates = analyzer.df[linear_interp].index
+    linear_values = analyzer.df[linear_interp][analyzer.value_column]
+    
+    if len(linear_dates) > 0:
+        fig.add_trace(
+            go.Scatter(
+                name='Linear Interpolation',
+                mode='lines',
+                line=dict(color='purple', width=3),
+                fill='tonexty',
+                fillcolor='rgba(128, 0, 128, 0.1)',  # Light purple
+                x=linear_dates,
+                y=linear_values,
+                showlegend=True,
+                hovertemplate=(
+                    'Linear Interpolation<br>'
+                    'Date: %{x}<br>'
+                    'Value: %{y:.1f}mm'
+                    '<extra></extra>'
+                )
+            ),
+            row=2, col=1
+        )
+        
+        # Add vertical lines at the start and end of each interpolation segment
+        current_segment = []
+        for i, (idx, is_linear) in enumerate(linear_interp.items()):
+            if is_linear:
+                if not current_segment:  # Start of segment
+                    current_segment = [idx]
+                elif i == len(linear_interp) - 1:  # End of series
+                    current_segment.append(idx)
+                    # Add vertical lines for segment boundaries
+                    for boundary in [current_segment[0], current_segment[-1]]:
+                        fig.add_vline(
+                            x=boundary,
+                            line_dash="dot",
+                            line_color="purple",
+                            line_width=1,
+                            opacity=0.7,
+                            row=2, col=1
+                        )
+            elif current_segment:  # End of segment
+                current_segment.append(idx)
+                # Add vertical lines for segment boundaries
+                for boundary in [current_segment[0], current_segment[-1]]:
+                    fig.add_vline(
+                        x=boundary,
+                        line_dash="dot",
+                        line_color="purple",
+                        line_width=1,
+                        opacity=0.7,
+                        row=2, col=1
+                    )
+                current_segment = []
+
     # Add manual measurements if available
     if data['vinge'] is not None:
         fig.add_trace(
@@ -283,7 +345,7 @@ def plot_all_errors(data, folder, include_rain=True, include_edt=True):
         )
     
     # Detect and add frozen values with highlighted regions
-    frozen = analyzer.detect_frozen_values(min_consecutive=10)
+    frozen = analyzer.detect_frozen_values(min_consecutive=20)
     frozen_dates = analyzer.df[frozen].index
     frozen_values = analyzer.df[frozen][analyzer.value_column]
     
@@ -302,8 +364,12 @@ def plot_all_errors(data, folder, include_rain=True, include_edt=True):
             row=2, col=1
         )
     
-    # Detect and add point anomalies with single markers at their center
-    anomaly_segments = analyzer.detect_point_anomalies()
+    # Detect and add point anomalies with adjusted parameters
+    anomaly_segments = analyzer.detect_point_anomalies(
+        min_change=25.0,           # More dramatic changes only
+        relative_multiplier=10,      # Much larger than local variations
+        max_duration_days=1         # Maximum 1 day duration
+    )
     if anomaly_segments:
         anomaly_x = []
         anomaly_y = []
@@ -332,7 +398,7 @@ def plot_all_errors(data, folder, include_rain=True, include_edt=True):
 
     
     # Detect and add offsets with highlighted regions and annotations
-    offsets = analyzer.detect_offsets()
+    offsets = analyzer.detect_offsets()  # Will use stored offsets
     first_offset = True
     for start_idx, end_idx, magnitude in offsets:
         offset_dates = analyzer.df.index[start_idx:end_idx]

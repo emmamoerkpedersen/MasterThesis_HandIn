@@ -39,7 +39,7 @@ def plot_data_overview(df, edt_df=None, rain_df=None, vinge_df=None,
             row=1, col=1
         )
     
-    # Add VINGE data (in background)
+    # Add VINGE data (in foreground)
     if vinge_df is not None:
         fig.add_trace(
             go.Scattergl(
@@ -47,7 +47,7 @@ def plot_data_overview(df, edt_df=None, rain_df=None, vinge_df=None,
                 mode='markers',
                 marker=dict(
                     color='orange',
-                    size=4,
+                    size=7,
                     symbol='circle'
                 ),
                 showlegend=True,
