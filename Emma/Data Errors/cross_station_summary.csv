@@ -1,0 +1,2 @@
+metric,start_date,end_date,mean_duration_days,mean_difference,median_difference,min_difference,max_difference,25th_percentile,75th_percentile,avg_points_per_drift,total_drift_periods,total_points
+Cross-Station Summary,2000-03-08 12:00:00,2024-12-03 11:05:00,36.557832867783986,18.672406898222608,11.0,5.160000000000082,113.0,7.529999999999996,19.3,2.8379888268156424,179,508

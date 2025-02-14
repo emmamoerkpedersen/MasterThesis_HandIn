@@ -1,23 +1,22 @@
-import os
-import matplotlib.pyplot as plt
+from pathlib import Path
 import pandas as pd
-from data_loading import load_all_folders
-from plot_code.overview_plots import plot_datasets_overview, plot_vst_raw_overview
-from plot_code.comparison_plots import plot_vst_vs_vinge_comparison, plot_vst_files_comparison
-from plot_code.anomaly_plots import create_detailed_plot
-
-plt.ion()
-def get_data_path():
-    """Get the path to the data directory."""
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(repo_root, 'Sample data')
-
-def get_plot_path():
-    """Get the path to the plots directory."""
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    plot_dir = os.path.join(repo_root, 'plots')
-    os.makedirs(plot_dir, exist_ok=True)
-    return plot_dir
+from data_loading import (
+    load_all_folders, 
+    load_rainfall_data, 
+    get_data_path, 
+    get_plot_path
+)
+from plotting import (
+    plot_data_overview,
+    plot_vst_raw_overview,
+    plot_vst_vs_vinge_comparison,
+    plot_vst_files_comparison,
+    create_detailed_plot,
+    plot_all_errors
+)
+from analysis.error_analysis import ErrorAnalyzer  # Only import the ErrorAnalyzer class
+import plotly.io as pio
+pio.renderers.default = "browser"
 
 def analyze_data_availability(df):
     """Analyze and print data availability information."""
@@ -82,44 +81,73 @@ def main():
     data_dir = get_data_path()
     plot_dir = get_plot_path()
     
+    # Create results directory if it doesn't exist
+    results_dir = Path('results')
+    results_dir.mkdir(exist_ok=True)
+    
+    # Load rain station mapping
+    rain_stations = pd.read_csv('data/closest_rain_stations.csv')
+    
     # Load all data
     all_data = load_all_folders(data_dir, folders)
     
-    # Create plots
+    # Collect statistics from all stations
+    all_stats = []
+    
+    # Create plots and analyze data
     for folder, data in all_data.items():
         if data['vst_raw'] is not None:
-            # Create raw data overview plot
-            plot_vst_raw_overview(data, folder)
-            plt.savefig(os.path.join(plot_dir, f'vst_raw_overview_{folder}.png'), 
-                       dpi=300, bbox_inches='tight')
-            plt.show()
+            print(f"\nAnalyzing station {folder}:")
             
-            # Create overview plot
-            plot_datasets_overview(data, folder)
-            plt.savefig(os.path.join(plot_dir, f'datasets_overview_{folder}.png'), 
-                       dpi=300, bbox_inches='tight')
-            plt.show()
+            # Create analyzer instance and run analysis
+            analyzer = ErrorAnalyzer(data['vst_raw'])
+            #analyzer.analyze_data_characteristics()
             
-            # Create comparison plots
-            # if data['vinge'] is not None:
-            #     plot_vst_vs_vinge_comparison(data, folder)
-            #     plt.savefig(os.path.join(plot_dir, f'vst_vs_vinge_comparison_{folder}.png'),
-            #                dpi=300, bbox_inches='tight')
-            #     plt.close()
+            # Save individual station statistics and collect for combined analysis
+            #analyzer.save_error_statistics(folder, results_dir)
+            #all_stats.append(analyzer.generate_error_statistics())
             
-            # # Create VST files comparison
-            # if data['vst_edt'] is not None:
-            #     plot_vst_files_comparison(data, folder)
-            #     plt.savefig(os.path.join(plot_dir, f'vst_files_comparison_{folder}.png'),
-            #                dpi=300, bbox_inches='tight')
-            #     plt.close()
+
+            # Get corresponding rain station
+            rain_station = rain_stations[
+                rain_stations['Station_of_Interest'] == int(folder)
+            ]['Closest_Rain_Station'].iloc[0]
+            rain_data = load_rainfall_data(data_dir, rain_station)
+            data['rain'] = rain_data  # Add rainfall data to the data dictionary
+            """
+            # Create overview plots
+            plot_data_overview(
+                data['vst_raw'], 
+                data['vst_edt'], 
+                rain_data, 
+                data['vinge']
+            )
+            """
+         #   if data['vinge'] is not None:
+         #       plot_vst_vs_vinge_comparison(data, folder)
             
-            # Create detailed analysis plot
+         #   if data['vst_edt'] is not None:
+         #       plot_vst_files_comparison(data, folder)
+            
+            # Create detailed analysis plots
             time_windows = get_time_windows()
-            create_detailed_plot(data, time_windows, folder)
-            plt.savefig(os.path.join(plot_dir, f'detailed_analysis_{folder}.png'),
-                       dpi=300, bbox_inches='tight')
-            plt.show()
+            #create_detailed_plot(data, time_windows, folder)
+
+
+            # Create error analysis plot with all data
+            plot_all_errors(data, folder)  # Default: include both rain and edt
+
+            # Or without rainfall data
+            #plot_all_errors(data, folder, include_rain=False)
+
+            # Or without edited data
+            #plot_all_errors(data, folder, include_edt=False)
+
+            # Or without both
+            #plot_all_errors(data, folder, include_rain=False, include_edt=False)
+            
+    # Generate combined statistics
+    ErrorAnalyzer.save_combined_statistics(all_stats, folders, results_dir)
 
 if __name__ == "__main__":
     main()
