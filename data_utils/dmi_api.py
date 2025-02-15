@@ -6,66 +6,131 @@ import numpy as np
 import pandas as pd
 import requests
 
-
+# Get the MasterThesis directory (parent directory of data_utils)
+master_thesis_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class MetObsAPI:
     """
-    Class for fetching data from the MetObs API
+    Class for fetching meteorological observation data from the DMI MetObs API.
+    
+    Attributes
+    ----------
+    api_key : str
+        Authentication key for the DMI API
+    base_url : str
+        Base URL for the MetObs API endpoint
     """
 
-    def __init__(self, api_key):
+    def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://dmigw.govcloud.dk/v2/metObs/collections/"
 
-    def get_data_from_station(self, station_id: str, parameter_id: str, time_from=None, time_to=None, limit=10000) -> tuple:
-        """Get data from a given station for a specific parameter
+    def get_precipitation_from_station(self, station_id: str, time_from=None, time_to=None, limit: int = 10000) -> tuple[pd.DataFrame, list]:
+        """Get hourly precipitation data from a given station.
 
         Parameters
         ----------
         station_id : str
-            The station id
-        parameter_id : str
-            The parameter to fetch (e.g., 'precip_past1h' or 'temp_mean_past1h')
-        time_from : datetime
-        time_to : datetime
-        limit : int
-            The number of data points to fetch. The maximum are 300000 at a time.
+            The station identifier
+        time_from : datetime, optional
+            Start time for data retrieval
+        time_to : datetime, optional
+            End time for data retrieval
+        limit : int, default=10000
+            Maximum number of data points to fetch (max 300000)
 
         Returns
         -------
-        tuple
-            (DataFrame with the data, location coordinates)
+        tuple[pd.DataFrame, list]
+            DataFrame containing precipitation data and station coordinates [lon, lat]
+        
+        Raises
+        ------
+        ValueError
+            If the limit exceeds 300000 or if the API response is invalid
         """
-        assert limit < 300000, "The limit is too large"
+        if limit >= 300000:
+            raise ValueError("The limit must be less than 300000")
+            
         time_arg = self.construct_datetime(time_from, time_to)
-        url = f"{self.base_url}observation/items?stationId={station_id}&parameterId={parameter_id}&datetime={time_arg}&limit={limit}&api-key={self.api_key}"
+        url = f"{self.base_url}observation/items?stationId={station_id}&parameterId=precip_past1h&datetime={time_arg}&limit={limit}&api-key={self.api_key}"
+        
         response = requests.get(url).json()
-        features = response.get("features", [])
+        features = response.get("features")
         
         if not features:
-            raise ValueError(f"No data found for station {station_id} with parameter {parameter_id}")
+            raise ValueError(f"No data received for station {station_id}")
             
-        location = features[0].get("geometry", {}).get("coordinates")
-        if not location:
-            raise ValueError(f"No location data found for station {station_id}")
-            
-        data = []
-        for feature in features:
-            properties = feature.get("properties", {})
-            if "observed" in properties and "value" in properties:
-                data.append([properties["observed"], properties["value"]])
+        location = features[0].get("geometry").get("coordinates")
+        data = [[feat.get("properties").get("observed"), 
+                feat.get("properties").get("value")] 
+               for feat in features]
         
-        if not data:
-            raise ValueError(f"No valid data points found for station {station_id}")
-            
-        column_name = "precipitation (mm)" if parameter_id == "precip_past1h" else "temperature (C)"
-        data = pd.DataFrame(data, columns=["datetime", column_name])
+        data = pd.DataFrame(data, columns=["datetime", "precipitation (mm)"])
         data["datetime"] = pd.to_datetime(data["datetime"])
-        data = data.set_index("datetime").sort_index()
-        return data, location
+        return data.set_index("datetime").sort_index(), location
+
+    def get_temperature_from_station(self, station_id: str, time_from=None, time_to=None, limit: int = 10000) -> tuple[pd.DataFrame, list]:
+        """Get hourly temperature data from a given station.
+
+        Parameters
+        ----------
+        station_id : str
+            The station identifier
+        time_from : datetime, optional
+            Start time for data retrieval
+        time_to : datetime, optional
+            End time for data retrieval
+        limit : int, default=10000
+            Maximum number of data points to fetch (max 300000)
+
+        Returns
+        -------
+        tuple[pd.DataFrame, list]
+            DataFrame containing temperature data and station coordinates [lon, lat]
+        
+        Raises
+        ------
+        ValueError
+            If the limit exceeds 300000 or if the API response is invalid
+        """
+        if limit >= 300000:
+            raise ValueError("The limit must be less than 300000")
+            
+        time_arg = self.construct_datetime(time_from, time_to)
+        url = f"{self.base_url}observation/items?stationId={station_id}&parameterId=temp_mean_past1h&datetime={time_arg}&limit={limit}&api-key={self.api_key}"
+        
+        response = requests.get(url).json()
+        features = response.get("features")
+        
+        if not features:
+            raise ValueError(f"No data received for station {station_id}")
+            
+        location = features[0].get("geometry").get("coordinates")
+        data = [[feat.get("properties").get("observed"), 
+                feat.get("properties").get("value")] 
+               for feat in features]
+        
+        data = pd.DataFrame(data, columns=["datetime", "temperature (C)"])
+        data["datetime"] = pd.to_datetime(data["datetime"])
+        return data.set_index("datetime").sort_index(), location
 
     @staticmethod
-    def construct_datetime(time_from=None, time_to=None):
+    def construct_datetime(time_from=None, time_to=None) -> str:
+        """Construct datetime string for API query.
+
+        Parameters
+        ----------
+        time_from : datetime, optional
+            Start time
+        time_to : datetime, optional
+            End time
+
+        Returns
+        -------
+        str
+            Formatted datetime string for API query
+        """
         if time_from is None and time_to is None:
             return None
         elif time_from is None and time_to is not None:
@@ -75,94 +140,64 @@ class MetObsAPI:
         else:
             return f"{time_from.isoformat()}Z/{time_to.isoformat()}Z"
 
-def get_data_dir():
-    """Returns the path to the data directory"""
-    # First check if there's an environment variable set
-    data_dir = os.getenv('DMI_DATA_DIR')
-    if data_dir:
-        return data_dir
 
-    # Otherwise, use the Rain_data directory relative to the script location
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(script_dir, 'Rain_data')
+def process_station_data(client: MetObsAPI, station_type: str):
+    """Process and save data for all stations of a given type.
+    
+    Parameters
+    ----------
+    client : MetObsAPI
+        Initialized API client
+    station_type : str
+        Either 'rain' or 'temperature'
+    """
+    # Build path to read from Rain_data folder
+    input_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                             'Rain_data', 
+                             'closest_rain_temp_stations.csv')
+    
+    column_name = 'Closest_Rain_Station' if station_type == 'rain' else 'Closest_Temp_Station'
+    stations_df = pd.read_csv(input_path, dtype={column_name: str})
+    station_ids = stations_df[column_name].unique()
+    
+    for station_id in station_ids:
+        print(f"Processing station {station_id}")
+        try:
+            if station_type == 'rain':
+                data, location = client.get_precipitation_from_station(
+                    str(station_id),
+                    datetime(1990, 1, 1),
+                    datetime(2025, 1, 1),
+                    limit=299999
+                )
+                # Remove negative precipitation values
+                data = data[data['precipitation (mm)'] >= 0]
+                prefix = 'RainData'
+            else:
+                data, location = client.get_temperature_from_station(
+                    str(station_id),
+                    datetime(1990, 1, 1),
+                    datetime(2025, 1, 1),
+                    limit=299999
+                )
+                prefix = 'TempData'
+            
+            output_filename = f'{prefix}_{station_id}.csv'
+            output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                                     'Rain_data', 
+                                     output_filename)
+            data.to_csv(output_path)
+            print(f"Saved data to {output_path}")
+            
+        except Exception as e:
+            print(f"Error processing station {station_id}: {str(e)}")
+            continue
+
 
 if __name__ == "__main__":
-    # Example of how to use the API
-    my_api_key = "9d13ca23-5a3d-47fc-a63d-b91009a1879a"
+    my_api_key = "762c2c0b-caa9-4c96-a8a7-4eb2c719b359"
     client = MetObsAPI(my_api_key)
     
-    # Use the get_data_dir function
-    data_dir = get_data_dir()
-    input_path = os.path.join(data_dir, 'closest_rain_temp_stations.csv')
-    
-    # Read CSV with station IDs as int64
-    stations_df = pd.read_csv(input_path, dtype={
-        'Closest_Rain_Station': str,
-        'Closest_Temp_Station': str
-    })
-    
-    # Process rain stations
-    rain_station_ids = stations_df['Closest_Rain_Station'].unique()
-    for station_id in rain_station_ids:
-        print(f"Processing rain station {station_id}")
-        try:
-            # Convert station_id to string with leading zeros
-            formatted_station_id = f"{station_id}"
-            data, location = client.get_data_from_station(
-                formatted_station_id,
-                "precip_past1h",
-                datetime(1990, 1, 1), 
-                datetime(2025, 1, 1), 
-                limit=299999
-            )
-            
-            # Delete negative values
-            data = data[data['precipitation (mm)'] >= 0]
-            
-            # Save to CSV using formatted station 
-            output_filename = f'RainData_{formatted_station_id}.csv'
-            output_path = os.path.join(data_dir, output_filename)
-            data.to_csv(output_path)
-            print(f"Saved rain data to {output_path}")
-            
-        except Exception as e:
-            print(f"Error processing rain station {station_id}: {str(e)}")
-            continue
-    
-    # Process temperature stations
-    temp_station_ids = stations_df['Closest_Temp_Station'].unique()
-    for station_id in temp_station_ids:
-        print(f"Processing temperature station {station_id}")
-        try:
-            # Convert station_id to string with leading zeros
-            formatted_station_id = f"{station_id}"
-            data, location = client.get_data_from_station(
-                formatted_station_id,
-                "temp_mean_past1h",
-                datetime(1990, 1, 1), 
-                datetime(2025, 1, 1), 
-                limit=299999
-            )
-            
-            # Save to CSV using formatted station ID
-            output_filename = f'TempData_{formatted_station_id}.csv'
-            output_path = os.path.join(data_dir, output_filename)
-            data.to_csv(output_path)
-            print(f"Saved temperature data to {output_path}")
-            
-        except Exception as e:
-            print(f"Error processing temperature station {station_id}: {str(e)}")
-            continue
-
-
-# import matplotlib.pyplot as plt
-
-
-# plt.figure(figsize=(15, 8))
-# plt.plot(data)
-# plt.xlabel('Time [days]')
-# plt.ylabel('Water level [m]')
-# #plt.legend((key[i],))
-# plt.show()
-
-test = pd.read_csv('/Users/emmamork/Library/CloudStorage/OneDrive-DanmarksTekniskeUniversitet/Master Thesis/MasterThesis/data_utils/Rain_data/closest_rain_stations.csv')
+    # Process both rain and temperature stations
+    process_station_data(client, 'rain')
+    process_station_data(client, 'temperature')
