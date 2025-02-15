@@ -6,6 +6,7 @@ from data_loading import (
     get_data_path, 
     get_plot_path
 )
+
 from plotting import (
     plot_data_overview,
     plot_vst_raw_overview,
@@ -83,11 +84,21 @@ def main():
     results_dir = Path('results')
     results_dir.mkdir(exist_ok=True)
     
-    # Load rain station mapping
-    rain_stations = pd.read_csv('data/closest_rain_stations.csv')
+    # Use direct path for rain stations file
+    rain_stations = pd.read_csv(Path('C:/Users/olive/OneDrive/GitHub/MasterThesis/data/closest_rain_stations.csv'))
     
     # Load all data
     all_data = load_all_folders(data_dir, folders)
+    
+    # Filter data from 2000 onwards (timezone-naive)
+    start_date = pd.to_datetime('2000-01-01')
+    for folder, data in all_data.items():
+        if data['vst_raw'] is not None:
+            data['vst_raw'] = data['vst_raw'][data['vst_raw']['Date'] >= start_date]
+        if data['vst_edt'] is not None:
+            data['vst_edt'] = data['vst_edt'][data['vst_edt']['Date'] >= start_date]
+        if data['vinge'] is not None:
+            data['vinge'] = data['vinge'][data['vinge']['Date'] >= start_date]
     
     # Collect statistics from all stations
     all_stats = []
@@ -97,44 +108,46 @@ def main():
         if data['vst_raw'] is not None:
             print(f"\nAnalyzing station {folder}:")
             
-            # Create analyzer instance and run analysis
-            analyzer = ErrorAnalyzer(data['vst_raw'])
-            #analyzer.analyze_data_characteristics()
+            # Create analyzer instance and run analysis with filtered data
+            analyzer = ErrorAnalyzer(data['vst_raw'])            
+
+
+            # Detect drift if VINGE data is available
+            if data['vinge'] is not None:
+                analyzer.drift_stats = analyzer.detect_drift(data['vinge'])
             
             # Save individual station statistics and collect for combined analysis
-            #analyzer.save_error_statistics(folder, results_dir)
-            #all_stats.append(analyzer.generate_error_statistics())
-            
+            analyzer.save_error_statistics(folder, results_dir)
+            all_stats.append(analyzer.generate_error_statistics())
 
-            # Get corresponding rain station
+            # Get corresponding rain station and add to data dictionary
             rain_station = rain_stations[
                 rain_stations['Station_of_Interest'] == int(folder)
             ]['Closest_Rain_Station'].iloc[0]
             rain_data = load_rainfall_data(data_dir, rain_station)
-            data['rain'] = rain_data  # Add rainfall data to the data dictionary
-            """
-            # Create overview plots
-            plot_data_overview(
-                data['vst_raw'], 
-                data['vst_edt'], 
-                rain_data, 
-                data['vinge']
-            )
-            """
-         #   if data['vinge'] is not None:
-         #       plot_vst_vs_vinge_comparison(data, folder)
+            if rain_data is not None:
+                # Convert rain data to timezone-naive for consistency
+                rain_data['datetime'] = rain_data['datetime'].dt.tz_localize(None)
+                rain_data = rain_data[rain_data['datetime'] >= start_date]
+            data['rain'] = rain_data
+        
+            # Add plot_data_overview call
+            #plot_data_overview(
+            #    df=data['vst_raw'],
+            #    edt_df=data['vst_edt'],
+            #    rain_df=data['rain'],
+            #    vinge_df=data['vinge']
+            #)
+
             
-         #   if data['vst_edt'] is not None:
-         #       plot_vst_files_comparison(data, folder)
             
             # Create detailed analysis plots
             time_windows = get_time_windows()
             #create_detailed_plot(data, time_windows, folder)
 
-
             # Create error analysis plot with all data
-            plot_all_errors(data, folder)  # Default: include both rain and edt
-
+            #plot_all_errors(data, folder)  # Default: include both rain and edt
+            
             # Or without rainfall data
             #plot_all_errors(data, folder, include_rain=False)
 

@@ -73,7 +73,7 @@ class ErrorAnalyzer:
             self.SAMPLES_PER_HOUR = 2.4  # fallback in case there is only one record
         self.SAMPLES_PER_DAY = self.SAMPLES_PER_HOUR * 24
 
-    def detect_gaps(self, min_gap_hours: float = 48.0):
+    def detect_gaps(self, min_gap_hours: float = 1):
         """Detect significant gaps in the time series data.
         
         Args:
@@ -149,41 +149,54 @@ class ErrorAnalyzer:
         
         return magnitude_condition & trend_condition
 
-    def detect_point_anomalies(self, min_change: float = 500.0, relative_multiplier: float = 5, 
-                              max_duration_days: int = 14):
-        """Detect point anomalies (spikes) in the data."""
-        # Calculate the first difference in the water level values
+    def detect_point_anomalies(self, min_change: float = 25.0, relative_multiplier: float = 10, 
+                              max_duration_days: float = 1, return_threshold: float = 0.5):
+        """Detect point anomalies (spikes) in the data, excluding regions already marked as offsets."""
+        # First get offset regions
+        offset_segments = self.detect_offsets()
+        offset_mask = pd.Series(False, index=self.df.index)
+        
+        # Mark all offset regions in the mask
+        for start_idx, end_idx, _ in offset_segments:
+            offset_mask.iloc[start_idx:end_idx+1] = True
+        
+        # Now detect anomalies only in non-offset regions
         value_diff = self.df[self.value_column].diff()
         abs_diff = value_diff.abs()
         
-        # Use a rolling window to compute a local median
         window_size = int(self.SAMPLES_PER_DAY)
         rolling_median = abs_diff.rolling(window=window_size, min_periods=1).median()
         
-        # Create a combined threshold
         threshold = np.maximum(min_change, rolling_median * relative_multiplier)
         
-        # Flag points where the absolute difference exceeds our threshold
-        spike_mask = abs_diff > threshold
+        # Only consider points not in offset regions
+        spike_mask = (abs_diff > threshold) & (~offset_mask)
         
-        # Group successive anomaly points into segments
         anomaly_segments = []
-        start_idx = None
-        timestamps = self.df.index
-        max_duration = pd.Timedelta(days=max_duration_days)
-        
-        for i in range(1, len(spike_mask)):
-            if spike_mask.iloc[i]:
-                if start_idx is None:
-                    start_idx = i - 1  # Include the point before the spike
-                elif timestamps[i] - timestamps[start_idx] > max_duration:
-                    start_idx = None
+        i = 1
+        while i < len(spike_mask)-1:
+            if spike_mask.iloc[i] and not offset_mask.iloc[i]:
+                # Found potential start of spike
+                initial_value = self.df[self.value_column].iloc[i-1]
+                spike_value = self.df[self.value_column].iloc[i]
+                change = abs(spike_value - initial_value)
+                
+                # Look ahead for return to original value
+                for j in range(i+1, min(i+5, len(self.df))):  # Look up to 4 points ahead
+                    return_value = self.df[self.value_column].iloc[j]
+                    return_change = abs(return_value - initial_value)
+                    
+                    # Only consider it a spike if none of the points are in an offset region
+                    if (return_change < change * return_threshold and 
+                        not offset_mask.iloc[i-1:j+1].any()):
+                        # Found return to normal - mark whole segment as spike
+                        anomaly_segments.append((i-1, j))
+                        i = j  # Skip to end of spike
+                        break
+                
+                i += 1
             else:
-                if start_idx is not None:
-                    duration = timestamps[i] - timestamps[start_idx]
-                    if duration <= max_duration:
-                        anomaly_segments.append((start_idx, i))
-                    start_idx = None
+                i += 1
         
         return anomaly_segments
 
@@ -212,13 +225,16 @@ class ErrorAnalyzer:
         return frozen_mask
 
     def detect_offsets(self, min_offset: float = 100.0, min_duration_hours: float = 0.5, 
-                      max_duration_days: int = 30, stability_threshold: float = 0.5):
+                      max_duration_days: int = 30, stability_threshold: float = 0.5,
+                      merge_window_hours: float = 12):  # New parameter for merging
         """Detect offset errors (sudden baseline shifts) in the data.
         
-        An offset error is characterized by:
-        1. A sudden jump/drop from the normal baseline
-        2. A period of normal variability at the new offset level (at least 30 minutes)
-        3. Eventually returning to approximately the original baseline
+        Args:
+            min_offset: Minimum offset magnitude to consider (mm)
+            min_duration_hours: Minimum duration of offset period
+            max_duration_days: Maximum duration to consider
+            stability_threshold: Maximum allowed variability during offset
+            merge_window_hours: Time window within which to merge nearby offsets
         """
         # Calculate value differences and rates of change
         value_diff = self.df[self.value_column].diff()
@@ -288,65 +304,51 @@ class ErrorAnalyzer:
             if not found_return:
                 i += 1
         
-        return offsets
-
-    def analyze_data_characteristics(self):
-        """Analyze statistical characteristics of the water level data at multiple time scales."""
-        # Calculate time differences and value changes
-        time_diffs = self.df.index.to_series().diff().dt.total_seconds() / 3600
-        value_diffs = self.df[self.value_column].diff()
-        rates = value_diffs / time_diffs
+        # After detecting individual offsets, merge nearby ones
+        merged_offsets = []
+        if not offsets:
+            return merged_offsets
         
-        # Basic sampling statistics
-        print("\nData Characteristics Summary:")
-        print(f"Total duration: {(self.df.index.max() - self.df.index.min()).days} days")
-        print(f"Typical sampling interval: {time_diffs.median():.2f} hours")
+        current_group = [offsets[0]]
         
-        # Short-term changes (hourly)
-        print("\nShort-term Changes (Hourly):")
-        hourly_stats = self.df.resample('H')[self.value_column].agg(['min', 'max', 'std'])
-        hourly_range = hourly_stats['max'] - hourly_stats['min']
-        print(f"Median hourly range: {hourly_range.median():.2f} mm")
-        print(f"95th percentile hourly range: {hourly_range.quantile(0.95):.2f} mm")
-        print(f"Typical hourly std: {hourly_stats['std'].median():.2f} mm")
+        for offset in offsets[1:]:
+            start_idx, end_idx, magnitude = offset
+            prev_start_idx, prev_end_idx, prev_magnitude = current_group[-1]
+            
+            # Calculate time difference between offsets
+            time_diff = (self.df.index[start_idx] - self.df.index[prev_end_idx]).total_seconds() / 3600
+            
+            if time_diff <= merge_window_hours:
+                # Add to current group
+                current_group.append(offset)
+            else:
+                # Process current group and start new one
+                if len(current_group) > 1:
+                    # Merge the group into a single offset
+                    group_start_idx = current_group[0][0]
+                    group_end_idx = current_group[-1][1]
+                    # Calculate the total magnitude as the maximum deviation
+                    values = self.df[self.value_column].iloc[group_start_idx:group_end_idx]
+                    baseline = self.df[self.value_column].iloc[max(0, group_start_idx-24):group_start_idx].median()
+                    total_magnitude = abs(values.median() - baseline)
+                    merged_offsets.append((group_start_idx, group_end_idx, total_magnitude))
+                else:
+                    # Add single offset as is
+                    merged_offsets.append(current_group[0])
+                current_group = [offset]
         
-        # Daily patterns
-        print("\nDaily Patterns:")
-        daily_stats = self.df.resample('D')[self.value_column].agg(['min', 'max', 'std'])
-        daily_range = daily_stats['max'] - daily_stats['min']
-        print(f"Median daily range: {daily_range.median():.2f} mm")
-        print(f"95th percentile daily range: {daily_range.quantile(0.95):.2f} mm")
-        print(f"Maximum daily range: {daily_range.max():.2f} mm")
-        print(f"Typical daily std: {daily_stats['std'].median():.2f} mm")
+        # Process final group
+        if len(current_group) > 1:
+            group_start_idx = current_group[0][0]
+            group_end_idx = current_group[-1][1]
+            values = self.df[self.value_column].iloc[group_start_idx:group_end_idx]
+            baseline = self.df[self.value_column].iloc[max(0, group_start_idx-24):group_start_idx].median()
+            total_magnitude = abs(values.median() - baseline)
+            merged_offsets.append((group_start_idx, group_end_idx, total_magnitude))
+        elif current_group:
+            merged_offsets.append(current_group[0])
         
-        # Weekly patterns
-        print("\nWeekly Patterns:")
-        weekly_stats = self.df.resample('W')[self.value_column].agg(['min', 'max', 'std'])
-        weekly_range = weekly_stats['max'] - weekly_stats['min']
-        print(f"Median weekly range: {weekly_range.median():.2f} mm")
-        print(f"95th percentile weekly range: {weekly_range.quantile(0.95):.2f} mm")
-        print(f"Typical weekly std: {weekly_stats['std'].median():.2f} mm")
-        
-        # Monthly patterns
-        print("\nMonthly Patterns:")
-        monthly_stats = self.df.resample('M')[self.value_column].agg(['min', 'max', 'std'])
-        monthly_range = monthly_stats['max'] - monthly_stats['min']
-        print(f"Median monthly range: {monthly_range.median():.2f} mm")
-        print(f"95th percentile monthly range: {monthly_range.quantile(0.95):.2f} mm")
-        print(f"Typical monthly std: {monthly_stats['std'].median():.2f} mm")
-        
-        # Rate of change statistics
-        print("\nRate of Change Statistics:")
-        print(f"Median absolute rate: {abs(rates).median():.2f} mm/hour")
-        print(f"95th percentile rate: {abs(rates).quantile(0.95):.2f} mm/hour")
-        print(f"99th percentile rate: {abs(rates).quantile(0.99):.2f} mm/hour")
-        
-        # Extreme changes
-        print("\nExtreme Changes:")
-        print(f"Maximum rise: {value_diffs.max():.2f} mm")
-        print(f"Maximum fall: {value_diffs.min():.2f} mm")
-        print(f"Maximum rate of rise: {rates.max():.2f} mm/hour")
-        print(f"Maximum rate of fall: {rates.min():.2f} mm/hour")
+        return merged_offsets
 
     def summarize_errors(self):
         """
@@ -394,7 +396,8 @@ class ErrorAnalyzer:
         return summary
 
     def detect_drift(self, vinge_data: pd.DataFrame, lower_threshold: float = 10, 
-                    upper_threshold: float = 150) -> pd.DataFrame:
+                    upper_threshold: float = 150,
+                    max_gap_days: float = 90) -> pd.DataFrame:
         """
         Detect drift periods by comparing sensor data with manual measurements.
         
@@ -402,6 +405,7 @@ class ErrorAnalyzer:
             vinge_data: DataFrame containing manual measurements with 'Date' and 'W.L [cm]' columns
             lower_threshold: Minimum difference to consider as drift (default: 10mm)
             upper_threshold: Maximum difference to consider as drift (default: 150mm)
+            max_gap_days: Maximum gap between measurements to consider as same drift period (default: 90 days)
         
         Returns:
             DataFrame containing drift statistics
@@ -422,22 +426,121 @@ class ErrorAnalyzer:
         # Create a boolean mask for points with differences
         has_difference = (merged_data['difference'] > lower_threshold) & (merged_data['difference'] < upper_threshold)
         
-        # Create groups of continuous drift periods
-        merged_data['drift_group'] = (~has_difference).cumsum()[has_difference]
+        # Get only the drift points
+        drift_points = merged_data[has_difference].copy()
         
-        # Calculate drift statistics
-        drift_stats = merged_data[has_difference].groupby('drift_group').agg({
-            'Date': ['min', 'max', lambda x: (x.max() - x.min()).total_seconds() / (60 * 60 * 24)],
+        if len(drift_points) == 0:
+            return pd.DataFrame(columns=[
+                'drift_group', 'start_date', 'end_date', 'duration_days',
+                'mean_difference', 'max_difference', 'num_points'
+            ])
+        
+        # Sort by date
+        drift_points = drift_points.sort_values('Date')
+        
+        # Initialize drift groups
+        drift_points['time_diff'] = drift_points['Date'].diff().dt.total_seconds() / (24 * 3600)  # in days
+        drift_points['new_group'] = drift_points['time_diff'] > max_gap_days
+        drift_points['drift_group'] = drift_points['new_group'].cumsum()
+        
+        # Calculate drift statistics for each group
+        drift_stats = drift_points.groupby('drift_group').agg({
+            'Date': ['min', 'max'],
             'difference': ['mean', 'max', 'count']
         }).reset_index()
         
-        # Rename columns for clarity
+        # Flatten column names
         drift_stats.columns = [
-            'drift_group', 'start_date', 'end_date', 'duration_days',
-            'mean_difference', 'max_difference', 'num_points'
+            'drift_group', 'start_date', 'end_date', 'mean_difference', 
+            'max_difference', 'num_points'
         ]
         
+        # Calculate duration in days
+        drift_stats['duration_days'] = (
+            drift_stats['end_date'] - drift_stats['start_date']
+        ).dt.total_seconds() / (24 * 3600)
+        
+        # Reorder columns to match existing format
+        drift_stats = drift_stats[[
+            'drift_group', 'start_date', 'end_date', 'duration_days',
+            'mean_difference', 'max_difference', 'num_points'
+        ]]
+        
         return drift_stats
+
+    def detect_linear_interpolation(self, min_duration_hours: float = 24.0, 
+                                  rate_tolerance: float = 1e-6,
+                                  min_points: int = 5,
+                                  min_rate: float = 0.001) -> pd.Series:
+        """Detect segments of linear interpolation in the data.
+        
+        Args:
+            min_duration_hours: Minimum duration of interpolation to detect (default: 24 hours)
+            rate_tolerance: Maximum allowed deviation in rate of change to consider as constant (default: 1e-6)
+            min_points: Minimum number of points required to consider a segment (default: 5)
+            min_rate: Minimum absolute rate of change to consider (to exclude flat segments) (default: 0.001)
+        
+        Returns:
+            pd.Series: Boolean mask indicating linear interpolation segments
+        """
+        # Initialize mask for linear segments
+        linear_mask = pd.Series(False, index=self.df.index)
+        
+        # Calculate time differences and value differences
+        time_diffs = self.df.index.to_series().diff().dt.total_seconds()
+        value_diffs = self.df[self.value_column].diff()
+        
+        # Calculate rates of change
+        rates = value_diffs / time_diffs
+        
+        # Initialize variables for tracking segments
+        current_segment = []
+        current_rate = None
+        
+        # Iterate through the rates to find constant segments
+        for idx in range(1, len(rates)):
+            if current_segment:
+                # Check if current rate matches the segment rate within tolerance
+                rate_diff = abs(rates.iloc[idx] - current_rate)
+                if rate_diff <= rate_tolerance:
+                    current_segment.append(idx)
+                else:
+                    # Check if the completed segment meets minimum requirements
+                    segment_duration = (
+                        self.df.index[current_segment[-1]] - 
+                        self.df.index[current_segment[0]]
+                    ).total_seconds() / 3600
+                    
+                    # Only mark segments that are:
+                    # 1. Long enough
+                    # 2. Have enough points
+                    # 3. Have a non-zero rate of change
+                    if (segment_duration >= min_duration_hours and 
+                        len(current_segment) >= min_points and
+                        abs(current_rate) >= min_rate):
+                        linear_mask.iloc[current_segment] = True
+                    
+                    # Start new segment
+                    current_segment = [idx]
+                    current_rate = rates.iloc[idx]
+            else:
+                # Start new segment
+                current_segment = [idx]
+                current_rate = rates.iloc[idx]
+        
+        # Check final segment
+        if current_segment:
+            segment_duration = (
+                self.df.index[current_segment[-1]] - 
+                self.df.index[current_segment[0]]
+            ).total_seconds() / 3600
+            
+            if (segment_duration >= min_duration_hours and 
+                len(current_segment) >= min_points and
+                abs(current_rate) >= min_rate):
+                linear_mask.iloc[current_segment] = True
+        
+        return linear_mask
 
     def generate_error_statistics(self):
         """Generate comprehensive statistics for each type of error."""
@@ -445,81 +548,156 @@ class ErrorAnalyzer:
         total_duration = (self.df.index[-1] - self.df.index[0]).total_seconds() / 3600  # Total hours
         
         # Gap Statistics
-        gaps = self.detect_gaps()
-        gap_periods = []
-        current_gap = None
+        time_diffs = self.df.index.to_series().diff().dt.total_seconds() / 3600
+        typical_interval = time_diffs.median()
+        gap_threshold = max(typical_interval * 2, 0.5)
+        gap_durations = time_diffs[time_diffs > gap_threshold].values
         
-        for idx in gaps[gaps].index:
-            if current_gap is None:
-                current_gap = {'start': idx}
-            elif (idx - prev_idx).total_seconds() > 3600:  # New gap if > 1 hour between points
-                current_gap['end'] = prev_idx
-                gap_periods.append(current_gap)
-                current_gap = {'start': idx}
-            prev_idx = idx
-        
-        if current_gap is not None:
-            current_gap['end'] = prev_idx
-            gap_periods.append(current_gap)
-        
-        gap_durations = [(gap['end'] - gap['start']).total_seconds() / 3600 for gap in gap_periods]
-        stats['gaps'] = {
-            'count': len(gap_periods),
-            'total_duration_hours': sum(gap_durations),
-            'avg_duration_hours': np.mean(gap_durations) if gap_durations else 0,
-            'max_duration_hours': max(gap_durations) if gap_durations else 0,
-            'frequency_percent': (sum(gap_durations) / total_duration) * 100 if gap_durations else 0
-        }
+        if len(gap_durations) > 0:
+            gap_duration_stats = pd.Series(gap_durations).describe(percentiles=[0.25, 0.75])
+            stats['gaps'] = {
+                'count': len(gap_durations),
+                'total_duration_hours': sum(gap_durations),
+                'min_duration_hours': gap_duration_stats['min'],
+                '25%_duration_hours': gap_duration_stats['25%'],
+                'mean_duration_hours': gap_duration_stats['mean'],
+                'median_duration_hours': gap_duration_stats['50%'],
+                '75%_duration_hours': gap_duration_stats['75%'],
+                'max_duration_hours': gap_duration_stats['max'],
+                'frequency_percent': (sum(gap_durations) / total_duration) * 100,
+                '_raw_durations': gap_durations.tolist()  # Store raw values
+            }
+        else:
+            stats['gaps'] = {
+                'count': 0,
+                'total_duration_hours': 0,
+                'min_duration_hours': 0,
+                '25%_duration_hours': 0,
+                'mean_duration_hours': 0,
+                'median_duration_hours': 0,
+                '75%_duration_hours': 0,
+                'max_duration_hours': 0,
+                'frequency_percent': 0,
+                '_raw_durations': []
+            }
         
         # Frozen Values Statistics
-        frozen = self.detect_frozen_values()
+        frozen = self.detect_frozen_values(min_consecutive=20)
         frozen_periods = []
         current_frozen = None
+        prev_idx = None
         
         for idx in frozen[frozen].index:
             if current_frozen is None:
                 current_frozen = {'start': idx, 'value': self.df.loc[idx, self.value_column]}
-            elif (idx - prev_idx).total_seconds() > 3600:  # New period if > 1 hour between points
-                current_frozen['end'] = prev_idx
-                frozen_periods.append(current_frozen)
+                prev_idx = idx
+            elif (idx - prev_idx).total_seconds() > 900:
+                if len(frozen[frozen].loc[current_frozen['start']:prev_idx]) >= 20:
+                    current_frozen['end'] = prev_idx
+                    frozen_periods.append(current_frozen)
                 current_frozen = {'start': idx, 'value': self.df.loc[idx, self.value_column]}
             prev_idx = idx
         
-        if current_frozen is not None:
+        if current_frozen is not None and len(frozen[frozen].loc[current_frozen['start']:prev_idx]) >= 20:
             current_frozen['end'] = prev_idx
             frozen_periods.append(current_frozen)
         
-        frozen_durations = [(period['end'] - period['start']).total_seconds() / 3600 for period in frozen_periods]
-        stats['frozen_values'] = {
-            'count': len(frozen_periods),
-            'total_duration_hours': sum(frozen_durations),
-            'avg_duration_hours': np.mean(frozen_durations) if frozen_durations else 0,
-            'max_duration_hours': max(frozen_durations) if frozen_durations else 0,
-            'frequency_percent': (sum(frozen_durations) / total_duration) * 100 if frozen_durations else 0
-        }
+        frozen_durations = []
+        for period in frozen_periods:
+            duration = (period['end'] - period['start']).total_seconds() / 3600
+            if duration > 0:
+                frozen_durations.append(duration)
+        
+        if frozen_durations:
+            frozen_duration_stats = pd.Series(frozen_durations).describe(percentiles=[0.25, 0.75])
+            stats['frozen_values'] = {
+                'count': len(frozen_periods),
+                'total_duration_hours': sum(frozen_durations),
+                'min_duration_hours': frozen_duration_stats['min'],
+                '25%_duration_hours': frozen_duration_stats['25%'],
+                'mean_duration_hours': frozen_duration_stats['mean'],
+                'median_duration_hours': frozen_duration_stats['50%'],
+                '75%_duration_hours': frozen_duration_stats['75%'],
+                'max_duration_hours': frozen_duration_stats['max'],
+                'frequency_percent': (sum(frozen_durations) / total_duration) * 100,
+                '_raw_durations': frozen_durations  # Store raw values
+            }
+        else:
+            stats['frozen_values'] = {
+                'count': 0,
+                'total_duration_hours': 0,
+                'min_duration_hours': 0,
+                '25%_duration_hours': 0,
+                'mean_duration_hours': 0,
+                'median_duration_hours': 0,
+                '75%_duration_hours': 0,
+                'max_duration_hours': 0,
+                'frequency_percent': 0,
+                '_raw_durations': []
+            }
         
         # Point Anomalies Statistics
-        anomalies = self.detect_point_anomalies()
+        anomalies = self.detect_point_anomalies(
+            min_change=25.0,
+            relative_multiplier=10,
+            max_duration_days=1,
+            return_threshold=0.5
+        )
+        
         anomaly_magnitudes = []
         anomaly_durations = []
         
         for start_idx, end_idx in anomalies:
-            segment = self.df.iloc[start_idx:end_idx+1]
-            baseline = self.df[self.value_column].iloc[max(0, start_idx-10):start_idx].mean()
-            magnitude = abs(segment[self.value_column] - baseline).max()
-            duration = (segment.index[-1] - segment.index[0]).total_seconds() / 3600
+            initial_value = self.df[self.value_column].iloc[start_idx]
+            anomaly_sequence = self.df[self.value_column].iloc[start_idx:end_idx+1]
+            magnitude = max(abs(anomaly_sequence - initial_value))
+            duration = (self.df.index[end_idx] - self.df.index[start_idx]).total_seconds() / 3600
             
             anomaly_magnitudes.append(magnitude)
             anomaly_durations.append(duration)
         
-        stats['point_anomalies'] = {
-            'count': len(anomalies),
-            'total_duration_hours': sum(anomaly_durations),
-            'avg_duration_hours': np.mean(anomaly_durations) if anomaly_durations else 0,
-            'avg_magnitude_mm': np.mean(anomaly_magnitudes) if anomaly_magnitudes else 0,
-            'max_magnitude_mm': max(anomaly_magnitudes) if anomaly_magnitudes else 0,
-            'frequency_percent': (sum(anomaly_durations) / total_duration) * 100 if anomaly_durations else 0
-        }
+        if anomaly_magnitudes:
+            magnitude_stats = pd.Series(anomaly_magnitudes).describe(percentiles=[0.25, 0.75])
+            duration_stats = pd.Series(anomaly_durations).describe(percentiles=[0.25, 0.75])
+            stats['point_anomalies'] = {
+                'count': len(anomalies),
+                'total_duration_hours': sum(anomaly_durations),
+                'min_duration_hours': duration_stats['min'],
+                '25%_duration_hours': duration_stats['25%'],
+                'mean_duration_hours': duration_stats['mean'],
+                'median_duration_hours': duration_stats['50%'],
+                '75%_duration_hours': duration_stats['75%'],
+                'max_duration_hours': duration_stats['max'],
+                'min_magnitude_mm': magnitude_stats['min'],
+                '25%_magnitude_mm': magnitude_stats['25%'],
+                'mean_magnitude_mm': magnitude_stats['mean'],
+                'median_magnitude_mm': magnitude_stats['50%'],
+                '75%_magnitude_mm': magnitude_stats['75%'],
+                'max_magnitude_mm': magnitude_stats['max'],
+                'frequency_percent': (sum(anomaly_durations) / total_duration) * 100,
+                '_raw_magnitudes': anomaly_magnitudes,  # Store raw values
+                '_raw_durations': anomaly_durations
+            }
+        else:
+            stats['point_anomalies'] = {
+                'count': 0,
+                'total_duration_hours': 0,
+                'min_duration_hours': 0,
+                '25%_duration_hours': 0,
+                'mean_duration_hours': 0,
+                'median_duration_hours': 0,
+                '75%_duration_hours': 0,
+                'max_duration_hours': 0,
+                'min_magnitude_mm': 0,
+                '25%_magnitude_mm': 0,
+                'mean_magnitude_mm': 0,
+                'median_magnitude_mm': 0,
+                '75%_magnitude_mm': 0,
+                'max_magnitude_mm': 0,
+                'frequency_percent': 0,
+                '_raw_magnitudes': [],
+                '_raw_durations': []
+            }
         
         # Offset Statistics
         offsets = self.detect_offsets()
@@ -531,27 +709,47 @@ class ErrorAnalyzer:
             offset_magnitudes.append(abs(magnitude))
             offset_durations.append(duration)
         
-        stats['offsets'] = {
-            'count': len(offsets),
-            'total_duration_hours': sum(offset_durations),
-            'avg_duration_hours': np.mean(offset_durations) if offset_durations else 0,
-            'avg_magnitude_mm': np.mean(offset_magnitudes) if offset_magnitudes else 0,
-            'max_magnitude_mm': max(offset_magnitudes) if offset_magnitudes else 0,
-            'frequency_percent': (sum(offset_durations) / total_duration) * 100 if offset_durations else 0
-        }
-        
-        # Drift Statistics
-        if hasattr(self, 'drift_stats') and self.drift_stats is not None:
-            drift_magnitudes = self.drift_stats['mean_difference'].values
-            drift_durations = self.drift_stats['duration_days'].values * 24
-            
-            stats['drift'] = {
-                'count': len(self.drift_stats),
-                'total_duration_hours': sum(drift_durations),
-                'avg_duration_hours': np.mean(drift_durations) if len(drift_durations) > 0 else 0,
-                'avg_magnitude_mm': np.mean(drift_magnitudes) if len(drift_magnitudes) > 0 else 0,
-                'max_magnitude_mm': max(drift_magnitudes) if len(drift_magnitudes) > 0 else 0,
-                'frequency_percent': (sum(drift_durations) / total_duration) * 100 if len(drift_durations) > 0 else 0
+        if offset_magnitudes:
+            magnitude_stats = pd.Series(offset_magnitudes).describe(percentiles=[0.25, 0.75])
+            duration_stats = pd.Series(offset_durations).describe(percentiles=[0.25, 0.75])
+            stats['offsets'] = {
+                'count': len(offsets),
+                'total_duration_hours': sum(offset_durations),
+                'min_duration_hours': duration_stats['min'],
+                '25%_duration_hours': duration_stats['25%'],
+                'mean_duration_hours': duration_stats['mean'],
+                'median_duration_hours': duration_stats['50%'],
+                '75%_duration_hours': duration_stats['75%'],
+                'max_duration_hours': duration_stats['max'],
+                'min_magnitude_mm': magnitude_stats['min'],
+                '25%_magnitude_mm': magnitude_stats['25%'],
+                'mean_magnitude_mm': magnitude_stats['mean'],
+                'median_magnitude_mm': magnitude_stats['50%'],
+                '75%_magnitude_mm': magnitude_stats['75%'],
+                'max_magnitude_mm': magnitude_stats['max'],
+                'frequency_percent': (sum(offset_durations) / total_duration) * 100,
+                '_raw_magnitudes': offset_magnitudes,  # Store raw values
+                '_raw_durations': offset_durations
+            }
+        else:
+            stats['offsets'] = {
+                'count': 0,
+                'total_duration_hours': 0,
+                'min_duration_hours': 0,
+                '25%_duration_hours': 0,
+                'mean_duration_hours': 0,
+                'median_duration_hours': 0,
+                '75%_duration_hours': 0,
+                'max_duration_hours': 0,
+                'min_magnitude_mm': 0,
+                '25%_magnitude_mm': 0,
+                'mean_magnitude_mm': 0,
+                'median_magnitude_mm': 0,
+                '75%_magnitude_mm': 0,
+                'max_magnitude_mm': 0,
+                'frequency_percent': 0,
+                '_raw_magnitudes': [],
+                '_raw_durations': []
             }
         
         return stats
@@ -636,7 +834,7 @@ class ErrorAnalyzer:
         with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
             workbook = writer.book
             
-            # Define common formats
+            # Define formats
             header_format = workbook.add_format({
                 'bold': True,
                 'font_size': 12,
@@ -662,53 +860,166 @@ class ErrorAnalyzer:
                 'num_format': '0.00%'
             })
             
-            # First, create the combined statistics sheet
-            combined_stats = {}
+            # Collect all raw values for combined statistics
+            combined_raw_data = {
+                'point_anomalies': {'magnitudes': [], 'durations': []},
+                'offsets': {'magnitudes': [], 'durations': []},
+                'gaps': {'durations': []},
+                'frozen_values': {'durations': []},
+                'linear_interpolation': {'durations': []}
+            }
+            
+            # Collect total counts and durations
+            total_counts = {error_type: 0 for error_type in combined_raw_data.keys()}
+            total_durations = {error_type: 0 for error_type in combined_raw_data.keys()}
+            
+            # Combine raw data from all stations
             for stats in all_stats:
-                for error_type, error_stats in stats.items():
-                    if error_type not in combined_stats:
-                        combined_stats[error_type] = {stat: [] for stat in error_stats.keys()}
-                    for stat, value in error_stats.items():
-                        combined_stats[error_type][stat].append(value)
+                for error_type in combined_raw_data.keys():
+                    if error_type in stats:
+                        # Add raw magnitudes if available
+                        if '_raw_magnitudes' in stats[error_type]:
+                            combined_raw_data[error_type]['magnitudes'].extend(
+                                stats[error_type]['_raw_magnitudes'])
+                        
+                        # Add raw durations
+                        if '_raw_durations' in stats[error_type]:
+                            combined_raw_data[error_type]['durations'].extend(
+                                stats[error_type]['_raw_durations'])
+                        
+                        # Update totals
+                        total_counts[error_type] += stats[error_type]['count']
+                        total_durations[error_type] += stats[error_type]['total_duration_hours']
             
+            # Calculate combined statistics
             summary_data = []
-            for error_type, error_stats in combined_stats.items():
-                for stat, values in error_stats.items():
-                    if values:
-                        summary_data.append({
+            for error_type, raw_data in combined_raw_data.items():
+                # Basic statistics for all error types
+                summary_data.append({
+                    'Error Type': error_type.replace('_', ' ').title(),
+                    'Statistic': 'Total Count',
+                    'Value': total_counts[error_type]
+                })
+                
+                summary_data.append({
+                    'Error Type': error_type.replace('_', ' ').title(),
+                    'Statistic': 'Total Duration (hours)',
+                    'Value': total_durations[error_type]
+                })
+                
+                # Duration statistics
+                if raw_data['durations']:
+                    duration_stats = pd.Series(raw_data['durations']).describe(
+                        percentiles=[0.25, 0.75])
+                    
+                    summary_data.extend([
+                        {
                             'Error Type': error_type.replace('_', ' ').title(),
-                            'Statistic': stat.replace('_', ' ').title(),
-                            'Average': np.mean(values),
-                            'Min': np.min(values),
-                            'Max': np.max(values),
-                            'Total': np.sum(values) if 'count' in stat.lower() or 'duration' in stat.lower() else None
-                        })
+                            'Statistic': 'Min Duration (hours)',
+                            'Value': duration_stats['min']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': '25% Duration (hours)',
+                            'Value': duration_stats['25%']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': 'Mean Duration (hours)',
+                            'Value': duration_stats['mean']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': 'Median Duration (hours)',
+                            'Value': duration_stats['50%']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': '75% Duration (hours)',
+                            'Value': duration_stats['75%']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': 'Max Duration (hours)',
+                            'Value': duration_stats['max']
+                        }
+                    ])
+                
+                # Magnitude statistics only for point anomalies and offsets
+                if error_type in ['point_anomalies', 'offsets'] and raw_data['magnitudes']:
+                    magnitude_stats = pd.Series(raw_data['magnitudes']).describe(
+                        percentiles=[0.25, 0.75])
+                    
+                    summary_data.extend([
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': 'Min Magnitude (mm)',
+                            'Value': magnitude_stats['min']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': '25% Magnitude (mm)',
+                            'Value': magnitude_stats['25%']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': 'Mean Magnitude (mm)',
+                            'Value': magnitude_stats['mean']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': 'Median Magnitude (mm)',
+                            'Value': magnitude_stats['50%']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': '75% Magnitude (mm)',
+                            'Value': magnitude_stats['75%']
+                        },
+                        {
+                            'Error Type': error_type.replace('_', ' ').title(),
+                            'Statistic': 'Max Magnitude (mm)',
+                            'Value': magnitude_stats['max']
+                        }
+                    ])
             
+            # Create and write combined statistics DataFrame
             combined_df = pd.DataFrame(summary_data)
             combined_df.to_excel(writer, sheet_name='Combined Statistics', index=False)
             
             # Format combined statistics sheet
             worksheet = writer.sheets['Combined Statistics']
-            for col_num, value in enumerate(['Error Type', 'Statistic', 'Average', 'Min', 'Max', 'Total']):
+            for col_num, value in enumerate(['Error Type', 'Statistic', 'Value']):
                 worksheet.write(0, col_num, value, header_format)
+            
             worksheet.set_column('A:A', 20)
             worksheet.set_column('B:B', 25)
-            worksheet.set_column('C:F', 15)
+            worksheet.set_column('C:C', 15)
             
-            # Then create individual station sheets
+            # Write data with formatting
+            for row_num in range(len(combined_df)):
+                worksheet.write(row_num + 1, 0, combined_df.iloc[row_num, 0], cell_format)
+                worksheet.write(row_num + 1, 1, combined_df.iloc[row_num, 1], cell_format)
+                
+                value = combined_df.iloc[row_num, 2]
+                if 'frequency' in combined_df.iloc[row_num, 1].lower():
+                    worksheet.write(row_num + 1, 2, value/100, percent_format)
+                else:
+                    worksheet.write(row_num + 1, 2, value, number_format)
+            
+            # Write individual station sheets
             for folder, stats in zip(folders, all_stats):
                 sheet_name = f'Station {folder}'
                 summary_data = []
                 
                 for error_type, error_stats in stats.items():
                     for stat_name, value in error_stats.items():
-                        if isinstance(value, (int, float)):
-                            row_data = {
+                        if isinstance(value, (int, float)) and not stat_name.startswith('_'):
+                            summary_data.append({
                                 'Error Type': error_type.replace('_', ' ').title(),
                                 'Statistic': stat_name.replace('_', ' ').title(),
                                 'Value': value
-                            }
-                            summary_data.append(row_data)
+                            })
                 
                 df = pd.DataFrame(summary_data)
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -722,12 +1033,10 @@ class ErrorAnalyzer:
                 worksheet.set_column('B:B', 25)
                 worksheet.set_column('C:C', 15)
                 
-                # Write data with appropriate formatting
                 for row_num in range(len(df)):
                     worksheet.write(row_num + 1, 0, df.iloc[row_num, 0], cell_format)
                     worksheet.write(row_num + 1, 1, df.iloc[row_num, 1], cell_format)
                     
-                    # Use percent format for frequency statistics
                     value = df.iloc[row_num, 2]
                     if 'frequency' in df.iloc[row_num, 1].lower():
                         worksheet.write(row_num + 1, 2, value/100, percent_format)
