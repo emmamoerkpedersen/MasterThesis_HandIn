@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
+import matplotlib.pyplot as plt
 
 @dataclass
 class ErrorPeriod:
@@ -28,57 +29,341 @@ class SyntheticErrorGenerator:
         Args:
             config: Dictionary of error parameters (if None, uses default from config.py)
         """
-        from error_detection.config import SYNTHETIC_ERROR_PARAMS
+        from config import SYNTHETIC_ERROR_PARAMS
         self.config = config or SYNTHETIC_ERROR_PARAMS
         self.error_periods: List[ErrorPeriod] = []
+        self.used_indices = set()  # Track all used indices
+    
+    def _is_period_available(self, start_idx: int, end_idx: int) -> bool:
+        """
+        Check if a period is available for error injection.
+        
+        Args:
+            start_idx: Start index of proposed period
+            end_idx: End index of proposed period
+            
+        Returns:
+            bool: True if period is available, False if there's overlap
+        """
+        # Check if any index in the range is already used
+        period_indices = set(range(start_idx, end_idx))
+        return not bool(period_indices & self.used_indices)
+    
+    def _mark_period_used(self, start_idx: int, end_idx: int):
+        """Mark a period as used to prevent overlaps."""
+        self.used_indices.update(range(start_idx, end_idx))
     
     def inject_spike_errors(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Inject spike errors.
+        Inject spike errors into the time series data.
         
-        Strategy:
-        1. Find valid injection points (avoid existing errors)
-        2. Calculate local statistics for realistic magnitudes
-        3. Apply sudden deviation with quick recovery
-        4. Record error periods and parameters
+        Args:
+            data: DataFrame with time series data
+            
+        Returns:
+            DataFrame with injected spike errors
         """
-        pass
+        modified_data = data.copy()
+        
+        # Get spike parameters from config
+        spike_config = self.config['spike']
+        frequency = spike_config['frequency']
+        mag_range = spike_config['magnitude_range']
+        recovery_time = spike_config['recovery_time']
+        negative_positiv_ratio = spike_config['negative_positiv_ratio']
+        
+        # Calculate number of spikes to inject
+        n_spikes = int(len(data) * frequency)
+        
+        # Try to inject spikes until we hit the target or run out of space
+        successful_injections = 0
+        max_attempts = n_spikes * 10  # Limit attempts to prevent infinite loops
+        attempts = 0
+        
+        while successful_injections < n_spikes and attempts < max_attempts:
+            # Randomly select an injection point
+            idx = np.random.randint(recovery_time, len(data) - recovery_time)
+            end_idx = idx + recovery_time
+            
+            # Check if period is available
+            if self._is_period_available(idx, end_idx):
+                # Get the current value and generate spike
+                current_value = float(modified_data.iloc[idx].values[0])
+                magnitude = current_value * np.random.uniform(*mag_range)
+                direction = np.random.choice([-1, 1], p=[negative_positiv_ratio, 1-negative_positiv_ratio])
+                spike_value = current_value + (direction * magnitude)
+                
+                # Ensure spike value is within physical limits
+                spike_value = np.clip(
+                    spike_value, 
+                    self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0),
+                    self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
+                )
+                
+                # Create and apply recovery pattern
+                recovery_pattern = np.linspace(spike_value, current_value, recovery_time + 1)[:-1]
+                original_values = modified_data.iloc[idx:idx + recovery_time].copy()
+                modified_data.iloc[idx:idx + recovery_time] = recovery_pattern
+                
+                # Record error period
+                self.error_periods.append(
+                    ErrorPeriod(
+                        start_time=modified_data.index[idx],
+                        end_time=modified_data.index[idx + recovery_time - 1],
+                        error_type='spike',
+                        original_values=original_values.values,
+                        modified_values=recovery_pattern,
+                        parameters={
+                            'magnitude': magnitude,
+                            'direction': direction,
+                            'recovery_time': recovery_time
+                        }
+                    )
+                )
+                
+                # Mark period as used
+                self._mark_period_used(idx, end_idx)
+                successful_injections += 1
+            
+            attempts += 1
+        
+        return modified_data
 
-    def inject_flatline_errors(self, data: pd.DataFrame) -> pd.DataFrame:
+    def inject_flatline_errors(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, List[Tuple[pd.Timestamp, pd.Timestamp]]]:
         """
-        Inject flatline errors.
+        Inject flatline errors into the time series data.
+        Creates periods where the value stays exactly constant (horizontal line).
+        """
+        modified_data = data.copy()
+        flatline_periods = []
         
-        Strategy:
-        1. Select periods of appropriate duration
-        2. Replace with constant value from start of period
-        3. Consider seasonal context for realism
-        4. Record error periods
-        """
-        pass
+        # Get flatline parameters from config
+        flatline_config = self.config['flatline']
+        frequency = flatline_config['frequency']
+        duration_range = flatline_config['duration_range']
+        
+        # Calculate number of flatlines to inject
+        n_flatlines = int(len(data) * frequency)
+        
+        successful_injections = 0
+        max_attempts = n_flatlines * 10
+        attempts = 0
+        
+        while successful_injections < n_flatlines and attempts < max_attempts:
+            idx = np.random.randint(0, len(data) - duration_range[1])
+            duration = np.random.randint(*duration_range)
+            end_idx = min(idx + duration, len(modified_data))
+            
+            if self._is_period_available(idx, end_idx):
+                # Store original values
+                original_values = modified_data.iloc[idx:end_idx].copy()
+                
+                # Simply repeat the first value for the entire duration
+                flatline_value = float(modified_data.iloc[idx].values[0])
+                modified_data.iloc[idx:end_idx] = flatline_value
+                
+                # Store period for plotting
+                flatline_periods.append((modified_data.index[idx], modified_data.index[end_idx-1]))
+                
+                # Record error period
+                self.error_periods.append(
+                    ErrorPeriod(
+                        start_time=modified_data.index[idx],
+                        end_time=modified_data.index[end_idx - 1],
+                        error_type='flatline',
+                        original_values=original_values.values.flatten(),
+                        modified_values=np.full(end_idx - idx, flatline_value),
+                        parameters={
+                            'duration': duration,
+                            'flatline_value': flatline_value
+                        }
+                    )
+                )
+                
+                self._mark_period_used(idx, end_idx)
+                successful_injections += 1
+            
+            attempts += 1
+        
+        return modified_data, flatline_periods
 
     def inject_drift_errors(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Inject gradual drift errors.
+        Inject gradual drift errors into the time series data.
         
-        Strategy:
-        1. Select longer periods for drift
-        2. Apply gradual linear or exponential deviation
-        3. Consider physical limits of sensor
-        4. Record error characteristics
+        Args:
+            data: DataFrame with time series data
+            
+        Returns:
+            DataFrame with injected drift errors
         """
-        pass
+        modified_data = data.copy()
+        
+        # Get drift parameters from config
+        drift_config = self.config['drift']
+        frequency = drift_config['frequency']
+        duration_range = drift_config['duration_range']  # in hours
+        drift_magnitude = drift_config['magnitude_range']  # maximum deviation at end of drift
+        negative_positive_ratio = drift_config['negative_positive_ratio']
+        
+        # Calculate number of drifts to inject
+        n_drifts = int(len(data) * frequency)
+        
+        successful_injections = 0
+        max_attempts = n_drifts * 10
+        attempts = 0
+        
+        while successful_injections < n_drifts and attempts < max_attempts:
+            # Randomly select an injection point
+            idx = np.random.randint(0, len(data) - duration_range[1])
+            duration = np.random.randint(*duration_range)
+            end_idx = min(idx + duration, len(modified_data))
+            
+            if self._is_period_available(idx, end_idx):
+                # Store original values
+                original_values = modified_data.iloc[idx:end_idx].copy()
+                
+                # Determine drift direction
+                direction = np.random.choice([-1, 1], p=[negative_positive_ratio, 1-negative_positive_ratio])
+                
+                # Generate drift magnitude
+                max_drift = direction * np.random.uniform(*drift_magnitude)
+                
+                # Create drift pattern (linear or exponential)
+                if np.random.random() < 0.5:  # 50% chance of linear vs exponential
+                    # Linear drift
+                    drift_pattern = np.linspace(0, max_drift, end_idx - idx)
+                else:
+                    # Exponential drift
+                    drift_pattern = max_drift * (np.exp(np.linspace(0, 1, end_idx - idx)) - 1) / (np.e - 1)
+                
+                # Apply drift to the data
+                modified_values = original_values.values.flatten() + drift_pattern
+                
+                # Ensure values stay within physical limits
+                modified_values = np.clip(
+                    modified_values,
+                    self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0),
+                    self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
+                )
+                
+                # Apply modified values
+                modified_data.iloc[idx:end_idx] = modified_values.reshape(-1, 1)
+                
+                # Record error period
+                self.error_periods.append(
+                    ErrorPeriod(
+                        start_time=modified_data.index[idx],
+                        end_time=modified_data.index[end_idx - 1],
+                        error_type='drift',
+                        original_values=original_values.values.flatten(),
+                        modified_values=modified_values,
+                        parameters={
+                            'duration': duration,
+                            'max_drift': max_drift,
+                            'drift_type': 'linear' if np.random.random() < 0.5 else 'exponential'
+                        }
+                    )
+                )
+                
+                # Mark period as used
+                self._mark_period_used(idx, end_idx)
+                successful_injections += 1
+            
+            attempts += 1
+            
+        return modified_data
 
-    def inject_offset_errors(self, data: pd.DataFrame) -> pd.DataFrame:
+    def inject_offset_errors(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, List[Tuple[pd.Timestamp, pd.Timestamp]]]:
         """
-        Inject sudden offset errors.
+        Inject sudden offset errors into the time series data.
         
-        Strategy:
-        1. Select points for sudden shifts
-        2. Apply persistent level change
-        3. Ensure physical realism of offset magnitude
-        4. Record shift parameters
+        Args:
+            data: DataFrame with time series data
+            
+        Returns:
+            Tuple containing:
+            - Modified data with injected errors
+            - List of tuples representing offset periods
         """
-        pass
+        modified_data = data.copy()
+        offset_periods = []
+        
+        # Get offset parameters from config
+        offset_config = self.config['offset']
+        frequency = offset_config['frequency']
+        mag_range = offset_config['magnitude_range']
+        min_duration = offset_config['min_duration']
+        negative_positiv_ratio = offset_config['negative_positiv_ratio']
+        duration_multiplier_range = offset_config['max_duration_multiplier']
+        magnitude_multiplier_range = offset_config['magnitude_multiplier']
+        
+        # Calculate number of offsets to inject
+        n_offsets = int(len(data) * frequency)
+        
+        # Randomly select injection points, ensuring they don't overlap
+        possible_indices = np.arange(0, len(data) - min_duration)
+        offset_indices = np.random.choice(possible_indices, size=n_offsets, replace=False)
+        
+        for idx in offset_indices:
+            # Calculate local statistics for context-aware magnitude
+            window = slice(max(0, idx-24), min(len(data), idx+24))
+            local_std = modified_data.iloc[window].std().values[0]
+            
+            # Generate offset magnitude with local scaling
+            base_magnitude = np.random.uniform(*mag_range)
+            local_multiplier = np.random.uniform(*magnitude_multiplier_range)
+            magnitude = base_magnitude * local_multiplier * (1 + local_std/100)
+            
+            # Determine direction with configured ratio
+            direction = np.random.choice([-1, 1], p=[negative_positiv_ratio, 1-negative_positiv_ratio])
+            offset = direction * magnitude
+            
+            # Determine variable duration
+            max_multiplier = np.random.uniform(*duration_multiplier_range)
+            duration = np.random.randint(min_duration, int(min_duration * max_multiplier))
+            end_idx = min(idx + duration, len(modified_data))
+            
+            # Store original values
+            original_values = modified_data.iloc[idx:end_idx].copy()
+            
+            # Create offset values (flatten the array to 1D)
+            offset_values = original_values.values.flatten() + offset
+            
+            # Create the offset series
+            offset_series = pd.Series(
+                index=modified_data.index[idx:end_idx],
+                data=offset_values
+            )
+            
+            # Add vertical transition points
+            offset_series.iloc[0] = original_values.iloc[0].values[0]  # Start at original value
+            offset_series.iloc[-1] = original_values.iloc[-1].values[0]  # End at original value
+            
+            # Apply the offset
+            modified_data.iloc[idx:end_idx] = offset_series.values.reshape(-1, 1)
+            
+            # Store period for plotting
+            offset_periods.append((modified_data.index[idx], modified_data.index[end_idx-1]))
+            
+            # Record error period
+            self.error_periods.append(
+                ErrorPeriod(
+                    start_time=modified_data.index[idx],
+                    end_time=modified_data.index[end_idx - 1],
+                    error_type='offset',
+                    original_values=original_values.values.flatten(),
+                    modified_values=offset_series.values,
+                    parameters={
+                        'magnitude': magnitude,
+                        'direction': direction,
+                        'duration': duration,
+                        'local_multiplier': local_multiplier
+                    }
+                )
+            )
+        
+        return modified_data, offset_periods
 
     def inject_noise_errors(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -90,7 +375,55 @@ class SyntheticErrorGenerator:
         3. Maintain physical constraints
         4. Record noise characteristics
         """
-        pass
+        modified_data = data.copy()
+        
+        # Get noise parameters from config
+        noise_config = self.config['noise']
+        frequency = noise_config['frequency']
+        duration_range = noise_config['duration_range'] #hours
+        intensity_range = noise_config['intensity_range'] #multiplier of normal noise level
+        
+        # Calculate number of noise periods to inject
+        n_noise_periods = int(len(data) * frequency)
+        
+        # Randomly select injection points, ensuring they don't overlap
+        possible_indices = np.arange(0, len(data) - duration_range)
+        noise_indices = np.random.choice(possible_indices, size=n_noise_periods, replace=False)
+        
+        for idx in noise_indices:
+            # Determine duration of noise period
+            duration = np.random.randint(duration_range[0], duration_range[1])
+            end_idx = min(idx + duration, len(modified_data))
+            
+            # Store original values
+            original_values = modified_data.iloc[idx:end_idx].copy()
+            
+            # Add random noise to the middle section
+            if end_idx - idx > 2:  # If there's room for a middle section
+                noise_level = np.random.uniform(*intensity_range)
+                modified_values = original_values.iloc[1:-1] + noise_level
+                modified_data.iloc[idx+1:end_idx-1] = modified_values
+            
+            # Create transition at end (sudden jump back)
+            if end_idx < len(modified_data):
+                modified_data.iloc[end_idx-1] = float(modified_data.iloc[end_idx].values[0])
+                
+            # Record error period
+            self.error_periods.append(
+                ErrorPeriod(
+                    start_time=modified_data.index[idx],
+                    end_time=modified_data.index[end_idx - 1],
+                    error_type='noise',
+                    original_values=original_values.values,
+                    modified_values=modified_data.iloc[idx:end_idx].values,
+                    parameters={
+                        'noise_level': noise_level,
+                        'duration': duration
+                    }
+                )
+            )
+
+        return modified_data
 
     def inject_all_errors(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -105,12 +438,169 @@ class SyntheticErrorGenerator:
         
         # Inject errors in sequence
         modified_data = self.inject_spike_errors(modified_data)
-        modified_data = self.inject_flatline_errors(modified_data)
+        modified_data, flatline_periods = self.inject_flatline_errors(modified_data)
         modified_data = self.inject_drift_errors(modified_data)
-        modified_data = self.inject_offset_errors(modified_data)
+        modified_data, offset_periods = self.inject_offset_errors(modified_data)
         modified_data = self.inject_noise_errors(modified_data)
         
         # Create ground truth labels
         ground_truth = self._create_ground_truth(data.index)
         
         return modified_data, ground_truth
+
+    def _create_ground_truth(self, data_index: pd.DatetimeIndex) -> pd.DataFrame:
+        """
+        Create ground truth labels for injected errors.
+        
+        Args:
+            data_index: DatetimeIndex of the original data
+
+        Returns:
+            DataFrame with ground truth labels
+        """
+        ground_truth = pd.DataFrame(index=data_index)
+        
+        for error_period in self.error_periods:
+            ground_truth.loc[error_period.start_time:error_period.end_time] = error_period.error_type
+        
+        return ground_truth
+
+#Testing the synthetic error generator
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    
+    # Add parent directory to path to import data_loading
+    sys.path.append(str(Path(__file__).parents[2]))
+    from data_loading import load_vst_file
+    
+    # Load and prepare data
+    data_path = Path(r"C:\Users\olive\OneDrive\GitHub\MasterThesis\data_utils\Sample data\21006845\VST_RAW.txt")
+    sample_data = load_vst_file(data_path)
+    
+    # Filter for desired time period
+    mask = (sample_data['Date'] >= '2023-01-01') & (sample_data['Date'] < '2024-01-01')
+    sample_data = sample_data.loc[mask].copy()
+    
+    # Set Date as index and rename Value column
+    sample_data.set_index('Date', inplace=True)
+    sample_data = sample_data.rename(columns={'Value': 'water_level'})
+    
+    # Test error injection
+    generator = SyntheticErrorGenerator()
+    data_with_spikes = generator.inject_spike_errors(sample_data)
+    data_with_flatlines, flatline_periods = generator.inject_flatline_errors(data_with_spikes)
+    data_with_drift = generator.inject_drift_errors(data_with_flatlines)
+    modified_data, offset_periods = generator.inject_offset_errors(data_with_drift)
+    
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), sharex=True)
+    fig.suptitle('Water Level Time Series with Synthetic Errors', fontsize=14)
+    
+    # Define colors for different error types
+    ERROR_COLORS = {
+        'base': '#1f77b4',  # Default blue
+        'spike': '#ff7f0e',  # Orange
+        'flatline': '#2ca02c',  # Green
+        'offset': '#d62728',   # Red
+        'drift': '#9467bd'    # Purple
+    }
+    
+    # Plot original data in first subplot
+    ax1.plot(sample_data, label='Original Data', color=ERROR_COLORS['base'], alpha=0.7)
+    
+    # Plot base data first with lower zorder so it is drawn behind the errors
+    ax2.plot(modified_data, color=ERROR_COLORS['base'], alpha=0.7, label='Base Data', zorder=1)
+    
+    # Plot spikes with higher zorder and optional markers
+    spike_line = None  # Store the first spike line for legend
+    for period in generator.error_periods:
+        if period.error_type == 'spike':
+            # Create a temporary series for the spike values
+            spike_series = pd.Series(
+                index=modified_data.loc[period.start_time:period.end_time].index,
+                data=period.modified_values
+            )
+            line = ax2.plot(
+                spike_series, 
+                color=ERROR_COLORS['spike'], 
+                alpha=1.0, 
+                linewidth=2,
+                marker='o',      
+                zorder=3,        
+                label='_nolegend_'  # Don't add to legend automatically
+            )[0]  # Get the line object
+            if spike_line is None:
+                spike_line = line
+    
+    # Plot flatline periods with vertical indicators
+    flatline_line = None  # Store the first flatline for legend
+    for start, end in flatline_periods:
+        mask = (modified_data.index >= start) & (modified_data.index <= end)
+        line = ax2.plot(
+            modified_data[mask], 
+            color=ERROR_COLORS['flatline'], 
+            alpha=0.9, 
+            linewidth=2,
+            label='_nolegend_'
+        )[0]  # Get the line object
+        if flatline_line is None:
+            flatline_line = line
+        # Add vertical line indicator in the middle
+        middle_time = start + (end - start) / 2
+        ax2.axvline(x=middle_time, color=ERROR_COLORS['flatline'], alpha=0.3, linewidth=8)
+    
+    # Plot offset periods with vertical indicators
+    offset_line = None  # Store the first offset for legend
+    for start, end in offset_periods:
+        mask = (modified_data.index >= start) & (modified_data.index <= end)
+        # Plot the offset
+        line = ax2.plot(
+            modified_data[mask], 
+            color=ERROR_COLORS['offset'], 
+            alpha=0.9, 
+            linewidth=2,
+            label='_nolegend_'
+        )[0]  # Get the line object
+        if offset_line is None:
+            offset_line = line
+        # Add vertical line indicator in the middle
+        middle_time = start + (end - start) / 2
+        ax2.axvline(x=middle_time, color=ERROR_COLORS['offset'], alpha=0.3, linewidth=8)
+    
+    # Add drift plotting with yellow background
+    drift_line = None
+    for period in generator.error_periods:
+        if period.error_type == 'drift':
+            mask = (modified_data.index >= period.start_time) & (modified_data.index <= period.end_time)
+            # Add yellow background for drift period
+            ax2.axvspan(period.start_time, period.end_time, 
+                       color='yellow', alpha=0.2, zorder=1)
+            # Plot the drift line
+            line = ax2.plot(
+                modified_data[mask],
+                color=ERROR_COLORS['drift'],
+                alpha=0.9,
+                linewidth=2,
+                label='_nolegend_',
+                zorder=3
+            )[0]
+            if drift_line is None:
+                drift_line = line
+    
+    ax2.set_ylabel('Water Level')
+    ax2.grid(True)
+    
+    # Update legend to include drift
+    ax2.legend([
+        spike_line,
+        flatline_line,
+        offset_line,
+        drift_line
+    ], ['Spikes', 'Flatlines', 'Offsets', 'Drifts'])
+    
+    ax2.set_title('Data with Injected Errors')
+    
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
+    plt.show()

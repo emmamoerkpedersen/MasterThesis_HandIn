@@ -36,25 +36,29 @@ VALIDATION_PARAMS = {
 # Synthetic Error Generation Parameters
 SYNTHETIC_ERROR_PARAMS = {
     'spike': {
-        'frequency': 0.01,  # Probability of occurrence
-        'magnitude_range': (2, 5),  # Multiple of local std deviation
+        'frequency': 0.0001,  # Probability of occurrence
+        'magnitude_range': (0.4, 0.8),  # 40% to 80% of current value
+        'negative_positiv_ratio': 0.5,  # Equal chance of positive/negative spikes
         'recovery_time': 1,  # Hours to recover to normal
     },
     'flatline': {
-        'frequency': 0.005,
-        'duration_range': (2, 48),  # Hours
-        'value_method': 'last_value',  # or 'mean' or 'custom'
+        'frequency': 0.00003,  # Match offset frequency
+        'duration_range': (20, 200),  # Longer periods to be more visible
+        'value_method': 'first_value',  # Always use the first value of the period
     },
     'drift': {
-        'frequency': 0.002,
-        'duration_range': (24, 168),  # Hours (1-7 days)
-        'drift_rate': (0.1, 0.5),  # Units per hour
-        'pattern': 'linear'  # or 'exponential'
+        'frequency': 0.00003,  # 1% of data points will have drift
+        'duration_range': [24, 168],  # drift duration between 24 and 168 hours
+        'magnitude_range': [10, 50],  # maximum drift magnitude (increase these values if drifts are too subtle)
+        'negative_positive_ratio': 0.5,  # equal chance of positive and negative drift
     },
     'offset': {
-        'frequency': 0.003,
-        'magnitude_range': (10, 50),  # Absolute units
-        'min_duration': 24  # Minimum hours to maintain offset
+        'frequency': 0.00003,
+        'magnitude_range': (50, 500),  # Wider range for more varied offsets
+        'negative_positiv_ratio': 0.7,  # More positive offsets than negative
+        'min_duration': 24,  # Minimum hours
+        'max_duration_multiplier': (15, 20),  # Random multiplier for max duration
+        'magnitude_multiplier': (0.8, 1.2),  # Random multiplier for local scaling
     },
     'noise': {
         'frequency': 0.008,
@@ -63,9 +67,16 @@ SYNTHETIC_ERROR_PARAMS = {
     }
 }
 
+# Add physical limits to SYNTHETIC_ERROR_PARAMS
+SYNTHETIC_ERROR_PARAMS['PHYSICAL_LIMITS'] = {
+    'min_value': 0,
+    'max_value': 3000,  # Increased to allow for larger upward spikes
+    'max_rate_of_change': 50
+}
+
 # Physical Constraints
 PHYSICAL_LIMITS = {
     'min_value': 0,  # Water level can't be negative
-    'max_value': 1000,  # Maximum reasonable water level
+    'max_value': 3000,  # Maximum reasonable water level
     'max_rate_of_change': 50  # Maximum change per hour
 } 
