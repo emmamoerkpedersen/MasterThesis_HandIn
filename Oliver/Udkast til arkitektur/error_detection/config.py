@@ -64,6 +64,11 @@ SYNTHETIC_ERROR_PARAMS = {
         'frequency': 0.008,
         'duration_range': (4, 24),  # Hours
         'intensity_range': (2, 4)  # Multiple of normal noise level
+    },
+    'baseline_shift': {
+        'frequency': 0.00003,
+        'magnitude_range': (200, 600),  # Larger magnitude range to match observed shifts
+        'negative_positive_ratio': 0.5  # Equal chance of up/down shifts
     }
 }
 

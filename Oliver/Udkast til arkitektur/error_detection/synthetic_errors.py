@@ -362,6 +362,7 @@ class SyntheticErrorGenerator:
                     }
                 )
             )
+            self._mark_period_used(idx, end_idx)
         
         return modified_data, offset_periods
 
@@ -425,6 +426,67 @@ class SyntheticErrorGenerator:
 
         return modified_data
 
+    def inject_baseline_shift_errors(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Inject sudden baseline shift errors that permanently change the base level.
+        Creates abrupt, permanent changes in the baseline level, similar to sensor recalibration
+        or physical changes in measurement conditions.
+        """
+        modified_data = data.copy()
+        
+        # Get baseline shift parameters from config
+        shift_config = self.config['baseline_shift']
+        frequency = shift_config['frequency']
+        magnitude_range = shift_config['magnitude_range']
+        negative_positive_ratio = shift_config['negative_positive_ratio']
+        
+        # Calculate number of shifts to inject
+        n_shifts = int(len(data) * frequency)
+        
+        successful_injections = 0
+        max_attempts = n_shifts * 10
+        attempts = 0
+        
+        while successful_injections < n_shifts and attempts < max_attempts:
+            # Randomly select an injection point
+            idx = np.random.randint(0, len(data) - 2)  # Leave room for the shift
+            
+            # We only need 2 points for the shift (almost vertical)
+            end_idx = idx + 2
+            
+            if self._is_period_available(idx, end_idx):
+                # Store original values
+                original_values = modified_data.iloc[idx:end_idx].copy()
+                
+                # Determine shift direction and magnitude
+                direction = np.random.choice([-1, 1], p=[negative_positive_ratio, 1-negative_positive_ratio])
+                magnitude = direction * np.random.uniform(*magnitude_range)
+                
+                # Apply the shift (abrupt change)
+                modified_data.iloc[idx+1:] += magnitude  # Everything after the shift point
+                
+                # Record error period
+                self.error_periods.append(
+                    ErrorPeriod(
+                        start_time=modified_data.index[idx],
+                        end_time=modified_data.index[idx + 1],
+                        error_type='baseline_shift',
+                        original_values=original_values.values.flatten(),
+                        modified_values=modified_data.iloc[idx:idx+2].values.flatten(),
+                        parameters={
+                            'magnitude': magnitude
+                        }
+                    )
+                )
+                
+                # Mark shift point as used
+                self._mark_period_used(idx, end_idx)
+                successful_injections += 1
+            
+            attempts += 1
+        
+        return modified_data
+
     def inject_all_errors(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Inject all types of errors according to configuration.
@@ -442,6 +504,7 @@ class SyntheticErrorGenerator:
         modified_data = self.inject_drift_errors(modified_data)
         modified_data, offset_periods = self.inject_offset_errors(modified_data)
         modified_data = self.inject_noise_errors(modified_data)
+        modified_data = self.inject_baseline_shift_errors(modified_data)
         
         # Create ground truth labels
         ground_truth = self._create_ground_truth(data.index)
@@ -491,19 +554,35 @@ if __name__ == "__main__":
     data_with_spikes = generator.inject_spike_errors(sample_data)
     data_with_flatlines, flatline_periods = generator.inject_flatline_errors(data_with_spikes)
     data_with_drift = generator.inject_drift_errors(data_with_flatlines)
-    modified_data, offset_periods = generator.inject_offset_errors(data_with_drift)
+    data_with_baseline = generator.inject_baseline_shift_errors(data_with_drift)
+    modified_data, offset_periods = generator.inject_offset_errors(data_with_baseline)
     
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), sharex=True)
     fig.suptitle('Water Level Time Series with Synthetic Errors', fontsize=14)
     
+    # After creating the subplots but before plotting data
+    # Get the overall min and max values
+    y_min = min(sample_data.min().min(), modified_data.min().min())
+    y_max = max(sample_data.max().max(), modified_data.max().max())
+    
+    # Add some padding (e.g., 5% of the range)
+    y_padding = (y_max - y_min) * 0.05
+    y_min -= y_padding
+    y_max += y_padding
+    
+    # Set the same y-axis limits for both plots
+    ax1.set_ylim(y_min, y_max)
+    ax2.set_ylim(y_min, y_max)
+    
     # Define colors for different error types
     ERROR_COLORS = {
-        'base': '#1f77b4',  # Default blue
-        'spike': '#ff7f0e',  # Orange
+        'base': '#1f77b4',      # Default blue
+        'spike': '#ff7f0e',     # Orange
         'flatline': '#2ca02c',  # Green
-        'offset': '#d62728',   # Red
-        'drift': '#9467bd'    # Purple
+        'offset': '#d62728',    # Red
+        'drift': '#9467bd',     # Purple
+        'baseline_shift': '#8c564b'  # Brown
     }
     
     # Plot original data in first subplot
@@ -588,16 +667,40 @@ if __name__ == "__main__":
             if drift_line is None:
                 drift_line = line
     
+    # Add plotting code for baseline shifts:
+    baseline_line = None
+    for period in generator.error_periods:
+        if period.error_type == 'baseline_shift':
+            mask = (modified_data.index >= period.start_time) & (modified_data.index <= period.end_time)
+            # Add vertical line to mark the shift
+            ax2.axvline(x=period.start_time, 
+                       color=ERROR_COLORS['baseline_shift'], 
+                       alpha=0.8, 
+                       linewidth=2,
+                       linestyle='--')
+            # Plot the transition period
+            line = ax2.plot(
+                modified_data[mask],
+                color=ERROR_COLORS['baseline_shift'],
+                alpha=0.9,
+                linewidth=2,
+                label='_nolegend_',
+                zorder=3
+            )[0]
+            if baseline_line is None:
+                baseline_line = line
+    
     ax2.set_ylabel('Water Level')
     ax2.grid(True)
     
-    # Update legend to include drift
+    # Update legend to include baseline shifts:
     ax2.legend([
         spike_line,
         flatline_line,
         offset_line,
-        drift_line
-    ], ['Spikes', 'Flatlines', 'Offsets', 'Drifts'])
+        drift_line,
+        baseline_line
+    ], ['Spikes', 'Flatlines', 'Offsets', 'Drifts', 'Baseline Shifts'])
     
     ax2.set_title('Data with Injected Errors')
     
