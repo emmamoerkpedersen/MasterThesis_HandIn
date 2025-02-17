@@ -5,17 +5,40 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
+def set_plot_style():
+    """Set consistent plot style with larger fonts."""
+    plt.rcParams.update({
+        'font.size': 16,
+        'axes.titlesize': 18,
+        'axes.labelsize': 16,
+        'xtick.labelsize': 14,
+        'ytick.labelsize': 14,
+        'legend.fontsize': 14,
+        'figure.titlesize': 20
+    })
+
 def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, output_dir: Path):
     """Create comparison plots between original and preprocessed data for each station."""
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Set much larger font sizes specifically for this plot
+    plt.rcParams.update({
+        'font.size': 24,              # Increased from 16
+        'axes.titlesize': 28,         # Increased from 18
+        'axes.labelsize': 24,         # Increased from 16
+        'xtick.labelsize': 20,        # Increased from 14
+        'ytick.labelsize': 20,        # Increased from 14
+        'legend.fontsize': 20,        # Increased from 14
+        'figure.titlesize': 30        # Increased from 20
+    })
     
     for station_name in original_data.keys():
         if (original_data[station_name]['vst_raw'] is not None and 
             preprocessed_data[station_name]['vst_raw'] is not None):
             
             # Create figure with 3 subplots
-            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 20))
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(25, 20))
             
             orig = original_data[station_name]['vst_raw']
             proc = preprocessed_data[station_name]['vst_raw']
@@ -28,36 +51,53 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             upper_bound = Q3 + 4 * IQR
             
             # Original data with bounds
-            ax1.plot(orig['Date'], orig['Value'], 'b-', label='Original', alpha=0.7, linewidth=0.5)
+            ax1.plot(orig['Date'], orig['Value'], 'b-', label='Original', alpha=0.7, linewidth=0.8)
             ax1.axhline(y=lower_bound, color='r', linestyle='--', label='Lower bound (Q1 - 1.5*IQR)')
             ax1.axhline(y=upper_bound, color='r', linestyle='--', label='Upper bound (Q3 + 4*IQR)')
-            ax1.set_title(f'Original Data with IQR Bounds - {station_name}')
-            ax1.set_ylabel('Water Level (mm)')
-            ax1.grid(True)
-            ax1.legend()
+            ax1.set_title(f'Original Data with IQR Bounds - {station_name}', pad=20)
+            ax1.set_ylabel('Water Level (mm)', labelpad=15)
+            ax1.legend(frameon=False, loc='upper right', bbox_to_anchor=(1, 1.02))
             
             # Preprocessed data
-            ax2.plot(proc['Date'], proc['Value'], 'g-', label='Preprocessed', alpha=0.7, linewidth=0.5)
-            ax2.set_title('Preprocessed Data')
-            ax2.set_ylabel('Water Level (mm)')
-            ax2.grid(True)
-            ax2.legend()
+            ax2.plot(proc['Date'], proc['Value'], 'g-', label='Preprocessed', alpha=0.7, linewidth=0.8)
+            ax2.set_title('Preprocessed Data', pad=20)
+            ax2.set_ylabel('Water Level (mm)', labelpad=15)
+            ax2.legend(frameon=False, loc='upper right', bbox_to_anchor=(1, 1.02))
             
             # Removed points highlighted
-            ax3.plot(orig['Date'], orig['Value'], 'b-', label='Original', alpha=0.3, linewidth=0.5)
+            ax3.plot(orig['Date'], orig['Value'], 'b-', label='Original', alpha=0.3, linewidth=0.8)
             removed_mask = (orig['Value'] < lower_bound) | (orig['Value'] > upper_bound)
             removed_points = orig[removed_mask]
             ax3.scatter(removed_points['Date'], removed_points['Value'], 
-                       color='r', s=20, alpha=0.5, label='Removed Points')
-            ax3.set_title('Removed Data Points')
-            ax3.set_xlabel('Date')
-            ax3.set_ylabel('Water Level (mm)')
-            ax3.grid(True)
-            ax3.legend()
+                       color='r', s=50, alpha=0.5, label='Removed Points')  # Increased marker size
+            ax3.set_title('Removed Data Points', pad=20)
+            ax3.set_xlabel('Date', labelpad=15)
+            ax3.set_ylabel('Water Level (mm)', labelpad=15)
+            ax3.legend(frameon=False, loc='lower right', bbox_to_anchor=(1, 1.02))
+            
+            # Remove grid lines and add subtle background color
+            for ax in [ax1, ax2, ax3]:
+                ax.set_facecolor('#f8f9fa')  # Light gray background
+                ax.grid(False)
+                # Add spines
+                for spine in ax.spines.values():
+                    spine.set_color('#cccccc')
+                    spine.set_linewidth(0.5)
+                # Increase tick label padding
+                ax.tick_params(axis='both', which='major', pad=10)
+                # Rotate x-axis labels for better readability
+                ax.tick_params(axis='x', rotation=45)
             
             plt.tight_layout()
-            plt.savefig(diagnostic_dir / f"{station_name}_preprocessing.png", dpi=300)
+            plt.savefig(diagnostic_dir / f"{station_name}_preprocessing.png", 
+                       dpi=300,
+                       bbox_inches='tight',
+                       facecolor='white',
+                       pad_inches=0.5)  # Added padding around the plot
             plt.close()
+            
+    # Reset font sizes to default
+    plt.rcParams.update(plt.rcParamsDefault)
 
 def generate_preprocessing_report(original_data: dict, preprocessed_data: dict, output_dir: Path):
     """Generate detailed report including all data types and IQR statistics."""
@@ -144,10 +184,12 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
     
+    set_plot_style()  # Set larger fonts
+    
     for station_name in preprocessed_data.keys():
         if preprocessed_data[station_name]['vst_raw'] is not None:
             # Create figure with 4 subplots
-            fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(15, 20), height_ratios=[3, 1, 1, 1])
+            fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(25, 12), height_ratios=[3, 1, 1, 1])
             
             # 1. Water level measurements (VST_RAW, VST_EDT, VINGE)
             data = preprocessed_data[station_name]
@@ -164,7 +206,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             
             ax1.set_title(f'Water Level Measurements - {station_name}')
             ax1.set_ylabel('Water Level (mm)')
-            ax1.grid(True)
+            ax1.grid(False)
             ax1.legend()
             
             # 2. Rainfall data
@@ -173,7 +215,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                         'b-', label='Rainfall', linewidth=0.5)
                 ax2.set_title('Rainfall Data')
                 ax2.set_ylabel('Precipitation (mm)')
-                ax2.grid(True)
+                ax2.grid(False)
                 ax2.legend()
             
             # 3. Temperature data
@@ -182,7 +224,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                         'r-', label='Temperature', linewidth=0.5)
                 ax3.set_title('Temperature Data')
                 ax3.set_ylabel('Temperature (°C)')
-                ax3.grid(True)
+                ax3.grid(False)
                 ax3.legend()
             
             # 4. VINGE measurements detail
@@ -192,28 +234,32 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 ax4.set_title('Manual Board Measurements (VINGE)')
                 ax4.set_xlabel('Date')
                 ax4.set_ylabel('Water Level (mm)')
-                ax4.grid(True)
+                ax4.grid(False)
                 ax4.legend()
             
             plt.tight_layout()
             plt.savefig(diagnostic_dir / f"{station_name}_data_overview.png", dpi=300)
             plt.close()
+            
+            # Make title and labels more prominent
+            for ax in [ax1, ax2, ax3, ax4]:
+                ax.tick_params(axis='both', which='major', labelsize=14)
+                ax.yaxis.label.set_size(16)
+                ax.xaxis.label.set_size(16)
+                if ax.get_title():
+                    ax.set_title(ax.get_title(), fontsize=18, pad=20)
 
 def plot_additional_data(preprocessed_data: dict, output_dir: Path):
-    """
-    Create additional plots for VINGE, rainfall and temperature data.
-    
-    Args:
-        preprocessed_data: Dictionary of preprocessed station data
-        output_dir: Directory to save diagnostic plots
-    """
+    """Create additional plots for VINGE, rainfall and temperature data."""
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
+    
+    set_plot_style()  # Set larger fonts
     
     for station_name, station_data in preprocessed_data.items():
         if station_data['vst_raw'] is not None:
             # VST and VINGE comparison
-            fig, ax = plt.subplots(figsize=(15, 8))
+            fig, ax = plt.subplots(figsize=(25, 6))
             
             # Make sure we're using datetime for x-axis
             vst_data = station_data['vst_raw'].copy()
@@ -231,45 +277,77 @@ def plot_additional_data(preprocessed_data: dict, output_dir: Path):
                 ax.plot(vinge_data.index, vinge_data['W.L [cm]'],
                        'ro', label='VINGE', markersize=6)
             
-            ax.set_title(f'VST Raw and VINGE Measurements - {station_name}')
-            ax.set_xlabel('Date')
-            ax.set_ylabel('Water Level (mm)')
-            ax.grid(True)
-            ax.legend()
+            ax.set_title(f'VST Raw and VINGE Measurements - {station_name}', pad=20)
+            ax.set_xlabel('Date', labelpad=10)
+            ax.set_ylabel('Water Level (mm)', labelpad=10)
+            ax.grid(False)
+            ax.legend(frameon=False)
             
             # Format x-axis to show dates properly
             plt.gcf().autofmt_xdate()  # Rotate and align the tick labels
             
+            # Increase font sizes for this specific plot
+            ax.tick_params(axis='both', which='major', labelsize=14)
+            ax.yaxis.label.set_size(16)
+            ax.xaxis.label.set_size(16)
+            ax.set_title(ax.get_title(), fontsize=18, pad=20)
+            
             plt.tight_layout()
-            plt.savefig(diagnostic_dir / f"{station_name}_vst_vinge.png", dpi=300)
+            plt.savefig(diagnostic_dir / f"{station_name}_vst_vinge.png", 
+                       dpi=300, 
+                       bbox_inches='tight',
+                       facecolor='white')
             plt.close()
             
             # Rainfall data
             if station_data['rainfall'] is not None:
-                fig, ax = plt.subplots(figsize=(15, 6))
+                fig, ax = plt.subplots(figsize=(25, 6))
                 ax.plot(station_data['rainfall'].index, 
                        station_data['rainfall']['precipitation (mm)'],
                        'b-', label='Rainfall', linewidth=0.5)
-                ax.set_title(f'Rainfall Data - {station_name}')
-                ax.set_xlabel('Date')
-                ax.set_ylabel('Precipitation (mm)')
-                ax.grid(True)
-                ax.legend()
+                ax.set_title(f'Rainfall Data - {station_name}', pad=20)
+                ax.set_xlabel('Date', labelpad=10)
+                ax.set_ylabel('Precipitation (mm)', labelpad=10)
+                ax.grid(False)
+                ax.legend(frameon=False)
+                
+                # Increase font sizes for this specific plot
+                ax.tick_params(axis='both', which='major', labelsize=14)
+                ax.yaxis.label.set_size(16)
+                ax.xaxis.label.set_size(16)
+                ax.set_title(ax.get_title(), fontsize=18, pad=20)
+                
                 plt.tight_layout()
-                plt.savefig(diagnostic_dir / f"{station_name}_rainfall.png", dpi=300)
+                plt.savefig(diagnostic_dir / f"{station_name}_rainfall.png",
+                          dpi=300,
+                          bbox_inches='tight',
+                          facecolor='white')
                 plt.close()
             
             # Temperature data
             if station_data['temperature'] is not None:
-                fig, ax = plt.subplots(figsize=(15, 6))
+                fig, ax = plt.subplots(figsize=(25, 6))
                 ax.plot(station_data['temperature'].index,
                        station_data['temperature']['temperature (C)'],
                        'r-', label='Temperature', linewidth=0.5)
-                ax.set_title(f'Temperature Data - {station_name}')
-                ax.set_xlabel('Date')
-                ax.set_ylabel('Temperature (°C)')
-                ax.grid(True)
-                ax.legend()
+                ax.set_title(f'Temperature Data - {station_name}', pad=20)
+                ax.set_xlabel('Date', labelpad=10)
+                ax.set_ylabel('Temperature (°C)', labelpad=10)
+                ax.grid(False)
+                ax.legend(frameon=False)
+                
+                # Increase font sizes for this specific plot
+                ax.tick_params(axis='both', which='major', labelsize=14)
+                ax.yaxis.label.set_size(16)
+                ax.xaxis.label.set_size(16)
+                ax.set_title(ax.get_title(), fontsize=18, pad=20)
+                
                 plt.tight_layout()
-                plt.savefig(diagnostic_dir / f"{station_name}_temperature.png", dpi=300)
-                plt.close() 
+                plt.savefig(diagnostic_dir / f"{station_name}_temperature.png",
+                          dpi=300,
+                          bbox_inches='tight',
+                          facecolor='white')
+                plt.close()
+    
+    # Reset font sizes to default at the end
+    plt.rcParams.update(plt.rcParamsDefault) 

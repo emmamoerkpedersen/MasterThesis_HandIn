@@ -40,7 +40,11 @@ def run_pipeline(
         detection_diagnostics: Generate diagnostics for error detection
         imputation_diagnostics: Generate diagnostics for imputation
     """
-    # Step 1: Load and preprocess all station data
+    
+    #########################################################
+    #    Step 1: Load and preprocess all station data       #
+    #########################################################
+    
     print("Loading and preprocessing station data...")
     
     # Load original data first (if preprocessing diagnostics enabled)
@@ -68,18 +72,21 @@ def run_pipeline(
             Path(output_path)
         )
     
-    # Print summary of processed stations
-    print("\nPreprocessing complete. Summary:")
-    for station_name, station_data in preprocessed_data.items():
-        if station_data['vst_raw'] is not None:
-            print(f"\nStation: {station_name}")
-            for data_type, data in station_data.items():
-                if data is not None:
-                    print(f"  - {data_type}: {len(data)} points")
-                    if isinstance(data, pd.DataFrame):
-                        print(f"    Time range: {data.index.min()} to {data.index.max()}")
-
-    # Step 2: Split data into train/validation/test sets
+        # Print summary of processed stations
+        print("\nPreprocessing complete. Summary:")
+        for station_name, station_data in preprocessed_data.items():
+            if station_data['vst_raw'] is not None:
+                print(f"\nStation: {station_name}")
+                for data_type, data in station_data.items():
+                    if data is not None:
+                        print(f"  - {data_type}: {len(data)} points")
+                        if isinstance(data, pd.DataFrame):
+                            print(f"    Time range: {data.index.min()} to {data.index.max()}")
+                            
+    #########################################################
+    #  Step 2: Split data into train/validation/test sets   #
+    #########################################################
+    
     print("\nSplitting data into train/validation/test sets...")
     split_datasets = split_data(preprocessed_data)
     
@@ -95,7 +102,10 @@ def run_pipeline(
             Path(output_path)
         )
 
-    # Step 3: Generate synthetic errors for testing data
+    #########################################################
+    # Step 3: Generate synthetic errors for testing data    #
+    #########################################################
+    
     print("\nInjecting synthetic errors into test data...")
     error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
     stations_results = {}
@@ -142,23 +152,38 @@ def run_pipeline(
                 )
         generate_synthetic_report(stations_results, Path(output_path))
 
-    # # Step 4: Initialize and run anomaly detector
+    # #########################################################
+    # # Step 4: Initialize and run anomaly detector          #
+    # #########################################################
+    
     # # Step 4.1: Initialize and run simple anomaly detector
     # detector = AnomalyDetector()
     # error_flags = detector.detect(modified_data)
     
-    # # Step 5: Impute errors
+    # #########################################################
+    # # Step 5: Impute errors                                #
+    # #########################################################
+    
     # imputer = imputation.SimpleImputer()
     # imputed_data = imputer.impute(modified_data, error_flags)
     
-    # # Step 6: Calculate performance metrics
+    # #########################################################
+    # # Step 6: Calculate performance metrics                #
+    # #########################################################
+    
     # metrics = validation.calculate_metrics(ground_truth, error_flags)
     
-    # # Step 7: Generate plots
+    # #########################################################
+    # # Step 7: Generate plots                              #
+    # #########################################################
+    
     # error_plots.plot_detected_errors(modified_data, error_flags)
     # error_plots.plot_imputation_results(modified_data, imputed_data, error_flags)
     
-    # # Step 8: Export results
+    # #########################################################
+    # # Step 8: Export results                               #
+    # #########################################################
+    
     # export_results({
     #     'metrics': metrics,
     #     'config': SYNTHETIC_ERROR_PARAMS,
@@ -178,7 +203,7 @@ if __name__ == "__main__":
     run_pipeline(
         str(data_path), 
         str(output_path), 
-        preprocess_diagnostics=False,
+        preprocess_diagnostics=True,
         split_diagnostics=False,
-        synthetic_diagnostics=True
+        synthetic_diagnostics=False
     )
