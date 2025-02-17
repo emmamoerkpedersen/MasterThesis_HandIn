@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from data_utils.data_loading import load_all_station_data
+from data_utils.data_loading import load_all_station_data, load_temperature_data
 
 
 def preprocess_data():
