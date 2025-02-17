@@ -369,7 +369,6 @@ class SyntheticErrorGenerator:
     def inject_noise_errors(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Inject periods of excessive noise.
-        
         Strategy:
         1. Select periods for increased noise
         2. Add random variations based on local statistics
