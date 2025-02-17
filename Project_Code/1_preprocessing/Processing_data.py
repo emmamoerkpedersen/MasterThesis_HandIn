@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from data_utils.data_loading import load_all_station_data, load_temperature_data
+from data_utils.data_loading import load_all_station_data
 
 
 def preprocess_data():
@@ -199,6 +199,6 @@ if __name__ == "__main__":
     processed_data = preprocess_data()
     freezing_periods = find_freezing_periods(processed_data)
     
-    # Plot data for each station
-    for station_name, station_data in processed_data.items():
-        plot_station_data(station_data, station_name)
+    # # Plot data for each station
+    # for station_name, station_data in processed_data.items():
+    #     plot_station_data(station_data, station_name)
