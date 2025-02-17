@@ -36,7 +36,7 @@ VALIDATION_PARAMS = {
 # Synthetic Error Generation Parameters
 SYNTHETIC_ERROR_PARAMS = {
     'spike': {
-        'frequency': 0.0001,  # Probability of occurrence
+        'frequency': 0.00003,  # Probability of occurrence
         'magnitude_range': (0.4, 0.8),  # 40% to 80% of current value
         'negative_positiv_ratio': 0.5,  # Equal chance of positive/negative spikes
         'recovery_time': 1,  # Hours to recover to normal

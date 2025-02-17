@@ -1,0 +1,48 @@
+Synthetic Error Injection Report
+==============================
+
+
+Station: 21006845
+-----------------
+
+Injected Errors:
+  - Spike: 7 instances
+  - Drift: 7 instances
+  - Baseline_shift: 7 instances
+  - Offset: 7 instances
+
+Time Range Affected:
+  From: 2018-01-24 01:00
+  To: 2024-11-08 14:15
+
+==================================================
+
+Station: 21006846
+-----------------
+
+Injected Errors:
+  - Spike: 7 instances
+  - Drift: 7 instances
+  - Baseline_shift: 7 instances
+  - Offset: 7 instances
+
+Time Range Affected:
+  From: 2018-03-13 08:00
+  To: 2024-10-01 06:00
+
+==================================================
+
+Station: 21006847
+-----------------
+
+Injected Errors:
+  - Spike: 7 instances
+  - Drift: 7 instances
+  - Baseline_shift: 7 instances
+  - Offset: 7 instances
+
+Time Range Affected:
+  From: 2018-01-09 09:15
+  To: 2025-01-06 23:40
+
+==================================================

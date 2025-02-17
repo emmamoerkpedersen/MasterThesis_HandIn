@@ -29,7 +29,7 @@ def load_vst_file(file_path):
 def load_vinge_file(file_path):
     """Load and process a VINGE file."""
     try:
-        # First try reading with all columns
+        # Read the file with the correct delimiter and decimal separator
         df = pd.read_csv(file_path,
                         delimiter='\t',
                         encoding='latin1',
@@ -37,51 +37,35 @@ def load_vinge_file(file_path):
                         quotechar='"',
                         on_bad_lines='skip')
         
-        # If that fails, try reading only the needed columns
-        if df is None or df.empty:
-            df = pd.read_csv(file_path,
-                           delimiter='\t',
-                           encoding='latin1',
-                           decimal=',',
-                           quotechar='"',
-                           usecols=['Date', 'W.L [cm]'],
-                           on_bad_lines='skip')
-
-        # Try multiple date formats
-        date_formats = [
-            '%d.%m.%Y %H:%M',  # Standard format
-            '%Y-%m-%d %H:%M:%S',  # ISO format
-            '%d-%m-%Y %H:%M',  # Alternative format
-            '%d/%m/%Y %H:%M'   # Another common format
-        ]
-
-        for date_format in date_formats:
-            try:
-                df['Date'] = pd.to_datetime(df['Date'], format=date_format)
-                break  # If successful, exit the loop
-            except:
-                continue
+        # Clean up the column names (remove any quotes and spaces)
+        df.columns = df.columns.str.strip().str.replace('"', '')
         
-        # If none of the specific formats worked, let pandas try to guess
-        if not pd.api.types.is_datetime64_any_dtype(df['Date']):
-            try:
-                df['Date'] = pd.to_datetime(df['Date'])
-            except:
-                print(f"Error: Failed to parse dates in {file_path}")
-                return None
+        # Convert Date column to datetime
+        df['Date'] = pd.to_datetime(df['Date'], format='%d.%m.%Y %H:%M')
         
-        # Convert water level to mm and filter years
-        df['W.L [cm]'] = pd.to_numeric(df['W.L [cm]'], errors='coerce') * 10  # Convert to mm
+        # Convert water level to mm (from cm)
+        # First convert to string, then handle the comma decimal separator
+        df['W.L [cm]'] = df['W.L [cm]'].astype(str)
+        df['W.L [cm]'] = pd.to_numeric(df['W.L [cm]'].str.replace(',', '.'), errors='coerce') * 10
+        
+        # Filter out rows with NaN values in essential columns
+        df = df.dropna(subset=['Date', 'W.L [cm]'])
+        
+        # Filter years if needed
         df = df[df['Date'].dt.year >= 1990]
         
-        # Drop any rows with NaN values
-        df = df.dropna(subset=['Date', 'W.L [cm]'])
+        # Set Date as index
+        df.set_index('Date', inplace=True)
+        
+        # Sort by date
+        df = df.sort_index()
         
         if len(df) == 0:
             print(f"Warning: No valid data found in {file_path}")
             return None
             
         return df
+        
     except Exception as e:
         print(f"Error loading VINGE file {file_path}: {str(e)}")
         return None
@@ -155,15 +139,7 @@ def get_plot_path():
     return plot_dir
 
 def load_rainfall_data(data_dir: Path, station_id: int) -> pd.DataFrame:
-    """Load rainfall data for a specific measuring station by finding its closest rain station.
-    
-    Args:
-        data_dir: Path to the data directory
-        station_id: ID of the measuring station (Station_of_Interest)
-        
-    Returns:
-        DataFrame with rainfall data from the closest rain station, or None if not found
-    """
+    """Load rainfall data for a specific measuring station by finding its closest rain station."""
     current_dir = Path(__file__).parent
     rain_data_dir = current_dir / 'Rain_data'
     
@@ -171,16 +147,15 @@ def load_rainfall_data(data_dir: Path, station_id: int) -> pd.DataFrame:
     mapping_file = rain_data_dir / 'closest_rain_temp_stations.csv'
     try:
         mapping_df = pd.read_csv(mapping_file)
-        # Find the corresponding rain station
         closest_station = mapping_df[mapping_df['Station_of_Interest'] == station_id]['Closest_Rain_Station'].iloc[0]
         
-        # Now load the rain data using the closest station ID
         station_id_padded = f"{int(closest_station):05d}"
         rain_file = rain_data_dir / f'RainData_{station_id_padded}.csv'
         
         if rain_file.exists():
             df = pd.read_csv(rain_file)
             df['datetime'] = pd.to_datetime(df['datetime'])
+            df.set_index('datetime', inplace=True)  # Set datetime as index
             return df
         else:
             print(f"Rainfall data file not found for closest rain station {closest_station}")
@@ -191,32 +166,22 @@ def load_rainfall_data(data_dir: Path, station_id: int) -> pd.DataFrame:
         return None
 
 def load_temperature_data(data_dir: Path, station_id: int) -> pd.DataFrame:
-    """Load temperature data for a specific measuring station by finding its closest temperature station.
-    
-    Args:
-        data_dir: Path to the data directory
-        station_id: ID of the measuring station (Station_of_Interest)
-        
-    Returns:
-        DataFrame with temperature data from the closest temperature station, or None if not found
-    """
+    """Load temperature data for a specific measuring station by finding its closest temperature station."""
     current_dir = Path(__file__).parent
     temp_data_dir = current_dir / 'Rain_data'
     
-    # First, read the mapping file to find the closest temperature station
     mapping_file = temp_data_dir / 'closest_rain_temp_stations.csv'
     try:
         mapping_df = pd.read_csv(mapping_file)
-        # Find the corresponding temperature station
         closest_station = mapping_df[mapping_df['Station_of_Interest'] == station_id]['Closest_Temp_Station'].iloc[0]
         
-        # Now load the temperature data using the closest station ID
         station_id_padded = f"{int(closest_station):05d}"
         temp_file = temp_data_dir / f'TempData_{station_id_padded}.csv'
         
         if temp_file.exists():
             df = pd.read_csv(temp_file)
             df['datetime'] = pd.to_datetime(df['datetime'])
+            df.set_index('datetime', inplace=True)  # Set datetime as index
             return df
         else:
             print(f"Temperature data file not found for closest temperature station {closest_station}")
