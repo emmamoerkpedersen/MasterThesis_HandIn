@@ -94,7 +94,7 @@ def find_closest_temp_stations(stations_of_interest, temp_stations_gdf):
             'Closest_Temp_Station': f"{int(closest_station['StationId']):05d}",
             'Temp_Distance_m': distances[closest_station_idx]
         })
-    
+    print(results)
     return pd.DataFrame(results)
 
 def main():
