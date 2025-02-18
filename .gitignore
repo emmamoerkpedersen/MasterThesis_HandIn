@@ -2,3 +2,4 @@
 *.DS_Store
 Rain_data/**
 QGIS/**
+*.png
