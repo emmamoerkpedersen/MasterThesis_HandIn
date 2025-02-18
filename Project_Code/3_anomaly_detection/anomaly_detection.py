@@ -6,13 +6,13 @@ Implements detection algorithms for spikes, gaps, flatlines, and other error typ
 import pandas as pd
 from typing import Dict, List, Optional, Union
 
-from .detectors.base import ErrorDetector
-from .detectors.spike_detector import SpikeDetector
-from .detectors.flatline_detector import FlatlineDetector
-from .detectors.drift_detector import DriftDetector
-from .detectors.offset_detector import OffsetDetector
-from .detectors.noise_detector import NoiseDetector
-from .detectors.gap_detector import GapDetector
+from detectors.base import ErrorDetector
+from detectors.spike_detector import SpikeDetector
+from detectors.flatline_detector import FlatlineDetector
+from detectors.drift_detector import DriftDetector
+from detectors.offset_detector import OffsetDetector
+from detectors.noise_detector import NoiseDetector
+from detectors.gap_detector import GapDetector
 
 class AnomalyDetector:
     """Hub for various error detection algorithms."""
