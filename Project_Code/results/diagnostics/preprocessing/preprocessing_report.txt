@@ -37,46 +37,7 @@ Temperature Data:
   - Measurements: 152598
   - Time period: 1999-09-30 to 2025-01-01
   - Years covered: 1999 to 2025
-  - Range: -16.3캜 to 58.1캜
-
-==================================================
-
-Station: 21006846
------------------
-
-VST_RAW Data:
-  - Measurements: 736408
-  - Time range: 1970-01-01 00:00:00 to 1970-01-01 00:00:00.000766869
-  - Value range: 156.32 to 1727.00
-
-IQR Statistics:
-  - Q1: 501.81
-  - Q3: 806.82
-  - IQR: 305.01
-  - Lower bound: 44.30
-  - Upper bound: 2026.85
-
-Points removed by bounds:
-  - Below lower bound: 6582
-  - Above upper bound: 1281
-  - Total points removed: 7863
-
-VINGE Measurements:
-  - Number of measurements: 488
-  - Average measurements per year: 13.9
-  - Years covered: 1990 to 2024
-
-Rainfall Data:
-  - Measurements: 118112
-  - Time period: 2010-01-04 to 2024-12-31
-  - Total rainfall: 11948.4 mm
-  - Years covered: 2010 to 2024
-
-Temperature Data:
-  - Measurements: 225281
-  - Time period: 1998-07-30 to 2024-12-31
-  - Years covered: 1998 to 2024
-  - Range: -20.4캜 to 39.9캜
+  - Range: -16.3째C to 58.1째C
 
 ==================================================
 
@@ -115,6 +76,45 @@ Temperature Data:
   - Measurements: 225281
   - Time period: 1998-07-30 to 2024-12-31
   - Years covered: 1998 to 2024
-  - Range: -20.4캜 to 39.9캜
+  - Range: -20.4째C to 39.9째C
+
+==================================================
+
+Station: 21006846
+-----------------
+
+VST_RAW Data:
+  - Measurements: 736408
+  - Time range: 1970-01-01 00:00:00 to 1970-01-01 00:00:00.000766869
+  - Value range: 156.32 to 1727.00
+
+IQR Statistics:
+  - Q1: 501.81
+  - Q3: 806.82
+  - IQR: 305.01
+  - Lower bound: 44.30
+  - Upper bound: 2026.85
+
+Points removed by bounds:
+  - Below lower bound: 6582
+  - Above upper bound: 1281
+  - Total points removed: 7863
+
+VINGE Measurements:
+  - Number of measurements: 488
+  - Average measurements per year: 13.9
+  - Years covered: 1990 to 2024
+
+Rainfall Data:
+  - Measurements: 118112
+  - Time period: 2010-01-04 to 2024-12-31
+  - Total rainfall: 11948.4 mm
+  - Years covered: 2010 to 2024
+
+Temperature Data:
+  - Measurements: 225281
+  - Time period: 1998-07-30 to 2024-12-31
+  - Years covered: 1998 to 2024
+  - Range: -20.4째C to 39.9째C
 
 ==================================================
