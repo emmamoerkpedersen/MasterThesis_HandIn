@@ -555,7 +555,7 @@ if __name__ == "__main__":
     from data_utils.data_loading import load_vst_file
     
     # Load and prepare data
-    data_path = Path(r"C:\Users\olive\OneDrive\GitHub\MasterThesis\project_code\data_utils\Sample data\21006845\VST_RAW.txt")
+    data_path = Path(__file__).parents[2] /"Project_Code"/ "data_utils" / "Sample data" / "21006845" / "VST_RAW.txt"
     sample_data = load_vst_file(data_path)
     
     # Filter for desired time period
