@@ -84,4 +84,31 @@ PHYSICAL_LIMITS = {
     'min_value': 0,  # Water level can't be negative
     'max_value': 3000,  # Maximum reasonable water level
     'max_rate_of_change': 50  # Maximum change per hour
+}
+
+# LSTM Model Configuration - Default/Initial values
+LSTM_CONFIG = {
+    'model': {
+        'input_size': 1,  # Fixed - based on our data
+        'hidden_size_range': (32, 256),  # Will be tuned
+        'num_layers_range': (1, 4),      # Will be tuned
+        'dropout_range': (0.1, 0.5)      # Will be tuned
+    },
+    'data_preparation': {
+        'sequence_length_range': (12, 48),  # Will be tuned
+        'stride': 1,                        # Fixed
+        'batch_size_range': (16, 128)       # Will be tuned
+    },
+    'training': {
+        'learning_rate_range': (1e-4, 1e-2),  # Will be tuned
+        'max_epochs': 100,                     # Fixed
+        'early_stopping_patience': 10,         # Fixed
+        'validation_split': 0.2                # Fixed
+    },
+    'detection': {
+        'threshold_range': (0.7, 0.95)  # Will be tuned
+    },
+    'imputation': {
+        'confidence_threshold_range': (0.8, 0.99)  # Will be tuned
+    }
 } 
