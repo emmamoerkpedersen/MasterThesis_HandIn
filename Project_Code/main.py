@@ -17,7 +17,7 @@ from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison,
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
-from diagnostics.synthetic_diagnostics import plot_synthetic_errors, generate_synthetic_report, create_interactive_plot
+from diagnostics.synthetic_diagnostics import plot_synthetic_errors, generate_synthetic_report, create_interactive_plot, plot_synthetic_vs_actual
 from diagnostics.lstm_diagnostics import plot_training_history, plot_detection_results, generate_lstm_report
 
 # Update these imports to match new structure
@@ -36,8 +36,10 @@ def run_pipeline(
     split_diagnostics: bool = False,
     synthetic_diagnostics: bool = True,  # Default to True since we want to verify error injection
     detection_diagnostics: bool = False,  # For future use
-    imputation_diagnostics: bool = False  # For future use
-):
+    imputation_diagnostics: bool = False,  # For future use
+    validation_diagnostics: bool = False,  # For future use
+    plot_final_diagnostics: bool = False  # For future use
+    ):
     """
     Run the complete error detection and imputation pipeline.
     
@@ -158,6 +160,14 @@ def run_pipeline(
                 )
                 # Create interactive plot
                 create_interactive_plot(
+                    original_data=station_data['vst_raw'],
+                    modified_data=station_data['vst_raw_modified'],
+                    error_periods=stations_results[station_name]['error_periods'],
+                    station_name=station_name,
+                    output_dir=Path(output_path)
+                )
+                #Create comparison plot between synthetic anomalies and actual anomalies in the data for station 21006845
+                plot_synthetic_vs_actual(
                     original_data=station_data['vst_raw'],
                     modified_data=station_data['vst_raw_modified'],
                     error_periods=stations_results[station_name]['error_periods'],
@@ -308,6 +318,12 @@ def run_pipeline(
         'confusion_matrix': metrics['confusion_matrix']
     }
 
+    if validation_diagnostics:
+        print("\nGenerating validation diagnostics...")
+        for station_name, results in validation_results.items():
+            # TODO: Add validation-specific diagnostic functions
+            pass
+
     #########################################################
     # Step 7: Generate Final Plots                          #
     #########################################################
@@ -331,6 +347,11 @@ def run_pipeline(
         station_name=station_name,
         output_dir=Path(output_path)
     )
+    if plot_final_diagnostics:
+        print("\nGenerating final diagnostics...")
+        for station_name, results in validation_results.items():
+            # TODO: Add final-specific diagnostic functions
+            pass
     
     #########################################################
     # Step 8: Export Results                                #
@@ -372,9 +393,11 @@ if __name__ == "__main__":
     run_pipeline(
         str(data_path), 
         str(output_path), 
-        preprocess_diagnostics=True,
+        preprocess_diagnostics=False,
         split_diagnostics=False,
-        synthetic_diagnostics=False,
+        synthetic_diagnostics=True,
         detection_diagnostics=False,
-        imputation_diagnostics=False
+        imputation_diagnostics=False,
+        validation_diagnostics=False,
+        plot_final_diagnostics=False
     )
