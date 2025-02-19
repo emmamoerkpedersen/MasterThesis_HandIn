@@ -203,7 +203,7 @@ if __name__ == "__main__":
     run_pipeline(
         str(data_path), 
         str(output_path), 
-        preprocess_diagnostics=True,
+        preprocess_diagnostics=False,
         split_diagnostics=False,
-        synthetic_diagnostics=False
+        synthetic_diagnostics=True
     )
