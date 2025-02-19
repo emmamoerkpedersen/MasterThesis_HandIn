@@ -46,7 +46,7 @@ def plot_synthetic_errors(original_data: pd.DataFrame,
     # Plot original data in first subplot
     ax1.plot(original_data, label='Original Data', color=ERROR_COLORS['base'], alpha=0.7)
     ax1.set_title('Original Test Data')
-    ax1.grid(True)
+    ax1.grid(False)
     ax1.legend()
     
     # Plot base data in second subplot
@@ -107,7 +107,7 @@ def plot_synthetic_errors(original_data: pd.DataFrame,
     ax2.set_title('Test Data with Injected Errors')
     ax2.set_xlabel('Date')
     ax2.set_ylabel('Water Level (mm)')
-    ax2.grid(True)
+    ax2.grid(False)
     
     plt.tight_layout()
     plt.savefig(diagnostic_dir / f"{station_name}_synthetic_errors.png", dpi=300)

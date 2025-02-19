@@ -596,10 +596,10 @@ if __name__ == "__main__":
     ERROR_COLORS = {
         'base': '#1f77b4',      # Default blue
         'spike': '#ff7f0e',     # Orange
-        'flatline': '#2ca02c',  # Green
+        'baseline_shift': '#2ca02c',  # Green
         'offset': '#d62728',    # Red
-        'drift': '#9467bd',     # Purple
-        'baseline_shift': '#8c564b'  # Brown
+        'drift': '#ff7f0e',     # Yellow
+        'flatline': '#8c564b'  # Brown
     }
     
     # Plot original data in first subplot
@@ -708,7 +708,7 @@ if __name__ == "__main__":
                 baseline_line = line
     
     ax2.set_ylabel('Water Level')
-    ax2.grid(True)
+    ax2.grid(False)
     
     # Update legend to include baseline shifts:
     ax2.legend([
