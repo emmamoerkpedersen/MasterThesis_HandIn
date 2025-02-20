@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 def set_plot_style():
     """Set consistent plot style with larger fonts."""
@@ -351,3 +353,136 @@ def plot_additional_data(preprocessed_data: dict, output_dir: Path):
     
     # Reset font sizes to default at the end
     plt.rcParams.update(plt.rcParamsDefault) 
+
+def create_interactive_temperature_plot(preprocessed_data: dict, output_dir: Path):
+    """Create interactive plotly plot showing VST_RAW data with temperature overlay."""
+    diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
+    diagnostic_dir.mkdir(parents=True, exist_ok=True)
+    
+    for station_name, station_data in preprocessed_data.items():
+        if station_data['vst_raw'] is not None and station_data['temperature'] is not None:
+            # Make sure we're using datetime for x-axis
+            vst_data = station_data['vst_raw'].copy()
+            if not isinstance(vst_data.index, pd.DatetimeIndex):
+                vst_data.set_index('Date', inplace=True)
+                
+            temp_data = station_data['temperature'].copy()
+            if not isinstance(temp_data.index, pd.DatetimeIndex):
+                temp_data.set_index('Date', inplace=True)
+            
+            # Create figure with two subplots stacked vertically
+            fig = make_subplots(
+                rows=2, 
+                cols=1,
+                subplot_titles=(
+                    "Temperature Data (Red background indicates freezing temperatures)",
+                    "Water Level Data (Red background indicates freezing temperatures)"
+                ),
+                vertical_spacing=0.15,
+                row_heights=[0.4, 0.6],
+                shared_xaxes=True  # This ensures zooming is synchronized
+            )
+            
+            # Add temperature data
+            fig.add_trace(
+                go.Scatter(
+                    x=temp_data.index,
+                    y=temp_data['temperature (C)'],
+                    name="Temperature",
+                    line=dict(color='red', width=1),
+                ),
+                row=1, col=1
+            )
+            
+            # Find freezing periods more efficiently
+            temp_series = temp_data['temperature (C)']
+            freezing = temp_series < 0
+            
+            # Find the changes in freezing state
+            state_changes = freezing.ne(freezing.shift()).fillna(True)
+            change_points = temp_series.index[state_changes]
+            
+            # If the series ends in a freezing period, add the last timestamp
+            if freezing.iloc[-1]:
+                change_points = change_points.append(temp_series.index[-1:])
+            
+            # Create pairs of start and end points for freezing periods
+            for i in range(0, len(change_points)-1, 2):
+                if i+1 < len(change_points) and freezing.loc[change_points[i]]:
+                    # Add freezing period rectangle to temperature plot
+                    fig.add_vrect(
+                        x0=change_points[i],
+                        x1=change_points[i+1],
+                        fillcolor="rgba(255, 0, 0, 0.1)",
+                        layer="below",
+                        line_width=0,
+                        row=1, col=1
+                    )
+                    # Add freezing period rectangle to water level plot
+                    fig.add_vrect(
+                        x0=change_points[i],
+                        x1=change_points[i+1],
+                        fillcolor="rgba(255, 0, 0, 0.1)",
+                        layer="below",
+                        line_width=0,
+                        row=2, col=1
+                    )
+            
+            # Add VST_RAW data
+            fig.add_trace(
+                go.Scatter(
+                    x=vst_data.index,
+                    y=vst_data['Value'],
+                    name="Water Level",
+                    line=dict(color='blue', width=1),
+                ),
+                row=2, col=1
+            )
+            
+            # Update layout
+            fig.update_layout(
+                height=800,  # Increased height for better visibility
+                width=1200,  # Increased width for better visibility
+                title=f"{station_name} - Water Level and Temperature Data",
+                hovermode='x unified',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                showlegend=True,
+                legend=dict(
+                    yanchor="top",
+                    y=0.99,
+                    xanchor="left",
+                    x=0.01
+                )
+            )
+            
+            # Update axes
+            fig.update_xaxes(
+                title_text="Date",
+                gridcolor='lightgray',
+                showgrid=True,
+                row=1, col=1
+            )
+            fig.update_xaxes(
+                title_text="Date",
+                gridcolor='lightgray',
+                showgrid=True,
+                row=2, col=1
+            )
+            
+            fig.update_yaxes(
+                title_text="Temperature (°C)",
+                gridcolor='lightgray',
+                showgrid=True,
+                row=1, col=1
+            )
+            
+            fig.update_yaxes(
+                title_text="Water Level (mm)",
+                gridcolor='lightgray',
+                showgrid=True,
+                row=2, col=1
+            )
+            
+            # Save interactive plot
+            fig.write_html(diagnostic_dir / f"{station_name}_temperature_analysis.html") 
