@@ -3,6 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import pandas as pd
 
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -98,7 +99,7 @@ def find_freezing_periods(preprocessed_data):
         below_zero = temp_data['temperature (C)'] < 0
         
         # Calculate the duration of each temperature reading (in hours)
-        time_diff = temp_data.index.diff().dt.total_seconds() / 3600
+        time_diff = pd.Series(temp_data.index).diff().dt.total_seconds() / 3600
         
         # Initialize variables for tracking freezing periods
         current_start = None
@@ -114,7 +115,7 @@ def find_freezing_periods(preprocessed_data):
                 if current_start is not None and current_duration >= 48:
                     station_periods.append({
                         'start': current_start,
-                        'end': temp_data.index.iloc[i-1],
+                        'end': temp_data.index[i-1],
                         'duration_hours': current_duration
                     })
                 current_start = None
@@ -167,7 +168,7 @@ def plot_station_data(station_data, station_name):
     # Create second y-axis for temperature
     ax2 = ax1.twinx()
     if station_data['temperature'] is not None:
-        ax2.plot(station_data['temperature']['datetime'],
+        ax2.plot(station_data['temperature'].index,
                 station_data['temperature']['temperature (C)'],
                 'r-', label='Temperature', alpha=0.5)
         ax2.set_ylabel('Temperature (°C)', color='r')
@@ -188,6 +189,6 @@ if __name__ == "__main__":
     processed_data = preprocess_data()
     freezing_periods = find_freezing_periods(processed_data)
     
-    # # Plot data for each station
-    # for station_name, station_data in processed_data.items():
-    #     plot_station_data(station_data, station_name)
+    # Plot data for each station
+    for station_name, station_data in processed_data.items():
+        plot_station_data(station_data, station_name)
