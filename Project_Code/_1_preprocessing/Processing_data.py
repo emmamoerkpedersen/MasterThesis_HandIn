@@ -59,24 +59,27 @@ def preprocess_data():
     
     return All_station_data
 
-preprocess_data()
+# preprocess_data()
+# All_station_data = load_all_station_data()
 
-All_station_data = load_all_station_data()
 
-# Access temperature data for a specific station
-station_name = next(iter(All_station_data.keys()))  # gets first station name
-temp_data = All_station_data[station_name]['temperature']
-plt.figure(figsize=(12, 6))
-plt.plot(temp_data.index, temp_data['temperature (C)'])
-plt.title('Temperature Data - All Stations')
-plt.xlabel('Date')
-plt.ylabel('Temperature (°C)')
-plt.grid(True)
-plt.legend()
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.show()
 
+# # Access temperature data for a specific station
+# station_name = next(iter(All_station_data.keys()))  # gets first station name
+# temp_data = All_station_data[station_name]['temperature']
+# plt.figure(figsize=(12, 6))
+# plt.plot(temp_data.index, temp_data['temperature (C)'])
+# plt.title('Temperature Data - All Stations')
+# plt.xlabel('Date')
+# plt.ylabel('Temperature (°C)')
+# plt.grid(True)
+# plt.legend()
+# plt.xticks(rotation=45)
+# plt.tight_layout()
+# plt.show()
+
+
+### CODE FOR FREEZING PERIODS ###
 def find_freezing_periods(preprocessed_data):
     """
     Identify periods where temperature remains below 0°C for 48 hours or more.
@@ -137,58 +140,72 @@ def find_freezing_periods(preprocessed_data):
     
     return freezing_periods
 
-def plot_station_data(station_data, station_name):
-    """
-    Create a dual-axis plot showing VST measurements and temperature data.
-    
-    Args:
-        station_data (dict): Dictionary containing the station's data
-        station_name (str): Name of the station for the plot title
-    """
-    fig, ax1 = plt.subplots(figsize=(15, 8))
-    
-    # Plot VST measurements on the first y-axis
-    if station_data['vst_raw'] is not None:
-        ax1.plot(station_data['vst_raw']['Date'], 
-                station_data['vst_raw']['Value'], 
-                label='VST Raw', alpha=0.7)
-    if station_data['vinge'] is not None:
-        ax1.plot(station_data['vinge']['Date'], 
-                station_data['vinge']['W.L [cm]'], 
-                label='Vinge', alpha=0.7)
-    if station_data['vst_edt'] is not None:
-        ax1.plot(station_data['vst_edt']['Date'], 
-                station_data['vst_edt']['Value'], 
-                label='VST EDT', alpha=0.7)
-    
-    ax1.set_xlabel('Date')
-    ax1.set_ylabel('VST Values')
-    ax1.tick_params(axis='x', rotation=45)
-    
-    # Create second y-axis for temperature
-    ax2 = ax1.twinx()
-    if station_data['temperature'] is not None:
-        ax2.plot(station_data['temperature'].index,
-                station_data['temperature']['temperature (C)'],
-                'r-', label='Temperature', alpha=0.5)
-        ax2.set_ylabel('Temperature (°C)', color='r')
-        ax2.tick_params(axis='y', labelcolor='r')
-    
-    # Combine legends from both axes
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
-    
-    plt.title(f'Station Data - {station_name}')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-# Example usage:
+## Example usage:
 if __name__ == "__main__":
     processed_data = preprocess_data()
     freezing_periods = find_freezing_periods(processed_data)
     
-    # Plot data for each station
-    for station_name, station_data in processed_data.items():
-        plot_station_data(station_data, station_name)
+
+
+### CODE FOR BAR PLOT FOR COVER ###
+# def plot_station_data(station_data, station_name):
+#     """
+#     Create an elegant, minimalist plot showing VST raw and edited data.
+    
+#     Args:
+#         station_data (dict): Dictionary containing the station's data
+#         station_name (str): Name of the station for the plot title
+#     """
+#     # Create figure with transparent background
+#     fig = plt.figure(figsize=(15, 8), facecolor='none')
+#     ax = plt.gca()
+#     ax.set_facecolor('none')
+    
+#     # Plot VST edited data first (sophisticated burgundy)
+#     if station_data['vst_edt'] is not None:
+#         # Resample data to daily mean
+#         vst_edt_resampled = station_data['vst_edt'].resample('D', on='Date').mean()
+#         plt.bar(vst_edt_resampled.index, 
+#                vst_edt_resampled['Value'],
+#                color='#722F37',  # Rich burgundy
+#                alpha=0.85, 
+#                label='VST EDT',
+#                width=0.7)  # Thinner bars
+    
+#     # Plot VST raw data on top (deep navy)
+#     if station_data['vst_raw'] is not None:
+#         # Resample data to daily mean
+#         vst_raw_resampled = station_data['vst_raw'].resample('D', on='Date').mean()
+#         plt.bar(vst_raw_resampled.index, 
+#                vst_raw_resampled['Value'],
+#                color='#1B3F8B',  # Deep navy
+#                alpha=0.85, 
+#                label='VST Raw',
+#                width=0.7)  # Thinner bars
+    
+#     # Remove grid
+#     plt.grid(False)
+    
+#     # Minimal legend with custom styling
+#    # plt.legend(frameon=False, loc='upper right')
+    
+#     # Set date range
+#     plt.xlim(pd.Timestamp('2009-01-01'), pd.Timestamp('2020-01-31'))
+    
+#     # Make all spines (border lines) transparent
+#     for spine in ax.spines.values():
+#         spine.set_alpha(0)
+
+#     plt.tight_layout()
+#     plt.show()
+
+
+# # Example usage:
+# if __name__ == "__main__":
+#     processed_data = preprocess_data()
+#     #freezing_periods = find_freezing_periods(processed_data)
+    
+#     # Plot data for each station
+#     for station_name, station_data in processed_data.items():
+#         plot_station_data(station_data, station_name)
+
