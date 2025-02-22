@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
+import plotly.io as pio
+from plotly.offline import plot
 
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -16,7 +18,7 @@ def preprocess_data():
     
     # Process each station's data
     for station_name, station_data in All_station_data.items():
-        if station_data['vst_raw'] is not None:
+        if station_data['vst_raw'] is not None and station_data['temperature'] is not None:
             # Calculate IQR for this station
             Q1 = station_data['vst_raw']['Value'].quantile(0.25)
             Q3 = station_data['vst_raw']['Value'].quantile(0.75)
@@ -51,7 +53,57 @@ def preprocess_data():
             # Count removed flatline points
             n_flatlines = rolling_count.sum()
             
-            print(f"Processed {station_name}:")
+            # Detect freezing periods
+            temp_data = station_data['temperature']
+            below_zero = temp_data['temperature (C)'] < 0
+            
+            # Calculate duration of freezing periods
+            freezing_start = None
+            freezing_duration = pd.Timedelta(hours=0)
+            periods_to_remove = []
+            
+            for idx in range(len(temp_data)):
+                current_time = temp_data.index[idx]
+                
+                if below_zero.iloc[idx]:
+                    if freezing_start is None:
+                        freezing_start = current_time
+                    freezing_duration = current_time - freezing_start
+                    
+                    # If freezing duration reaches 36 hours, mark period for removal
+                    if freezing_duration >= pd.Timedelta(hours=36):
+                        # Find when temperature goes above 0 again
+                        for future_idx in range(idx, len(temp_data)):
+                            if not below_zero.iloc[future_idx]:
+                                end_time = temp_data.index[future_idx] + pd.Timedelta(hours=24)
+                                # Convert times to timezone-naive if they're not already
+                                if current_time.tzinfo is not None:
+                                    current_time = current_time.tz_localize(None)
+                                if end_time.tzinfo is not None:
+                                    end_time = end_time.tz_localize(None)
+                                periods_to_remove.append((current_time, end_time))
+                                break
+                        # Reset tracking
+                        freezing_start = None
+                        freezing_duration = pd.Timedelta(hours=0)
+                else:
+                    # Reset tracking when temperature goes above 0
+                    freezing_start = None
+                    freezing_duration = pd.Timedelta(hours=0)
+            
+            # Ensure VST data dates are timezone-naive
+            if station_data['vst_raw']['Date'].dt.tz is not None:
+                station_data['vst_raw']['Date'] = station_data['vst_raw']['Date'].dt.tz_localize(None)
+            
+            # Remove VST data during freezing periods
+            for start, end in periods_to_remove:
+                station_data['vst_raw'] = station_data['vst_raw'][
+                    ~((station_data['vst_raw']['Date'] >= start) & 
+                      (station_data['vst_raw']['Date'] <= end))
+                ]
+            
+            print(f"\nProcessed {station_name}:")
+            print(f"  - Removed data from {len(periods_to_remove)} freezing periods")
             print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
             print(f"  - Removed {n_spikes} spikes")
             print(f"  - Removed {int(n_flatlines)} flatline points")
@@ -208,4 +260,94 @@ if __name__ == "__main__":
 #     # Plot data for each station
 #     for station_name, station_data in processed_data.items():
 #         plot_station_data(station_data, station_name)
+
+
+def create_interactive_plot(station_data, station_name, freezing_periods):
+    """
+    Create an interactive plot with two subplots showing temperature and VST raw data.
+    Freezing periods are highlighted in both plots without text annotations.
+    """
+    # Create figure with two subplots
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        subplot_titles=('Temperature', 'VST Raw')
+    )
+    
+    # Add temperature trace
+    if 'temperature' in station_data and station_data['temperature'] is not None:
+        fig.add_trace(
+            go.Scatter(
+                x=station_data['temperature'].index,
+                y=station_data['temperature']['temperature (C)'],
+                name='Temperature',
+                line=dict(color='#1f77b4'),
+                hovertemplate='Temperature: %{y:.1f}°C<br>Date: %{x}<extra></extra>'
+            ),
+            row=1, col=1
+        )
+    
+    # Add VST raw data
+    if 'vst_raw' in station_data and station_data['vst_raw'] is not None:
+        fig.add_trace(
+            go.Scatter(
+                x=station_data['vst_raw']['Date'],
+                y=station_data['vst_raw']['Value'],
+                name='VST Raw',
+                line=dict(color='#2ca02c'),
+                hovertemplate='VST: %{y:.1f}<br>Date: %{x}<extra></extra>'
+            ),
+            row=2, col=1
+        )
+    
+    # Add freezing periods as shaded regions to both subplots (without text)
+    if station_name in freezing_periods:
+        for period in freezing_periods[station_name]:
+            # Add to temperature subplot
+            fig.add_vrect(
+                x0=period['start'],
+                x1=period['end'],
+                fillcolor='rgba(128, 177, 211, 0.2)',
+                line_width=0,
+                layer="below",
+                row=1, col=1
+            )
+            # Add to VST subplot
+            fig.add_vrect(
+                x0=period['start'],
+                x1=period['end'],
+                fillcolor='rgba(128, 177, 211, 0.2)',
+                line_width=0,
+                layer="below",
+                row=2, col=1
+            )
+
+    # Update layout
+    fig.update_layout(
+        title=f'Temperature and VST Data for {station_name}',
+        hovermode='x unified',
+        showlegend=True,
+        template='plotly_white',
+        height=800,  # Increased height for better visibility
+    )
+    
+    # Update y-axes labels
+    fig.update_yaxes(title_text="Temperature (°C)", row=1, col=1)
+    fig.update_yaxes(title_text="VST", row=2, col=1)
+    
+    # Update x-axis label (only shown on bottom plot)
+    fig.update_xaxes(title_text="Date", row=2, col=1)
+
+    return fig
+
+# Example usage:
+if __name__ == "__main__":
+    processed_data = preprocess_data()
+    freezing_periods = find_freezing_periods(processed_data)
+    
+    # Create and show plot for each station
+    for station_name, station_data in processed_data.items():
+        fig = create_interactive_plot(station_data, station_name, freezing_periods)
+        plot(fig, auto_open=True)  # This will open the plot in a browser
 
