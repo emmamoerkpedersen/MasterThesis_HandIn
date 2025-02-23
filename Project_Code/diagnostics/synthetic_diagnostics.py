@@ -22,9 +22,22 @@ def plot_synthetic_errors(original_data: pd.DataFrame,
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), sharex=True)
     fig.suptitle(f'Water Level Time Series with Synthetic Errors - {station_name}', fontsize=14)
     
-    # Get the overall min and max values
-    y_min = min(original_data.min().min(), modified_data.min().min())
-    y_max = max(original_data.max().max(), modified_data.max().max())
+    # Get the overall min and max values for the "Value" column,
+    # using dropna() to avoid NaN values.
+    value_col = "Value"
+    orig_vals = original_data[value_col].dropna()
+    mod_vals = modified_data[value_col].dropna()
+    
+    if orig_vals.empty and mod_vals.empty:
+        y_min, y_max = 0, 1
+    elif orig_vals.empty:
+        y_min, y_max = mod_vals.min(), mod_vals.max()
+    elif mod_vals.empty:
+        y_min, y_max = orig_vals.min(), orig_vals.max()
+    else:
+        y_min = min(orig_vals.min(), mod_vals.min())
+        y_max = max(orig_vals.max(), mod_vals.max())
+    
     y_padding = (y_max - y_min) * 0.05
     y_min -= y_padding
     y_max += y_padding
@@ -225,7 +238,7 @@ def create_interactive_plot(original_data: pd.DataFrame,
     # Save interactive plot
     fig.write_html(diagnostic_dir / f"{station_name}_synthetic_errors_interactive.html")
 
-def generate_synthetic_report(stations_results: Dict, output_dir: Path):
+def generate_synthetic_report(stations_results: dict, output_dir: Path):
     """Generate report of synthetic error injection results."""
     report_dir = output_dir / "diagnostics" / "synthetic"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -234,26 +247,29 @@ def generate_synthetic_report(stations_results: Dict, output_dir: Path):
         f.write("Synthetic Error Injection Report\n")
         f.write("==============================\n\n")
         
-        for station_name, results in stations_results.items():
-            f.write(f"\nStation: {station_name}\n")
-            f.write("-" * (len(station_name) + 9) + "\n")
+        for station_key, results in stations_results.items():
+            f.write(f"\nStation: {station_key}\n")
+            f.write("-" * (len(station_key) + 9) + "\n")
             
-            # Count errors by type
-            error_counts = {}
+            # Group errors by type
+            errors_by_type = {}
             for period in results['error_periods']:
-                error_counts[period.error_type] = error_counts.get(period.error_type, 0) + 1
+                if period.error_type not in errors_by_type:
+                    errors_by_type[period.error_type] = []
+                errors_by_type[period.error_type].append(period)
             
             f.write("\nInjected Errors:\n")
-            for error_type, count in error_counts.items():
-                f.write(f"  - {error_type.capitalize()}: {count} instances\n")
-            
-            # Add time range information
-            if results['error_periods']:
-                start_time = min(period.start_time for period in results['error_periods'])
-                end_time = max(period.end_time for period in results['error_periods'])
-                f.write(f"\nTime Range Affected:\n")
-                f.write(f"  From: {start_time.strftime('%Y-%m-%d %H:%M')}\n")
-                f.write(f"  To: {end_time.strftime('%Y-%m-%d %H:%M')}\n")
+            for error_type, periods in errors_by_type.items():
+                f.write(f"\n  {error_type.capitalize()}:\n")
+                f.write(f"    - Count: {len(periods)} instances\n")
+                f.write(f"    - Time ranges:\n")
+                for period in periods:
+                    start_time = period.start_time.strftime('%Y-%m-%d %H:%M')
+                    end_time = period.end_time.strftime('%Y-%m-%d %H:%M')
+                    duration = (period.end_time - period.start_time).total_seconds() / 3600  # hours
+                    f.write(f"      * {start_time} to {end_time} (duration: {duration:.1f} hours)\n")
+                    if hasattr(period, 'parameters') and period.parameters:
+                        f.write(f"        Parameters: {period.parameters}\n")
             
             f.write("\n" + "="*50 + "\n")
 

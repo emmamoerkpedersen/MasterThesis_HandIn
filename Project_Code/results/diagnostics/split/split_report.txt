@@ -1,180 +1,138 @@
 Data Split Diagnostics Report
 ===========================
 
+Yearly Split Diagnostics Report
+===============================
+
+
+Year: 1990
+-------------
 
 Station: 21006845
 -----------------
-
-Train Set:
   vst_raw:
-    - Points: 243508
-    - Time range: 1990-01-01 to 2011-01-04
-    - Value range: 365.00 to 1974.00
+    - Points: 2494
+    - Time range: 1990-01-01 to 1991-01-01
+    - Value range: 365.00 to 1718.05
   vst_edt:
-    - Points: 245660
-    - Time range: 1990-01-01 to 2011-01-04
+    - Points: 2495
+    - Time range: 1990-01-01 to 1991-01-01
   vinge:
-    - Points: 208
-    - Time range: 1990-01-05 to 2010-12-09
-  rainfall:
-    - Points: 7996
-    - Time range: 2010-01-21 to 2011-01-04
-  temperature:
-    - Points: 90427
-    - Time range: 1999-09-30 to 2011-01-04
-
-Validation Set:
-  vst_raw:
-    - Points: 208052
-    - Time range: 2011-01-04 to 2018-01-05
-    - Value range: 836.00 to 2207.00
-  vst_edt:
-    - Points: 210874
-    - Time range: 2011-01-04 to 2018-01-05
-  vinge:
-    - Points: 137
-    - Time range: 2011-01-20 to 2017-12-06
-  rainfall:
-    - Points: 56625
-    - Time range: 2011-01-04 to 2018-01-05
-  temperature:
-    - Points: 59056
-    - Time range: 2011-01-04 to 2017-11-23
-
-Test Set:
-  vst_raw:
-    - Points: 243619
-    - Time range: 2018-01-05 to 2025-01-07
-    - Value range: 969.69 to 2473.56
-  vst_edt:
-    - Points: 222352
-    - Time range: 2018-01-05 to 2024-05-15
-  vinge:
-    - Points: 148
-    - Time range: 2018-01-10 to 2024-12-03
-  rainfall:
-    - Points: 58574
-    - Time range: 2018-01-05 to 2024-12-31
-  temperature:
-    - Points: 3115
-    - Time range: 2024-03-22 to 2025-01-01
+    - Points: 11
+    - Time range: 1990-01-05 to 1990-11-23
+  Window: 1990-01-01 09:01:00 to 1991-01-01 09:01:00
 
 ==================================================
+
+Year: 2023
+-------------
+
+Station: 21006845
+-----------------
+  vst_raw:
+    - Points: 33570
+    - Time range: 2023-12-24 to 2024-12-23
+    - Value range: 1253.00 to 2248.47
+  vst_edt:
+    - Points: 13743
+    - Time range: 2023-12-24 to 2024-05-15
+  vinge:
+    - Points: 14
+    - Time range: 2024-01-04 to 2024-12-03
+  rainfall:
+    - Points: 8504
+    - Time range: 2023-12-24 to 2024-12-23
+  temperature:
+    - Points: 2908
+    - Time range: 2024-03-22 to 2024-12-23
+  Window: 2023-12-24 09:01:00 to 2024-12-23 09:01:00
+
+==================================================
+
+Year: 1990
+-------------
 
 Station: 21006846
 -----------------
-
-Train Set:
   vst_raw:
-    - Points: 301750
-    - Time range: 1990-01-01 to 2011-01-04
-    - Value range: 216.00 to 1727.00
+    - Points: 2235
+    - Time range: 1990-01-01 to 1990-12-31
+    - Value range: 485.00 to 1426.00
   vst_edt:
-    - Points: 343459
-    - Time range: 1990-01-01 to 2011-01-04
+    - Points: 2235
+    - Time range: 1990-01-01 to 1990-12-31
   vinge:
-    - Points: 274
-    - Time range: 1990-01-09 to 2010-12-01
-  rainfall:
-    - Points: 7712
-    - Time range: 2010-01-04 to 2011-01-05
-  temperature:
-    - Points: 107965
-    - Time range: 1998-07-30 to 2011-01-05
-
-Validation Set:
-  vst_raw:
-    - Points: 189158
-    - Time range: 2011-01-05 to 2018-01-06
-    - Value range: 247.78 to 1439.44
-  vst_edt:
-    - Points: 238572
-    - Time range: 2011-01-05 to 2018-01-06
-  vinge:
-    - Points: 101
-    - Time range: 2011-01-06 to 2018-01-03
-  rainfall:
-    - Points: 57800
-    - Time range: 2011-01-05 to 2018-01-06
-  temperature:
-    - Points: 59723
-    - Time range: 2011-01-05 to 2018-01-06
-
-Test Set:
-  vst_raw:
-    - Points: 245500
-    - Time range: 2018-01-06 to 2025-01-07
-    - Value range: 156.32 to 1605.78
-  vst_edt:
-    - Points: 241706
-    - Time range: 2018-01-06 to 2024-12-09
-  vinge:
-    - Points: 113
-    - Time range: 2018-02-05 to 2024-12-19
-  rainfall:
-    - Points: 52600
-    - Time range: 2018-01-06 to 2024-12-31
-  temperature:
-    - Points: 57593
-    - Time range: 2018-01-06 to 2024-12-31
+    - Points: 10
+    - Time range: 1990-01-09 to 1990-12-05
+  Window: 1990-01-01 00:00:00 to 1991-01-01 00:00:00
 
 ==================================================
 
+Year: 2023
+-------------
+
+Station: 21006846
+-----------------
+  vst_raw:
+    - Points: 35040
+    - Time range: 2023-12-24 to 2024-12-22
+    - Value range: 157.80 to 1605.78
+  vst_edt:
+    - Points: 33725
+    - Time range: 2023-12-24 to 2024-12-09
+  vinge:
+    - Points: 13
+    - Time range: 2024-01-18 to 2024-12-19
+  rainfall:
+    - Points: 8731
+    - Time range: 2023-12-24 to 2024-12-22
+  temperature:
+    - Points: 7609
+    - Time range: 2023-12-24 to 2024-12-22
+  Window: 2023-12-24 00:00:00 to 2024-12-23 00:00:00
+
+==================================================
+
+Year: 1990
+-------------
+
 Station: 21006847
 -----------------
-
-Train Set:
   vst_raw:
-    - Points: 313989
-    - Time range: 1990-01-01 to 2011-01-04
-    - Value range: 118.09 to 1412.99
+    - Points: 3514
+    - Time range: 1990-01-01 to 1990-12-31
+    - Value range: 234.00 to 979.24
   vst_edt:
-    - Points: 319401
-    - Time range: 1990-01-01 to 2011-01-04
+    - Points: 3507
+    - Time range: 1990-01-01 to 1990-12-31
   vinge:
-    - Points: 296
-    - Time range: 1990-01-11 to 2010-12-09
-  rainfall:
-    - Points: 8463
-    - Time range: 2010-01-04 to 2011-01-05
-  temperature:
-    - Points: 107965
-    - Time range: 1998-07-30 to 2011-01-05
+    - Points: 12
+    - Time range: 1990-01-11 to 1990-12-17
+  Window: 1990-01-01 00:46:00 to 1991-01-01 00:46:00
 
-Validation Set:
-  vst_raw:
-    - Points: 162423
-    - Time range: 2011-01-05 to 2018-01-06
-    - Value range: -14.00 to 1271.00
-  vst_edt:
-    - Points: 196896
-    - Time range: 2011-01-05 to 2018-01-06
-  vinge:
-    - Points: 170
-    - Time range: 2011-01-19 to 2018-01-03
-  rainfall:
-    - Points: 59409
-    - Time range: 2011-01-05 to 2018-01-06
-  temperature:
-    - Points: 59723
-    - Time range: 2011-01-05 to 2018-01-06
+==================================================
 
-Test Set:
+Year: 2023
+-------------
+
+Station: 21006847
+-----------------
   vst_raw:
-    - Points: 246835
-    - Time range: 2018-01-06 to 2025-01-07
-    - Value range: -17.05 to 1142.53
+    - Points: 35579
+    - Time range: 2023-12-24 to 2024-12-23
+    - Value range: -2.39 to 1142.53
   vst_edt:
-    - Points: 234730
-    - Time range: 2018-01-06 to 2024-12-09
+    - Points: 33568
+    - Time range: 2023-12-24 to 2024-12-09
   vinge:
-    - Points: 123
-    - Time range: 2018-01-25 to 2024-12-19
+    - Points: 13
+    - Time range: 2024-01-18 to 2024-12-19
   rainfall:
-    - Points: 57701
-    - Time range: 2018-01-06 to 2024-12-31
+    - Points: 8740
+    - Time range: 2023-12-24 to 2024-12-23
   temperature:
-    - Points: 57593
-    - Time range: 2018-01-06 to 2024-12-31
+    - Points: 7608
+    - Time range: 2023-12-24 to 2024-12-22
+  Window: 2023-12-24 00:46:00 to 2024-12-23 00:46:00
 
 ==================================================

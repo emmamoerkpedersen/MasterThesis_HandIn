@@ -11,7 +11,7 @@ from pathlib import Path
 #from data_loading import prepare_data_for_error_detection
 #from error_detection.config import SYNTHETIC_ERROR_PARAMS, PHYSICAL_LIMITS
 from _1_preprocessing.Processing_data import preprocess_data
-from _1_preprocessing.split import split_data
+from _1_preprocessing.split import split_data, split_data_yearly
 from data_utils.data_loading import load_all_station_data
 from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, generate_preprocessing_report, plot_additional_data, create_interactive_temperature_plot
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
@@ -38,7 +38,8 @@ def run_pipeline(
     detection_diagnostics: bool = False,  # For future use
     imputation_diagnostics: bool = False,  # For future use
     validation_diagnostics: bool = False,  # For future use
-    plot_final_diagnostics: bool = False  # For future use
+    plot_final_diagnostics: bool = False,  # For future use
+    split_mode: str = "normal"  # Options: "normal" or "yearly"
     ):
     """
     Run the complete error detection and imputation pipeline.
@@ -100,81 +101,170 @@ def run_pipeline(
                             print(f"    Time range: {data.index.min()} to {data.index.max()}")
                             
     #########################################################
-    #  Step 2: Split data into train/validation/test sets   #
+    #  Step 2: Split data                                     #
     #########################################################
     
-    print("\nSplitting data into train/validation/test sets...")
-    split_datasets = split_data(preprocessed_data)
+    if split_mode == "normal":
+        print("\nSplitting data into train/validation/test sets (normal mode)...")
+        split_datasets = split_data(preprocessed_data)
     
-    # Generate split diagnostics if enabled
-    if split_diagnostics:
-        print("Generating split diagnostics...")
-        plot_split_visualization(
-            split_datasets,
-            Path(output_path)
-        )
-        generate_split_report(
-            split_datasets,
-            Path(output_path)
-        )
+        # Generate split diagnostics if enabled
+        if split_diagnostics:
+            print("Generating split diagnostics...")
+            plot_split_visualization(
+                split_datasets,
+                Path(output_path)
+            )
+            generate_split_report(
+                split_datasets,
+                Path(output_path)
+            )
+    elif split_mode == "yearly":
+        print("\nSplitting data using yearly windows...")
+        split_datasets = split_data_yearly(preprocessed_data)
+    
+        if split_diagnostics:
+            print("Generating yearly split diagnostics...")
+            plot_split_visualization(split_datasets, Path(output_path))
+            generate_split_report(split_datasets, Path(output_path))
+    else:
+        raise ValueError("Invalid split_mode. Choose 'normal' or 'yearly'.")
 
+    
     #########################################################
     # Step 3: Generate synthetic errors for testing data    #
     #########################################################
     
-    print("\nInjecting synthetic errors into test data...")
     error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
-    stations_results = {}
     error_types = ['spike', 'drift', 'offset', 'baseline_shift']
-    for station_name, station_data in split_datasets['test'].items():
-        if 'vst_raw' in station_data and station_data['vst_raw'] is not None:
-            print(f"\nProcessing station: {station_name}")
-            
-            # Get test data and inject errors
-            test_data = station_data['vst_raw'].copy()
-            modified_data, ground_truth = error_generator.inject_all_errors(test_data, error_types=error_types)
-            
-            # Store modified data and results
-            split_datasets['test'][station_name]['vst_raw_modified'] = modified_data
-            stations_results[station_name] = {
-                'error_periods': error_generator.error_periods.copy(),  # Store a copy to avoid reference issues
-                'ground_truth': ground_truth
-            }
-            
-            # Clear error periods for next station
-            error_generator.error_periods = []
-            error_generator.used_indices = set()
     
-    # Generate synthetic error diagnostics if enabled
-    if synthetic_diagnostics:
-        print("\nGenerating synthetic error diagnostics...")
+    if split_mode == "normal":
+        print("\nInjecting synthetic errors into test data (normal mode)...")
+        stations_results = {}
         for station_name, station_data in split_datasets['test'].items():
-            if 'vst_raw_modified' in station_data:
-                # Create static plot
-                plot_synthetic_errors(
-                    original_data=station_data['vst_raw'],
-                    modified_data=station_data['vst_raw_modified'],
-                    error_periods=stations_results[station_name]['error_periods'],
-                    station_name=station_name,
-                    output_dir=Path(output_path)
-                )
-                # Create interactive plot
-                create_interactive_plot(
-                    original_data=station_data['vst_raw'],
-                    modified_data=station_data['vst_raw_modified'],
-                    error_periods=stations_results[station_name]['error_periods'],
-                    station_name=station_name,
-                    output_dir=Path(output_path)
-                )
-                #Create comparison plot between synthetic anomalies and actual anomalies in the data for station 21006845
-                plot_synthetic_vs_actual(
-                    original_data=station_data['vst_raw'],
-                    modified_data=station_data['vst_raw_modified'],
-                    error_periods=stations_results[station_name]['error_periods'],
-                    station_name=station_name,
-                    output_dir=Path(output_path)
-                )
-        generate_synthetic_report(stations_results, Path(output_path))
+            if 'vst_raw' in station_data and station_data['vst_raw'] is not None:
+                print(f"\nProcessing station: {station_name}")
+                
+                # Get test data and inject errors
+                test_data = station_data['vst_raw'].copy()
+                modified_data, ground_truth = error_generator.inject_all_errors(test_data, error_types=error_types)
+                
+                # Store modified data and results
+                split_datasets['test'][station_name]['vst_raw_modified'] = modified_data
+                stations_results[station_name] = {
+                    'error_periods': error_generator.error_periods.copy(),  # Store a copy to avoid reference issues
+                    'ground_truth': ground_truth
+                }
+                
+                # Clear error periods for next station
+                error_generator.error_periods = []
+                error_generator.used_indices = set()
+        
+        # Generate synthetic error diagnostics if enabled
+        if synthetic_diagnostics:
+            print("\nGenerating synthetic error diagnostics (normal mode)...")
+            for station_name, station_data in split_datasets['test'].items():
+                if 'vst_raw_modified' in station_data:
+                    plot_synthetic_errors(
+                        original_data=station_data['vst_raw'],
+                        modified_data=station_data['vst_raw_modified'],
+                        error_periods=stations_results[station_name]['error_periods'],
+                        station_name=station_name,
+                        output_dir=Path(output_path)
+                    )
+
+                    create_interactive_plot(
+                        original_data=station_data['vst_raw'],
+                        modified_data=station_data['vst_raw_modified'],
+                        error_periods=stations_results[station_name]['error_periods'],
+                        station_name=station_name,
+                        output_dir=Path(output_path)
+                    )
+
+                    plot_synthetic_vs_actual(
+                        original_data=station_data['vst_raw'],
+                        modified_data=station_data['vst_raw_modified'],
+                        error_periods=stations_results[station_name]['error_periods'],
+                        station_name=station_name,
+                        output_dir=Path(output_path)
+                    )
+                    
+            generate_synthetic_report(stations_results, Path(output_path))
+    
+    elif split_mode == "yearly":
+        print("\nInjecting synthetic errors into yearly windows...")
+        stations_results = {}
+        
+        for year, stations in split_datasets['windows'].items():
+            for station_name, station_data in stations.items():
+                if 'vst_raw' in station_data and station_data['vst_raw'] is not None:
+                    print(f"\nProcessing station: {station_name} for year: {year}")
+                    
+                    # Create a fresh error generator for each window
+                    error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
+                    
+                    # Get window data and inject errors
+                    window_data = station_data['vst_raw'].copy()
+                    modified_data, ground_truth = error_generator.inject_all_errors(window_data, error_types=error_types)
+                    
+                    # Store results
+                    station_key = f"{station_name}_{year}"
+                    stations_results[station_key] = {
+                        'error_periods': error_generator.error_periods.copy(),
+                        'ground_truth': ground_truth
+                    }
+                    station_data['vst_raw_modified'] = modified_data
+        
+        # Generate synthetic diagnostics for yearly split if enabled
+        if synthetic_diagnostics:
+            print("\nGenerating synthetic error diagnostics (yearly split)...")
+            
+            # Select a few representative examples to plot
+            max_plots_per_station = 5  # Number of years to plot per station
+            plotted_stations = set()
+            
+            for year, stations in split_datasets['windows'].items():
+                for station, station_window in stations.items():
+                    # Skip if we've already plotted enough examples for this station
+                    if station in plotted_stations:
+                        continue
+                        
+                    if 'vst_raw_modified' in station_window:
+                        # Create plots for this station-year combination
+                        plot_synthetic_errors(
+                            original_data=station_window['vst_raw'],
+                            modified_data=station_window['vst_raw_modified'],
+                            error_periods=stations_results[f"{station}_{year}"]['error_periods'],
+                            station_name=f"{station}_{year}",
+                            output_dir=Path(output_path)
+                        )
+                        create_interactive_plot(
+                            original_data=station_window['vst_raw'],
+                            modified_data=station_window['vst_raw_modified'],
+                            error_periods=stations_results[f"{station}_{year}"]['error_periods'],
+                            station_name=f"{station}_{year}",
+                            output_dir=Path(output_path)
+                        )
+                        plot_synthetic_vs_actual(
+                            original_data=station_window['vst_raw'],
+                            modified_data=station_window['vst_raw_modified'],
+                            error_periods=stations_results[f"{station}_{year}"]['error_periods'],
+                            station_name=f"{station}_{year}",
+                            output_dir=Path(output_path)
+                        )
+                        
+                        # Add station to plotted set and check if we should move to next station
+                        plotted_stations.add(station)
+                        if len(plotted_stations) >= max_plots_per_station:
+                            break
+                            
+                if len(plotted_stations) >= max_plots_per_station:
+                    break
+            
+            # Still generate the report for all results
+            generate_synthetic_report(stations_results, Path(output_path))
+    else:
+        raise ValueError("Invalid split_mode. Choose 'normal' or 'yearly'.")
 
     #########################################################
     # Step 4: Anomaly Detection                              #
@@ -299,9 +389,43 @@ def run_pipeline(
         for station_name, results in imputation_results.items():
             # TODO: Add imputation-specific diagnostic functions
             pass
-    
+
     #########################################################
-    # Step 6: Validation                                     #
+    # Step 6: Evaluation on New Data                         #
+    #########################################################
+
+    print("\nStep 6: Evaluating on a New Dataset...")
+
+    # Load new, unmodified station data (assuming a function like load_new_station_data() exists)
+    new_station_data = load_new_station_data()  # This should be in preprocessed form
+
+    # Prepare the new data for the LSTM
+    new_data_loaders = prepare_data(new_station_data, LSTM_CONFIG['data_preparation'])
+
+    # Assuming lstm_model has already been trained/fine-tuned:
+    with torch.no_grad():
+        new_lstm_features = lstm_model(new_data_loaders['test'])
+
+    # Detect anomalies on the new data
+    new_anomaly_flags, new_confidence_scores, new_anomaly_types = detector.detect_anomalies(
+        data=new_station_data,
+        model_output=new_lstm_features,
+        threshold=LSTM_CONFIG['detection']['threshold_range'][0]
+    )
+
+    # Evaluate imputation decision on the new data
+    new_imputed_values, new_uncertain_regions = impute_values(
+        model_output=new_lstm_features,
+        anomaly_mask=new_anomaly_flags,
+        confidence_scores=new_confidence_scores,
+        confidence_threshold=LSTM_CONFIG['imputation']['confidence_threshold_range'][0]
+    )
+
+    # Optionally, generate diagnostics or report results for the new dataset
+    print("Evaluation on new data complete!")
+
+    #########################################################
+    # Step 7: Validation                                     #
     #########################################################
     
     # Compare detected anomalies with ground truth from synthetic error injection
@@ -380,6 +504,7 @@ def run_pipeline(
         }
     }, output_path)
     '''
+
 if __name__ == "__main__":
     # Set up paths
     project_root = Path(__file__).parent
@@ -399,5 +524,6 @@ if __name__ == "__main__":
         detection_diagnostics=False,
         imputation_diagnostics=False,
         validation_diagnostics=False,
-        plot_final_diagnostics=False
+        plot_final_diagnostics=False,
+        split_mode="yearly"
     )
