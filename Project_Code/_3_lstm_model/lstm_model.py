@@ -12,10 +12,47 @@ class TrainingMode(Enum):
     SLIDING = "sliding"       # Train on window of N previous years
     CUMULATIVE = "cumulative" # Train on all previous years
 
+class LSTMAutoencoder(nn.Module):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        num_layers: int,
+        dropout: float = 0.1,
+        training_mode: Union[TrainingMode, str] = TrainingMode.SLIDING
+    ):
+        super().__init__()
+        
+        # Encoder
+        self.encoder = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True
+        )
+        
+        # Decoder
+        self.decoder = nn.LSTM(
+            input_size=hidden_size,
+            hidden_size=input_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True
+        )
+        
+        # Additional layers for anomaly scoring
+        self.anomaly_scorer = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_size // 2, 1),
+            nn.Sigmoid()
+        )
+
 class LSTMModel(nn.Module):
     """
     LSTM model that handles both anomaly detection and imputation.
-    Provides confidence scores for detected anomalies.
+    Provides confidence scores for detected anomalies. 
     """
     
     def __init__(

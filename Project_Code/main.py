@@ -267,87 +267,28 @@ def run_pipeline(
         raise ValueError("Invalid split_mode. Choose 'normal' or 'yearly'.")
 
     #########################################################
-    # Step 4: Anomaly Detection                              #
+    # Step 4: LSTM-based Anomaly Detection                   #
     #########################################################
-    '''
+
     print("\nStep 4: Running LSTM-based anomaly detection...")
-    
-    # Step 4.1: Initialize LSTM model and detector
-    lstm_model = LSTMModel(
-        input_size=LSTM_CONFIG['model']['input_size'],
-        hidden_size=LSTM_CONFIG['model']['hidden_size_range'][0],  # Start with minimum value
-        num_layers=LSTM_CONFIG['model']['num_layers_range'][0]
-    )
-    detector = AnomalyDetector()
-    
-    # Dictionary to store results for diagnostics
-    detection_results = {}
-    
-    for station_name, station_data in split_datasets['test'].items():
-        if 'vst_raw_modified' in station_data:
-            print(f"\nProcessing station: {station_name}")
-            
-            # Step 4.2: Prepare data for LSTM
-            data_loaders = prepare_data(station_data['vst_raw_modified'], LSTM_CONFIG['data_preparation'])
-            
-            # Step 4.3: Train LSTM model
-            training_history = train_model(
-                model=lstm_model,
-                train_data=data_loaders['train'],
-                validation_data=data_loaders['validation'],
-                config=LSTM_CONFIG['training']
-            )
-            
-            # Step 4.4: Get LSTM features and detect anomalies
-            with torch.no_grad():
-                lstm_features = lstm_model(data_loaders['test'])
-            
-            anomaly_flags, confidence_scores, anomaly_types = detector.detect_anomalies(
-                data=station_data['vst_raw_modified'],
-                model_output=lstm_features,
-                threshold=LSTM_CONFIG['detection']['threshold_range'][0]
-            )
-            
-            # Store results for diagnostics
-            detection_results[station_name] = {
-                'training_history': training_history,
-                'predictions': lstm_features.numpy(),
-                'anomaly_flags': anomaly_flags,
-                'confidence_scores': confidence_scores,
-                'final_train_loss': training_history['train_loss'][-1],
-                'final_val_loss': training_history['val_loss'][-1],
-                'epochs': len(training_history['train_loss']),
-                'num_anomalies': np.sum(anomaly_flags),
-                'avg_confidence': np.mean(confidence_scores),
-                'high_confidence': np.sum(confidence_scores > 0.9),
-                'medium_confidence': np.sum((confidence_scores >= 0.7) & (confidence_scores <= 0.9)),
-                'low_confidence': np.sum(confidence_scores < 0.7)
-            }
-    
-    # Generate detection diagnostics if enabled
-    if detection_diagnostics:
-        print("\nGenerating anomaly detection diagnostics...")
-        for station_name, station_data in split_datasets['test'].items():
-            if station_name in detection_results:
-                # Plot training history
-                plot_training_history(
-                    history=detection_results[station_name]['training_history'],
-                    station_name=station_name,
-                    output_dir=Path(output_path)
-                )
-                
-                # Plot detection results
-                plot_detection_results(
-                    original_data=station_data['vst_raw_modified'],
-                    lstm_predictions=detection_results[station_name]['predictions'],
-                    anomaly_flags=detection_results[station_name]['anomaly_flags'],
-                    confidence_scores=detection_results[station_name]['confidence_scores'],
-                    station_name=station_name,
-                    output_dir=Path(output_path)
-                )
+
+    for year, stations in split_datasets['windows'].items():
+        print(f"\nProcessing year: {year}")
         
-        # Generate overall detection report
-        generate_lstm_report(detection_results, Path(output_path))
+        # Step 4.1: Hyperparameter Tuning
+        tune_data = get_tuning_subset(stations, ratio=0.2)  # Get first 20% of year
+        study = tune_hyperparameters(
+            train_data=tune_data,
+            validation_data=tune_data,  # Use same data for validation in unsupervised setting
+            n_trials=100
+        )
+        best_params = get_best_parameters(study)
+        
+        # Step 4.2: Initialize model with tuned parameters
+        lstm_model = LSTMAutoencoder(**best_params['model'])
+        
+        # Step 4.3: Process full year's data
+        # ... rest of processing
 
     #########################################################
     # Step 5: Imputation                                     #
@@ -503,7 +444,6 @@ def run_pipeline(
             'num_uncertain': len(imputation_results[station_name]['uncertain_periods'])
         }
     }, output_path)
-    '''
 
 if __name__ == "__main__":
     # Set up paths
