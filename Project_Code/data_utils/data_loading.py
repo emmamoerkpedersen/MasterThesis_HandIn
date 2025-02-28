@@ -232,6 +232,3 @@ def load_all_station_data() -> dict:
     
     return all_station_data
 
-# Example usage in another script:
-# from data_loading import load_all_station_data
-# station_data = load_all_station_data() 
