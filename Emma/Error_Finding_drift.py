@@ -88,10 +88,10 @@ def create_drift_plot(raw_data, edited_data, vinge_data, drift_stats, station_id
                             marker=dict(color='green', size=5), opacity=0.7))
     
     # Add drift period highlights
-    for _, drift in drift_stats.iterrows():
-        fig.add_vrect(x0=drift['start_date'], x1=drift['end_date'],
-                     fillcolor="red", opacity=0.2, layer="below",
-                     name="Drift Period", line_width=0)
+    # for _, drift in drift_stats.iterrows():
+    #     fig.add_vrect(x0=drift['start_date'], x1=drift['end_date'],
+    #                  fillcolor="red", opacity=0.2, layer="below",
+    #                  name="Drift Period", line_width=0)
     
     # Update layout
     fig.update_layout(
@@ -100,7 +100,9 @@ def create_drift_plot(raw_data, edited_data, vinge_data, drift_stats, station_id
         yaxis_title='Water Level (mm)',
         showlegend=True,
         hovermode='x unified',
-        template='plotly_white'
+        template='plotly_white',
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=False)
     )
     
     # Save plot
