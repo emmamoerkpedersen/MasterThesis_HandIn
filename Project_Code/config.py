@@ -36,7 +36,7 @@ VALIDATION_PARAMS = {
 # Synthetic Error Generation Parameters
 SYNTHETIC_ERROR_PARAMS = {
     'spike': {
-        'frequency': 0.00003,  # Probability of occurrence
+        'frequency': 0.00003,  # Increased base frequency
         'magnitude_range': (0.4, 0.8),  # 40% to 80% of current value
         'negative_positiv_ratio': 0.5,  # Equal chance of positive/negative spikes
         'recovery_time': 1,  # Hours to recover to normal
@@ -47,7 +47,7 @@ SYNTHETIC_ERROR_PARAMS = {
         'value_method': 'first_value',  # Always use the first value of the period
     },
     'drift': {
-        'frequency': 0.00003,  # 1% of data points will have drift
+        'frequency': 0.00003,  # Increased base frequency
         'duration_range': [24, 168],  # drift duration between 24 and 168 hours
         'magnitude_range': [10, 50],  # maximum drift magnitude (increase these values if drifts are too subtle)
         'negative_positive_ratio': 0.5,  # equal chance of positive and negative drift
@@ -66,7 +66,7 @@ SYNTHETIC_ERROR_PARAMS = {
         'intensity_range': (2, 4)  # Multiple of normal noise level
     },
     'baseline_shift': {
-        'frequency': 0.00003,
+        'frequency': 0.00003,  # Increased base frequency
         'magnitude_range': (200, 600),  # Larger magnitude range to match observed shifts
         'negative_positive_ratio': 0.5  # Equal chance of up/down shifts
     }

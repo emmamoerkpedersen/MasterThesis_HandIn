@@ -1,0 +1,17 @@
+# Core Data Science & ML
+numpy
+pandas
+torch
+matplotlib
+seaborn
+plotly
+
+# Geospatial
+geopandas
+shapely
+
+# Data Loading & Processing
+requests
+
+# Optional but recommended
+jupyter  # For notebook development 

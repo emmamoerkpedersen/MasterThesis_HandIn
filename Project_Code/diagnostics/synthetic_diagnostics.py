@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from _2_synthetic.synthetic_errors import ErrorPeriod
+import seaborn as sns
 
 def plot_synthetic_errors(original_data: pd.DataFrame, 
                          modified_data: pd.DataFrame,
@@ -21,9 +22,22 @@ def plot_synthetic_errors(original_data: pd.DataFrame,
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), sharex=True)
     fig.suptitle(f'Water Level Time Series with Synthetic Errors - {station_name}', fontsize=14)
     
-    # Get the overall min and max values
-    y_min = min(original_data.min().min(), modified_data.min().min())
-    y_max = max(original_data.max().max(), modified_data.max().max())
+    # Get the overall min and max values for the "Value" column,
+    # using dropna() to avoid NaN values.
+    value_col = "Value"
+    orig_vals = original_data[value_col].dropna()
+    mod_vals = modified_data[value_col].dropna()
+    
+    if orig_vals.empty and mod_vals.empty:
+        y_min, y_max = 0, 1
+    elif orig_vals.empty:
+        y_min, y_max = mod_vals.min(), mod_vals.max()
+    elif mod_vals.empty:
+        y_min, y_max = orig_vals.min(), orig_vals.max()
+    else:
+        y_min = min(orig_vals.min(), mod_vals.min())
+        y_max = max(orig_vals.max(), mod_vals.max())
+    
     y_padding = (y_max - y_min) * 0.05
     y_min -= y_padding
     y_max += y_padding
@@ -224,7 +238,7 @@ def create_interactive_plot(original_data: pd.DataFrame,
     # Save interactive plot
     fig.write_html(diagnostic_dir / f"{station_name}_synthetic_errors_interactive.html")
 
-def generate_synthetic_report(stations_results: Dict, output_dir: Path):
+def generate_synthetic_report(stations_results: dict, output_dir: Path):
     """Generate report of synthetic error injection results."""
     report_dir = output_dir / "diagnostics" / "synthetic"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -233,25 +247,167 @@ def generate_synthetic_report(stations_results: Dict, output_dir: Path):
         f.write("Synthetic Error Injection Report\n")
         f.write("==============================\n\n")
         
-        for station_name, results in stations_results.items():
-            f.write(f"\nStation: {station_name}\n")
-            f.write("-" * (len(station_name) + 9) + "\n")
+        for station_key, results in stations_results.items():
+            f.write(f"\nStation: {station_key}\n")
+            f.write("-" * (len(station_key) + 9) + "\n")
             
-            # Count errors by type
-            error_counts = {}
+            # Group errors by type
+            errors_by_type = {}
             for period in results['error_periods']:
-                error_counts[period.error_type] = error_counts.get(period.error_type, 0) + 1
+                if period.error_type not in errors_by_type:
+                    errors_by_type[period.error_type] = []
+                errors_by_type[period.error_type].append(period)
             
             f.write("\nInjected Errors:\n")
-            for error_type, count in error_counts.items():
-                f.write(f"  - {error_type.capitalize()}: {count} instances\n")
+            for error_type, periods in errors_by_type.items():
+                f.write(f"\n  {error_type.capitalize()}:\n")
+                f.write(f"    - Count: {len(periods)} instances\n")
+                f.write(f"    - Time ranges:\n")
+                for period in periods:
+                    start_time = period.start_time.strftime('%Y-%m-%d %H:%M')
+                    end_time = period.end_time.strftime('%Y-%m-%d %H:%M')
+                    duration = (period.end_time - period.start_time).total_seconds() / 3600  # hours
+                    f.write(f"      * {start_time} to {end_time} (duration: {duration:.1f} hours)\n")
+                    if hasattr(period, 'parameters') and period.parameters:
+                        f.write(f"        Parameters: {period.parameters}\n")
             
-            # Add time range information
-            if results['error_periods']:
-                start_time = min(period.start_time for period in results['error_periods'])
-                end_time = max(period.end_time for period in results['error_periods'])
-                f.write(f"\nTime Range Affected:\n")
-                f.write(f"  From: {start_time.strftime('%Y-%m-%d %H:%M')}\n")
-                f.write(f"  To: {end_time.strftime('%Y-%m-%d %H:%M')}\n")
+            f.write("\n" + "="*50 + "\n")
+
+def plot_synthetic_vs_actual(original_data, modified_data, error_periods, station_name, output_dir):
+    """
+    Create comparison plots between synthetic and actual anomalies for each error type.
+    
+    Args:
+        original_data (pd.DataFrame): Original station data
+        modified_data (pd.DataFrame): Data with synthetic errors
+        error_periods (list): List of ErrorPeriod objects containing error information
+        station_name (str): Name of the station
+        output_dir (Path): Directory to save the plots
+    """
+    # Only process station 21006845
+    if station_name != '21006845':
+        return
+
+    # Known periods of actual anomalies for station 21006845
+    actual_anomalies = {
+        'spike': [
+            ('2019-06-15', '2019-06-16'),
+            ('2019-08-20', '2019-08-21')
+        ],
+        'drift': [
+            ('2019-03-01', '2019-03-15')
+        ],
+        'offset': [
+            ('2019-07-01', '2019-07-10')
+        ],
+        'baseline_shift': [
+            ('2019-09-01', '2019-09-30')
+        ]
+    }
+    
+    # Get unique error types from error_periods
+    error_types = set(period.error_type for period in error_periods)
+    
+    # Create a subplot for each error type
+    n_types = len(error_types)
+    fig, axes = plt.subplots(n_types, 2, figsize=(20, 6*n_types))
+    
+    if n_types == 1:
+        axes = axes.reshape(1, -1)
+    
+    # Define zoom windows for each error type
+    zoom_windows = {
+        'spike': pd.Timedelta(days=2),      # 2 days for spike
+        'drift': pd.Timedelta(days=30),     # 30 days for drift
+        'offset': pd.Timedelta(days=14),    # 14 days for offset
+        'baseline_shift': pd.Timedelta(days=30)  # 30 days for baseline shift
+    }
+    
+    for idx, error_type in enumerate(error_types):
+        # Filter error periods for current type
+        type_periods = [p for p in error_periods if p.error_type == error_type]
+        
+        if type_periods:
+            # Find the most representative error period
+            # For example, one with the largest magnitude or longest duration
+            if error_type == 'spike':
+                # Choose spike with largest magnitude
+                period = max(type_periods, 
+                           key=lambda p: abs(p.parameters.get('magnitude', 0)))
+            elif error_type == 'drift':
+                # Choose drift with longest duration
+                period = max(type_periods, 
+                           key=lambda p: p.parameters.get('duration', 0))
+            elif error_type == 'baseline_shift':
+                # Choose shift with largest magnitude
+                period = max(type_periods, 
+                           key=lambda p: abs(p.parameters.get('magnitude', 0)))
+            else:
+                # Default to first period
+                period = type_periods[0]
             
-            f.write("\n" + "="*50 + "\n") 
+            # Plot synthetic anomaly (zoomed)
+            ax_synthetic = axes[idx, 0]
+            
+            # Calculate zoom window
+            window_size = zoom_windows.get(error_type, pd.Timedelta(days=14))
+            window_start = period.start_time - window_size/2
+            window_end = period.end_time + window_size/2
+            
+            # Filter data for the window
+            mask = (original_data.index >= window_start) & (original_data.index <= window_end)
+            window_original = original_data[mask]
+            window_modified = modified_data[mask]
+            
+            # Plot zoomed data
+            ax_synthetic.plot(window_original.index, window_original['Value'], 
+                            label='Original', color='blue', alpha=0.6)
+            ax_synthetic.plot(window_modified.index, window_modified['Value'], 
+                            label='With Synthetic Error', color='red', alpha=0.6)
+            
+            # Highlight synthetic error period
+            ax_synthetic.axvspan(period.start_time, period.end_time, 
+                               color='yellow', alpha=0.3)
+            
+            # Add error parameters to title
+            params_str = ', '.join(f"{k}: {v:.2f}" if isinstance(v, float) 
+                                 else f"{k}: {v}" 
+                                 for k, v in period.parameters.items())
+            ax_synthetic.set_title(f'Synthetic {error_type.capitalize()} Anomaly\n{params_str}')
+        
+        # Plot actual anomaly (full range)
+        ax_actual = axes[idx, 1]
+        ax_actual.plot(original_data.index, original_data['Value'], 
+                      label='Original Data', color='blue')
+        
+        # Highlight actual anomaly periods
+        if error_type in actual_anomalies:
+            for start, end in actual_anomalies[error_type]:
+                ax_actual.axvspan(pd.Timestamp(start), pd.Timestamp(end), 
+                                color='red', alpha=0.3)
+        
+        ax_actual.set_title(f'Actual {error_type.capitalize()} Anomaly')
+        
+        # Format axes
+        for ax in [ax_synthetic, ax_actual]:
+            ax.set_xlabel('Date')
+            ax.set_ylabel('Water Level (mm)')
+            ax.tick_params(axis='x', rotation=45)
+            ax.legend()
+            ax.grid(True)
+            
+            # Increase y-axis range by 20%
+            y_min, y_max = ax.get_ylim()
+            y_range = y_max - y_min
+            ax.set_ylim(y_min - 0.1*y_range, y_max + 0.1*y_range)
+    
+    plt.tight_layout()
+    
+    # Create diagnostics directory if it doesn't exist
+    diagnostic_dir = output_dir / "diagnostics" / "synthetic"
+    diagnostic_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save the figure
+    output_path = diagnostic_dir / f'synthetic_vs_actual_comparison_{station_name}.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close() 

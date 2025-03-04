@@ -41,19 +41,25 @@ class SyntheticErrorGenerator:
         self.error_periods: List[ErrorPeriod] = []
         self.used_indices = set()  # Track all used indices
     
-    def _is_period_available(self, start_idx: int, end_idx: int) -> bool:
+    def _is_period_available(self, start_idx: int, end_idx: int, buffer: int = 24) -> bool:
         """
         Check if a period is available for error injection.
+        Includes a buffer zone around existing errors.
         
         Args:
             start_idx: Start index of proposed period
             end_idx: End index of proposed period
+            buffer: Number of indices to keep clear around errors (default: 24 hours)
             
         Returns:
             bool: True if period is available, False if there's overlap
         """
-        # Check if any index in the range is already used
-        period_indices = set(range(start_idx, end_idx))
+        # Check a wider range that includes the buffer
+        buffered_start = max(0, start_idx - buffer)
+        buffered_end = end_idx + buffer
+        
+        # Check if any index in the range (including buffer) is already used
+        period_indices = set(range(buffered_start, buffered_end))
         return not bool(period_indices & self.used_indices)
     
     def _mark_period_used(self, start_idx: int, end_idx: int):
@@ -80,7 +86,7 @@ class SyntheticErrorGenerator:
         negative_positiv_ratio = spike_config['negative_positiv_ratio']
         
         # Calculate number of spikes to inject
-        n_spikes = int(len(data) * frequency)
+        n_spikes = max(1, int(len(data) * frequency))
         
         # Try to inject spikes until we hit the target or run out of space
         successful_injections = 0
@@ -206,15 +212,19 @@ class SyntheticErrorGenerator:
         """
         modified_data = data.copy()
         
-        # Get drift parameters from config
-        drift_config = self.config['drift']
-        frequency = drift_config['frequency']
-        duration_range = drift_config['duration_range']  # in hours
-        drift_magnitude = drift_config['magnitude_range']  # maximum deviation at end of drift
-        negative_positive_ratio = drift_config['negative_positive_ratio']
+        # Debug prints
+        print(f"\nDrift Debug:")
+        print(f"Data range: {data.index.min()} to {data.index.max()}")
+        print(f"Data length: {len(data)}")
         
-        # Calculate number of drifts to inject
-        n_drifts = int(len(data) * frequency)
+        drift_config = self.config['drift']
+        base_frequency = drift_config['frequency']
+        print(f"Base frequency: {base_frequency}")
+        print(f"Expected drifts: {len(data) * base_frequency}")
+        
+        # Calculate number of drifts
+        n_drifts = max(1, int(len(data) * base_frequency))
+        print(f"Number of drifts to inject: {n_drifts}")
         
         successful_injections = 0
         max_attempts = n_drifts * 10
@@ -222,8 +232,8 @@ class SyntheticErrorGenerator:
         
         while successful_injections < n_drifts and attempts < max_attempts:
             # Randomly select an injection point
-            idx = np.random.randint(0, len(data) - duration_range[1])
-            duration = np.random.randint(*duration_range)
+            idx = np.random.randint(0, len(data) - drift_config['duration_range'][1])
+            duration = np.random.randint(*drift_config['duration_range'])
             end_idx = min(idx + duration, len(modified_data))
             
             if self._is_period_available(idx, end_idx):
@@ -231,10 +241,10 @@ class SyntheticErrorGenerator:
                 original_values = modified_data.iloc[idx:end_idx].copy()
                 
                 # Determine drift direction
-                direction = np.random.choice([-1, 1], p=[negative_positive_ratio, 1-negative_positive_ratio])
+                direction = np.random.choice([-1, 1], p=[drift_config['negative_positive_ratio'], 1-drift_config['negative_positive_ratio']])
                 
                 # Generate drift magnitude
-                max_drift = direction * np.random.uniform(*drift_magnitude)
+                max_drift = direction * np.random.uniform(*drift_config['magnitude_range'])
                 
                 # Create drift pattern (linear or exponential)
                 if np.random.random() < 0.5:  # 50% chance of linear vs exponential
@@ -298,15 +308,21 @@ class SyntheticErrorGenerator:
         
         # Get offset parameters from config
         offset_config = self.config['offset']
-        frequency = offset_config['frequency']
-        mag_range = offset_config['magnitude_range']
+        base_frequency = offset_config['frequency']
         min_duration = offset_config['min_duration']
+        max_duration_multiplier = offset_config['max_duration_multiplier']
+        mag_range = offset_config['magnitude_range']
         negative_positiv_ratio = offset_config['negative_positiv_ratio']
-        duration_multiplier_range = offset_config['max_duration_multiplier']
         magnitude_multiplier_range = offset_config['magnitude_multiplier']
         
         # Calculate number of offsets to inject
-        n_offsets = int(len(data) * frequency)
+        n_offsets = max(1, int(len(data) * base_frequency))
+        
+        # Calculate maximum duration based on data length
+        max_duration = min(
+            int(min_duration * np.random.uniform(*max_duration_multiplier)),
+            len(data) // 4  # Limit to 25% of data length
+        )
         
         # Randomly select injection points, ensuring they don't overlap
         possible_indices = np.arange(0, len(data) - min_duration)
@@ -327,8 +343,7 @@ class SyntheticErrorGenerator:
             offset = direction * magnitude
             
             # Determine variable duration
-            max_multiplier = np.random.uniform(*duration_multiplier_range)
-            duration = np.random.randint(min_duration, int(min_duration * max_multiplier))
+            duration = np.random.randint(min_duration, max_duration)
             end_idx = min(idx + duration, len(modified_data))
             
             # Store original values
@@ -447,30 +462,30 @@ class SyntheticErrorGenerator:
         # Get baseline shift parameters from config
         shift_config = self.config['baseline_shift']
         frequency = shift_config['frequency']
-        magnitude_range = shift_config['magnitude_range']
-        negative_positive_ratio = shift_config['negative_positive_ratio']
         
-        # Calculate number of shifts to inject
-        n_shifts = int(len(data) * frequency)
+        # Calculate number of shifts
+        n_shifts = max(1, int(len(data) * frequency))
         
-        successful_injections = 0
-        max_attempts = n_shifts * 10
+        # Try to inject shifts
+        successful_shifts = 0
         attempts = 0
+        max_attempts = n_shifts * 10
         
-        while successful_injections < n_shifts and attempts < max_attempts:
-            # Randomly select an injection point
-            idx = np.random.randint(0, len(data) - 2)  # Leave room for the shift
+        while successful_shifts < n_shifts and attempts < max_attempts:
+            # Debug for each attempt
+            print(f"Attempt {attempts + 1}: Trying to inject shift...")
             
-            # We only need 2 points for the shift (almost vertical)
-            end_idx = idx + 2
+            idx = np.random.randint(0, len(data) - 1)
+            print(f"Selected index: {idx} (date: {data.index[idx]})")
             
-            if self._is_period_available(idx, end_idx):
+            if self._is_period_available(idx, idx + 1):
+                print("Period is available for injection")
                 # Store original values
-                original_values = modified_data.iloc[idx:end_idx].copy()
+                original_values = modified_data.iloc[idx:idx+2].copy()
                 
                 # Determine shift direction and magnitude
-                direction = np.random.choice([-1, 1], p=[negative_positive_ratio, 1-negative_positive_ratio])
-                magnitude = direction * np.random.uniform(*magnitude_range)
+                direction = np.random.choice([-1, 1], p=[shift_config['negative_positive_ratio'], 1-shift_config['negative_positive_ratio']])
+                magnitude = direction * np.random.uniform(*shift_config['magnitude_range'])
                 
                 # Apply the shift (abrupt change)
                 modified_data.iloc[idx+1:] += magnitude  # Everything after the shift point
@@ -490,9 +505,10 @@ class SyntheticErrorGenerator:
                 )
                 
                 # Mark shift point as used
-                self._mark_period_used(idx, end_idx)
-                successful_injections += 1
-            
+                self._mark_period_used(idx, idx + 1)
+                successful_shifts += 1
+            else:
+                print("Period already used")
             attempts += 1
         
         return modified_data
@@ -501,6 +517,7 @@ class SyntheticErrorGenerator:
                          error_types: List[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Inject all types of errors into the data.
+        Injects longer-duration errors first to prevent shorter errors from appearing inside them.
         
         Args:
             data: DataFrame with time series data
@@ -511,28 +528,24 @@ class SyntheticErrorGenerator:
             Tuple of (modified_data, ground_truth)
         """
         modified_data = data.copy()
-        all_error_types = ['spike', 'flatline', 'drift', 'offset', 'baseline_shift', 'noise']
-        error_types = error_types or all_error_types
+        all_error_types = ['offset', 'drift', 'baseline_shift', 'flatline', 'spike', 'noise']  # Ordered by typical duration
+        error_types = [et for et in all_error_types if et in (error_types or all_error_types)]
         
-        print(f"Injecting error types: {error_types}")
+        print(f"Injecting error types in order: {error_types}")
         
-        if 'spike' in error_types:
-            modified_data = self.inject_spike_errors(modified_data)
-        
-        if 'flatline' in error_types:
-            modified_data, flatline_periods = self.inject_flatline_errors(modified_data)
-        
-        if 'drift' in error_types:
-            modified_data = self.inject_drift_errors(modified_data)
-        
-        if 'baseline_shift' in error_types:
-            modified_data = self.inject_baseline_shift_errors(modified_data)
-        
-        if 'offset' in error_types:
-            modified_data, offset_periods = self.inject_offset_errors(modified_data)
-        
-        if 'noise' in error_types:
-            modified_data = self.inject_noise_errors(modified_data)
+        for error_type in error_types:
+            if error_type == 'spike':
+                modified_data = self.inject_spike_errors(modified_data)
+            elif error_type == 'flatline':
+                modified_data, _ = self.inject_flatline_errors(modified_data)
+            elif error_type == 'drift':
+                modified_data = self.inject_drift_errors(modified_data)
+            elif error_type == 'baseline_shift':
+                modified_data = self.inject_baseline_shift_errors(modified_data)
+            elif error_type == 'offset':
+                modified_data, _ = self.inject_offset_errors(modified_data)
+            elif error_type == 'noise':
+                modified_data = self.inject_noise_errors(modified_data)
         
         # Create ground truth labels (for future use)
         ground_truth = pd.DataFrame(index=data.index)
