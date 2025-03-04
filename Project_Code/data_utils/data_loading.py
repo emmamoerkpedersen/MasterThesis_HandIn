@@ -1,6 +1,8 @@
 import pandas as pd
 import os
 from pathlib import Path
+import pickle
+from typing import Dict, Any
 
 def load_vst_file(file_path):
     """Load a VST file with multiple encoding attempts."""
@@ -17,6 +19,11 @@ def load_vst_file(file_path):
             
             df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y %H:%M')
             df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
+            
+            # Set Date as index
+            df.set_index('Date', inplace=True)
+            df.index.name = 'Date'  # Ensure index is named Date
+
             
             return df
         except UnicodeDecodeError:
@@ -56,6 +63,7 @@ def load_vinge_file(file_path):
         
         # Set Date as index
         df.set_index('Date', inplace=True)
+        df.index.name = 'Date'  # Ensure index is named Date
         
         # Sort by date
         df = df.sort_index()
@@ -114,9 +122,9 @@ def prepare_data_for_error_detection(file_path: str) -> pd.DataFrame:
         - No initial missing values
     """
     # Load raw data using existing function
-    raw_data = load_vst_file(file_path)
+    raw_data = load_vst_file(file_path)  # Now already has Date as index
     
-    # Ensure consistent time intervals
+    # Ensure consistent time intervals using the index
     clean_data = raw_data.resample('15T').asfreq()
     
     # Basic validation
@@ -154,8 +162,9 @@ def load_rainfall_data(data_dir: Path, station_id: int) -> pd.DataFrame:
         
         if rain_file.exists():
             df = pd.read_csv(rain_file)
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)  # Set datetime as index
+            df['Date'] = pd.to_datetime(df['datetime'])  # Convert datetime to Date
+            df.drop('datetime', axis=1, inplace=True)  # Drop the original datetime column
+            df.set_index('Date', inplace=True)  # Use Date as index
             return df
         else:
             print(f"Rainfall data file not found for closest rain station {closest_station}")
@@ -180,8 +189,9 @@ def load_temperature_data(data_dir: Path, station_id: int) -> pd.DataFrame:
         
         if temp_file.exists():
             df = pd.read_csv(temp_file)
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)  # Set datetime as index
+            df['Date'] = pd.to_datetime(df['datetime'])  # Convert datetime to Date
+            df.drop('datetime', axis=1, inplace=True)  # Drop the original datetime column
+            df.set_index('Date', inplace=True)  # Use Date as index
             return df
         else:
             print(f"Temperature data file not found for closest temperature station {closest_station}")
@@ -231,4 +241,20 @@ def load_all_station_data() -> dict:
         all_station_data[station_name] = station_data
     
     return all_station_data
+
+def save_preprocessed_data(data: Dict[str, Any], filename: str = 'preprocessed_data.pkl') -> None:
+    """
+    Save preprocessed data to a pickle file.
+    
+    Args:
+        data: Dictionary containing preprocessed data
+        filename: Name of the file to save the data to
+    """
+    output_dir = Path('data/processed')
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    output_path = output_dir / filename
+    with open(output_path, 'wb') as f:
+        pickle.dump(data, f)
+    print(f"Saved preprocessed data to {output_path}")
 
