@@ -9,19 +9,55 @@ from plotly.offline import plot
 
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
+from data_utils.data_loading import load_all_station_data, save_data_Dict
 
-from data_utils.data_loading import load_all_station_data
+
+def rename_columns(dictionary):
+    for station_id, station_data in dictionary.items():
+        for key, time_series in station_data.items():
+            # Skip if time_series is None
+            if time_series is None:
+                continue
+                
+            # Find the column that is not 'Date'
+            non_date_column = [col for col in time_series.keys() if col != 'Date'][0]
+            
+            # Create a new entry with the key name
+            time_series[key] = time_series[non_date_column]
+            
+            # Delete the old column
+            del time_series[non_date_column]
+    
+    return dictionary
 
 
 def preprocess_data():
-    All_station_data = load_all_station_data()
+    All_station_data_original = load_all_station_data()
+
+    # Rename columns before processing
+    All_station_data = rename_columns(All_station_data_original)
     
     # Process each station's data
     for station_name, station_data in All_station_data.items():
         if station_data['vst_raw'] is not None and station_data['temperature'] is not None:
+            # Convert temperature index to datetime if it's not already
+            if not isinstance(station_data['temperature'].index, pd.DatetimeIndex):
+                station_data['temperature'].index = pd.to_datetime(station_data['temperature'].index)
+            
+            # Ensure VST data index is datetime if it's not already
+            if not isinstance(station_data['vst_raw'].index, pd.DatetimeIndex):
+                station_data['vst_raw'].index = pd.to_datetime(station_data['vst_raw'].index)
+            
+            # Ensure VST data dates are timezone-naive
+            if station_data['vst_raw'].index.tz is not None:
+                station_data['vst_raw'].index = station_data['vst_raw'].index.tz_localize(None)
+            
+            if station_data['temperature'].index.tz is not None:
+                station_data['temperature'].index = station_data['temperature'].index.tz_localize(None)
+            
             # Calculate IQR for this station
-            Q1 = station_data['vst_raw']['Value'].quantile(0.25)
-            Q3 = station_data['vst_raw']['Value'].quantile(0.75)
+            Q1 = station_data['vst_raw']['vst_raw'].quantile(0.25)
+            Q3 = station_data['vst_raw']['vst_raw'].quantile(0.75)
             IQR = Q3 - Q1
             
             # Define bounds
@@ -31,19 +67,19 @@ def preprocess_data():
             # Count spikes before removal
             n_spikes = len(station_data['vst_raw']) - len(
                 station_data['vst_raw'][
-                    (station_data['vst_raw']['Value'] >= lower_bound) & 
-                    (station_data['vst_raw']['Value'] <= upper_bound)
+                    (station_data['vst_raw']['vst_raw'] >= lower_bound) & 
+                    (station_data['vst_raw']['vst_raw'] <= upper_bound)
                 ]
             )
             
             # Remove spikes
             station_data['vst_raw'] = station_data['vst_raw'][
-                (station_data['vst_raw']['Value'] >= lower_bound) & 
-                (station_data['vst_raw']['Value'] <= upper_bound)
+                (station_data['vst_raw']['vst_raw'] >= lower_bound) & 
+                (station_data['vst_raw']['vst_raw'] <= upper_bound)
             ]
             
             # Detect and remove flatlines (20 or more identical consecutive values)
-            rolling_count = station_data['vst_raw']['Value'].rolling(window=20).apply(
+            rolling_count = station_data['vst_raw']['vst_raw'].rolling(window=20).apply(
                 lambda x: len(x.unique()) == 1
             ).fillna(False).astype(bool)
             
@@ -55,119 +91,134 @@ def preprocess_data():
             
             # Detect freezing periods
             temp_data = station_data['temperature']
-            below_zero = temp_data['temperature (C)'] < 0
+            below_zero = temp_data['temperature'] < 0
             
-            # Calculate duration of freezing periods
-            freezing_start = None
-            freezing_duration = pd.Timedelta(hours=0)
-            periods_to_remove = []
+            # Calculate cumulative frost sum for each location
+            frost_sum = 0
+            frost_periods = []
+            current_period_start = None
+            current_period_end = None
             
             for idx in range(len(temp_data)):
                 current_time = temp_data.index[idx]
+                current_temp = temp_data['temperature'].iloc[idx]
                 
-                if below_zero.iloc[idx]:
-                    if freezing_start is None:
-                        freezing_start = current_time
-                    freezing_duration = current_time - freezing_start
+                if current_temp < 0:
+                    if current_period_start is None:
+                        current_period_start = current_time
+                    current_period_end = current_time
+                    frost_sum += current_temp
                     
-                    # If freezing duration reaches 36 hours, mark period for removal
-                    if freezing_duration >= pd.Timedelta(hours=36):
-                        # Find when temperature goes above 0 again
-                        for future_idx in range(idx, len(temp_data)):
-                            if not below_zero.iloc[future_idx]:
-                                end_time = temp_data.index[future_idx] + pd.Timedelta(hours=24)
-                                # Convert times to timezone-naive if they're not already
-                                if current_time.tzinfo is not None:
-                                    current_time = current_time.tz_localize(None)
-                                if end_time.tzinfo is not None:
-                                    end_time = end_time.tz_localize(None)
-                                periods_to_remove.append((current_time, end_time))
-                                break
+                    # If frost sum exceeds threshold, mark period for removal
+                    if frost_sum < -10:
+                        # Add 24 hours to the end of the frost period
+                        extended_end = current_period_end + pd.Timedelta(hours=24)
+                        # Convert times to timezone-naive if they're not already
+                        if current_period_start.tzinfo is not None:
+                            current_period_start = current_period_start.tz_localize(None)
+                        if extended_end.tzinfo is not None:
+                            extended_end = extended_end.tz_localize(None)
+                        frost_periods.append((current_period_start, extended_end))
                         # Reset tracking
-                        freezing_start = None
-                        freezing_duration = pd.Timedelta(hours=0)
+                        current_period_start = None
+                        current_period_end = None
+                        frost_sum = 0
                 else:
                     # Reset tracking when temperature goes above 0
-                    freezing_start = None
-                    freezing_duration = pd.Timedelta(hours=0)
+                    if current_period_start is not None and frost_sum < -15:
+                        # Add 24 hours to the end of the frost period
+                        extended_end = current_period_end + pd.Timedelta(hours=24)
+                        # Convert times to timezone-naive if they're not already
+                        if current_period_start.tzinfo is not None:
+                            current_period_start = current_period_start.tz_localize(None)
+                        if extended_end.tzinfo is not None:
+                            extended_end = extended_end.tz_localize(None)
+                        frost_periods.append((current_period_start, extended_end))
+                    current_period_start = None
+                    current_period_end = None
+                    frost_sum = 0
             
-            # Ensure VST data dates are timezone-naive
-            if station_data['vst_raw']['Date'].dt.tz is not None:
-                station_data['vst_raw']['Date'] = station_data['vst_raw']['Date'].dt.tz_localize(None)
-            
-            # Remove VST data during freezing periods
-            for start, end in periods_to_remove:
+            # Remove VST data during frost periods
+            for start, end in frost_periods:
                 station_data['vst_raw'] = station_data['vst_raw'][
-                    ~((station_data['vst_raw']['Date'] >= start) & 
-                      (station_data['vst_raw']['Date'] <= end))
+                    ~((station_data['vst_raw'].index >= start) & 
+                      (station_data['vst_raw'].index <= end))
                 ]
             
             print(f"\nProcessed {station_name}:")
-            print(f"  - Removed data from {len(periods_to_remove)} freezing periods")
+            print(f"  - Removed data from {len(frost_periods)} frost periods")
             print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
             print(f"  - Removed {n_spikes} spikes")
             print(f"  - Removed {int(n_flatlines)} flatline points")
             
-    
-    return All_station_data
+    # Save the preprocessed data
+    save_data_Dict(All_station_data, filename='preprocessed_data.pkl')
+    save_data_Dict(All_station_data_original, filename='original_data.pkl')
 
-### CODE FOR FREEZING PERIODS ###
-def find_freezing_periods(preprocessed_data):
-    """
-    Identify periods where temperature remains below 0°C for 48 hours or more.
     
-    Args:
-        preprocessed_data (dict): Dictionary containing station data
-        
-    Returns:
-        dict: Dictionary with station names as keys and list of freezing periods as values
-    """
-    freezing_periods = {}
     
-    for station_name, station_data in preprocessed_data.items():
-        if 'temperature' not in station_data or station_data['temperature'] is None:
-            continue
-            
-        temp_data = station_data['temperature']
-        
-        # Create a boolean mask for temperatures below 0
-        below_zero = temp_data['temperature (C)'] < 0
-        
-        # Calculate the duration of each temperature reading (in hours)
-        time_diff = pd.Series(temp_data.index).diff().dt.total_seconds() / 3600
-        
-        # Initialize variables for tracking freezing periods
-        current_start = None
-        current_duration = 0
-        station_periods = []
-        
-        for i in range(len(temp_data)):
-            if below_zero.iloc[i]:
-                if current_start is None:
-                    current_start = temp_data.index[i]
-                current_duration += time_diff.iloc[i] if i > 0 else 0
-            else:
-                if current_start is not None and current_duration >= 48:
-                    station_periods.append({
-                        'start': current_start,
-                        'end': temp_data.index[i-1],
-                        'duration_hours': current_duration
-                    })
-                current_start = None
-                current_duration = 0
-        
-        # Check if we ended in a freezing period
-        if current_start is not None and current_duration >= 48:
-            station_periods.append({
-                'start': current_start,
-                'end': temp_data.index[-1],
-                'duration_hours': current_duration
-            })
-        
-        if station_periods:
-            freezing_periods[station_name] = station_periods
-            print(f"\nFound {len(station_periods)} freezing periods for {station_name}:")
-            for period in station_periods:
-                print(f"  - From {period['start']} to {period['end']} ({period['duration_hours']:.1f} hours)")
-    
-    return freezing_periods
+    return All_station_data, All_station_data_original
+
+if __name__ == "__main__":
+    processed_data, original_data = preprocess_data()
+
+
+
+# # For plotting the raw vs. the processed data + temperature
+# processed_data = preprocess_data()
+# All_station_data = load_all_station_data()
+
+# # Create interactive plot using Plotly with subplots
+# fig = make_subplots(rows=2, cols=1, 
+#                     subplot_titles=('Temperature', 'VST Raw Data Comparison'),
+#                     vertical_spacing=0.15)
+
+# # Add temperature trace to top subplot
+# fig.add_trace(
+#     go.Scatter(
+#         x=processed_data['21006847']['temperature'].index,
+#         y=processed_data['21006847']['temperature']['temperature'],
+#         name='Temperature',
+#         line=dict(color='red')
+#     ),
+#     row=1, col=1
+# )
+
+# # Add raw data trace to bottom subplot
+# fig.add_trace(
+#     go.Scatter(
+#         x=All_station_data['21006847']['vst_raw'].index,
+#         y=All_station_data['21006847']['vst_raw']['Value'],
+#         name='Raw Data',
+#         line=dict(color='blue')
+#     ),
+#     row=2, col=1
+# )
+
+# # Add processed data trace to bottom subplot
+# fig.add_trace(
+#     go.Scatter(
+#         x=processed_data['21006847']['vst_raw'].index,
+#         y=processed_data['21006847']['vst_raw']['vst_raw'],
+#         name='Processed Data',
+#         line=dict(color='green')
+#     ),
+#     row=2, col=1
+# )
+
+# # Update layout
+# fig.update_layout(
+#     height=800,  # Increase overall height to accommodate both plots
+#     showlegend=True,
+#     hovermode='x unified'
+# )
+
+# # Link x-axes of both subplots
+# fig.update_xaxes(matches='x')
+
+# # Update y-axis labels
+# fig.update_yaxes(title_text="Temperature (°C)", row=1, col=1)
+# fig.update_yaxes(title_text="VST Value", row=2, col=1)
+
+# # Open the plot in browser
+# plot(fig, filename='vst47_comparison.html')
