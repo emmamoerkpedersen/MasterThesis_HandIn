@@ -151,6 +151,24 @@ def preprocess_data():
             print(f"  - Removed {n_spikes} spikes")
             print(f"  - Removed {int(n_flatlines)} flatline points")
             
+            # Resample temperature data if it exists
+            if station_data['temperature'] is not None:
+                temperature = station_data['temperature']
+                station_data['temperature'] = temperature.resample('15min').ffill() / 4  # Hold mean temperature constant but divide by 4
+                print(f"  - Resampled temperature data to 15-minute intervals")
+            
+            # Resample rainfall data if it exists
+            if station_data['rainfall'] is not None:
+                # Ensure rainfall index is datetime
+                if not isinstance(station_data['rainfall'].index, pd.DatetimeIndex):
+                    station_data['rainfall'].index = pd.to_datetime(station_data['rainfall'].index)
+                
+                # Resample rainfall to 15-minute intervals
+                rainfall = station_data['rainfall']
+                station_data['rainfall'] = rainfall.resample('15min').ffill()  # Distribute accumulated rainfall
+                print(f"  - Resampled rainfall data to 15-minute intervals")
+
+
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename='preprocessed_data.pkl')
     save_data_Dict(All_station_data_original, filename='original_data.pkl')
@@ -166,7 +184,7 @@ if __name__ == "__main__":
 
 # # For plotting the raw vs. the processed data + temperature
 # processed_data = preprocess_data()
-# All_station_data = load_all_station_data()
+# original_data = load_all_station_data()
 
 # # Create interactive plot using Plotly with subplots
 # fig = make_subplots(rows=2, cols=1, 
@@ -187,8 +205,8 @@ if __name__ == "__main__":
 # # Add raw data trace to bottom subplot
 # fig.add_trace(
 #     go.Scatter(
-#         x=All_station_data['21006847']['vst_raw'].index,
-#         y=All_station_data['21006847']['vst_raw']['Value'],
+#         x=original_data['21006847']['rainfall'].index,
+#         y=original_data['21006847']['rainfall']['rainfall'],
 #         name='Raw Data',
 #         line=dict(color='blue')
 #     ),
@@ -198,8 +216,8 @@ if __name__ == "__main__":
 # # Add processed data trace to bottom subplot
 # fig.add_trace(
 #     go.Scatter(
-#         x=processed_data['21006847']['vst_raw'].index,
-#         y=processed_data['21006847']['vst_raw']['vst_raw'],
+#         x=processed_data['21006847']['rainfall'].index,
+#         y=processed_data['21006847']['rainfall']['rainfall'],
 #         name='Processed Data',
 #         line=dict(color='green')
 #     ),
