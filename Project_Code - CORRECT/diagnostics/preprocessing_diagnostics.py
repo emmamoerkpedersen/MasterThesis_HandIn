@@ -85,18 +85,18 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             proc = preprocessed_data[station_name]['vst_raw']
             
             # Calculate IQR bounds
-            Q1 = orig['Value'].quantile(0.25)
-            Q3 = orig['Value'].quantile(0.75)
+            Q1 = orig['vst_raw'].quantile(0.25)
+            Q3 = orig['vst_raw'].quantile(0.75)
             IQR = Q3 - Q1
             lower_bound = Q1 - 1.5 * IQR
             upper_bound = Q3 + 4 * IQR
             
             # Calculate removed points mask here, before using it
-            removed_mask = (orig['Value'] < lower_bound) | (orig['Value'] > upper_bound)
+            removed_mask = (orig['vst_raw'] < lower_bound) | (orig['vst_raw'] > upper_bound)
             
             # Original data with bounds
             ax1 = fig.add_subplot(gs[0])
-            ax1.plot(orig['Date'], orig['Value'], color='#1f77b4', alpha=0.7, 
+            ax1.plot(orig.index, orig['vst_raw'], color='#1f77b4', alpha=0.7, 
                     linewidth=1, label='Original')
             ax1.axhline(y=lower_bound, color='#d62728', linestyle='--', alpha=0.7,
                        label='Lower bound (Q1 - 1.5*IQR)')
@@ -125,15 +125,15 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Preprocessed data
             ax2 = fig.add_subplot(gs[1])
-            ax2.plot(proc['Date'], proc['Value'], color='#2ca02c', alpha=0.7, 
+            ax2.plot(proc.index, proc['vst_raw'], color='#2ca02c', alpha=0.7, 
                     linewidth=1, label='Preprocessed')
             
             # Removed points highlighted
             ax3 = fig.add_subplot(gs[2])
-            ax3.plot(orig['Date'], orig['Value'], color='#1f77b4', alpha=0.3, 
+            ax3.plot(orig.index, orig['vst_raw'], color='#1f77b4', alpha=0.3, 
                     linewidth=1, label='Original')
             removed_points = orig[removed_mask]
-            ax3.scatter(removed_points['Date'], removed_points['Value'], 
+            ax3.scatter(removed_points.index, removed_points['vst_raw'], 
                        color='#d62728', s=50, alpha=0.5, label='Removed Points')
             
             # Set titles with adjusted padding
@@ -193,15 +193,15 @@ def generate_preprocessing_report(preprocessed_data: dict, output_dir: Path, ori
                 f.write("\nVST_RAW Data:\n")
                 f.write(f"  - Measurements: {len(vst)}\n")
                 f.write(f"  - Time range: {pd.to_datetime(vst.index.min())} to {pd.to_datetime(vst.index.max())}\n")
-                f.write(f"  - Value range: {vst['Value'].min():.2f} to {vst['Value'].max():.2f}\n")
+                f.write(f"  - Value range: {vst['vst_raw'].min():.2f} to {vst['vst_raw'].max():.2f}\n")
                 
                 # Only include IQR statistics if original_data is provided
                 if original_data is not None and station_name in original_data and original_data[station_name]['vst_raw'] is not None:
                     orig_vst = original_data[station_name]['vst_raw']
                     
                     # Calculate IQR statistics
-                    Q1 = orig_vst['Value'].quantile(0.25)
-                    Q3 = orig_vst['Value'].quantile(0.75)
+                    Q1 = orig_vst['vst_raw'].quantile(0.25)
+                    Q3 = orig_vst['vst_raw'].quantile(0.75)
                     IQR = Q3 - Q1
                     lower_bound = Q1 - 1.5 * IQR
                     upper_bound = Q3 + 4 * IQR
@@ -213,8 +213,8 @@ def generate_preprocessing_report(preprocessed_data: dict, output_dir: Path, ori
                     f.write(f"  - Lower bound: {lower_bound:.2f}\n")
                     f.write(f"  - Upper bound: {upper_bound:.2f}\n")
                     
-                    points_below = len(orig_vst[orig_vst['Value'] < lower_bound])
-                    points_above = len(orig_vst[orig_vst['Value'] > upper_bound])
+                    points_below = len(orig_vst[orig_vst['vst_raw'] < lower_bound])
+                    points_above = len(orig_vst[orig_vst['vst_raw'] > upper_bound])
                     f.write("\nPoints removed by bounds:\n")
                     f.write(f"  - Below lower bound: {points_below}\n")
                     f.write(f"  - Above upper bound: {points_above}\n")
@@ -235,7 +235,7 @@ def generate_preprocessing_report(preprocessed_data: dict, output_dir: Path, ori
                 f.write("\nRainfall Data:\n")
                 f.write(f"  - Measurements: {len(rain)}\n")
                 f.write(f"  - Time period: {rain.index.min().strftime('%Y-%m-%d')} to {rain.index.max().strftime('%Y-%m-%d')}\n")
-                f.write(f"  - Total rainfall: {rain['precipitation (mm)'].sum():.1f} mm\n")
+                f.write(f"  - Total rainfall: {rain['rainfall'].sum():.1f} mm\n")
                 f.write(f"  - Years covered: {rain.index.year.min()} to {rain.index.year.max()}\n")
             
             # Temperature details
@@ -245,7 +245,7 @@ def generate_preprocessing_report(preprocessed_data: dict, output_dir: Path, ori
                 f.write(f"  - Measurements: {len(temp)}\n")
                 f.write(f"  - Time period: {temp.index.min().strftime('%Y-%m-%d')} to {temp.index.max().strftime('%Y-%m-%d')}\n")
                 f.write(f"  - Years covered: {temp.index.year.min()} to {temp.index.year.max()}\n")
-                f.write(f"  - Range: {temp['temperature (C)'].min():.1f}°C to {temp['temperature (C)'].max():.1f}°C\n")
+                f.write(f"  - Range: {temp['temperature'].min():.1f}°C to {temp['temperature'].max():.1f}°C\n")
             
             f.write("\n" + "="*50 + "\n")
 
@@ -266,11 +266,11 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             data = preprocessed_data[station_name]
             
             # Plot VST Raw with custom styling
-            ax1.plot(data['vst_raw'].index, data['vst_raw']['Value'],
+            ax1.plot(data['vst_raw'].index, data['vst_raw']['vst_raw'],
                     color='#1f77b4', alpha=0.7, linewidth=1, label='VST Raw')
             
             if data['vst_edt'] is not None:
-                ax1.plot(data['vst_edt'].index, data['vst_edt']['Value'],
+                ax1.plot(data['vst_edt'].index, data['vst_edt']['vst_raw'],
                         color='#2ca02c', alpha=0.7, linewidth=1, label='VST EDT')
             
             if data['vinge'] is not None:
@@ -279,8 +279,8 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             
             # Add statistics box for water levels
             stats_text = (f'VST Raw Points: {len(data["vst_raw"])}\n'
-                        f'Range: {data["vst_raw"]["Value"].min():.1f} to '
-                        f'{data["vst_raw"]["Value"].max():.1f}')
+                        f'Range: {data["vst_raw"]["vst_raw"].min():.1f} to '
+                        f'{data["vst_raw"]["vst_raw"].max():.1f}')
             ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes,
                     verticalalignment='top',
                     bbox=dict(boxstyle='round,pad=0.5', 
@@ -292,11 +292,11 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             ax2 = fig.add_subplot(gs[1])
             if data['rainfall'] is not None:
                 rain_data = data['rainfall']
-                ax2.plot(rain_data.index, rain_data['precipitation (mm)'],
+                ax2.plot(rain_data.index, rain_data['rainfall'],
                         color='#1f77b4', alpha=0.7, linewidth=1, label='Rainfall')
                 
                 # Add rainfall statistics
-                total_rain = rain_data['precipitation (mm)'].sum()
+                total_rain = rain_data['rainfall'].sum()
                 rain_stats = f'Total Rainfall: {total_rain:.1f}mm'
                 ax2.text(0.02, 0.98, rain_stats, transform=ax2.transAxes,
                         verticalalignment='top',
@@ -309,12 +309,12 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             ax3 = fig.add_subplot(gs[2])
             if data['temperature'] is not None:
                 temp_data = data['temperature']
-                ax3.plot(temp_data.index, temp_data['temperature (C)'],
+                ax3.plot(temp_data.index, temp_data['temperature'],
                         color='#d62728', alpha=0.7, linewidth=1, label='Temperature')
                 
                 # Add temperature statistics
-                temp_stats = (f'Range: {temp_data["temperature (C)"].min():.1f}°C to '
-                            f'{temp_data["temperature (C)"].max():.1f}°C')
+                temp_stats = (f'Range: {temp_data["temperature"].min():.1f}°C to '
+                            f'{temp_data["temperature"].max():.1f}°C')
                 ax3.text(0.02, 0.98, temp_stats, transform=ax3.transAxes,
                         verticalalignment='top',
                         bbox=dict(boxstyle='round,pad=0.5',
@@ -344,7 +344,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             axes = [ax1, ax2, ax3, ax4]
             titles = ['Water Level Measurements', 'Rainfall Data',
                      'Temperature Data', 'Manual Board Measurements (VINGE)']
-            ylabels = ['Water Level (mm)', 'Precipitation (mm)',
+            ylabels = ['Water Level (mm)', 'rainfall',
                       'Temperature (°C)', 'Water Level (mm)']
             
             for ax, title, ylabel in zip(axes, titles, ylabels):
@@ -388,7 +388,7 @@ def plot_additional_data(preprocessed_data: dict, output_dir: Path):
                 vst_data.set_index('Date', inplace=True)
             
             # Plot VST data with custom styling
-            ax.plot(vst_data.index, vst_data['Value'],
+            ax.plot(vst_data.index, vst_data['vst_raw'],
                    color='#1f77b4', alpha=0.7, linewidth=1, label='VST Raw')
             
             if station_data['vinge'] is not None:
@@ -439,15 +439,15 @@ def plot_additional_data(preprocessed_data: dict, output_dir: Path):
                 ax = fig.add_subplot(gs[0])
                 
                 rain_data = station_data['rainfall']
-                ax.plot(rain_data.index, rain_data['precipitation (mm)'],
+                ax.plot(rain_data.index, rain_data['rainfall'],
                        color='#1f77b4', alpha=0.7, linewidth=1, label='Rainfall')
                 
                 # Add rainfall statistics
-                total_rain = rain_data['precipitation (mm)'].sum()
+                total_rain = rain_data['rainfall'].sum()
                 rain_stats = (
                     f'Total Rainfall: {total_rain:.1f}mm\n'
-                    f'Average: {rain_data["precipitation (mm)"].mean():.2f}mm/day\n'
-                    f'Max: {rain_data["precipitation (mm)"].max():.1f}mm'
+                    f'Average: {rain_data["rainfall"].mean():.2f}mm/day\n'
+                    f'Max: {rain_data["rainfall"].max():.1f}mm'
                 )
                 ax.text(0.02, 0.98, rain_stats, transform=ax.transAxes,
                        verticalalignment='top',
@@ -460,7 +460,7 @@ def plot_additional_data(preprocessed_data: dict, output_dir: Path):
                 ax.set_title(f'Rainfall Data - {station_name}',
                            pad=20, fontsize=14, fontweight='bold')
                 ax.set_xlabel('Date', labelpad=10)
-                ax.set_ylabel('Precipitation (mm)', labelpad=10)
+                ax.set_ylabel('rainfall', labelpad=10)
                 ax.set_facecolor('#f8f9fa')
                 ax.grid(True, alpha=0.3, color='#cccccc')
                 ax.tick_params(axis='both', which='major', labelsize=10)
@@ -478,7 +478,7 @@ def plot_additional_data(preprocessed_data: dict, output_dir: Path):
                 ax = fig.add_subplot(gs[0])
                 
                 temp_data = station_data['temperature']
-                ax.plot(temp_data.index, temp_data['temperature (C)'],
+                ax.plot(temp_data.index, temp_data['temperature'],
                        color='#d62728', alpha=0.7, linewidth=1, label='Temperature')
                 
                 # Add freezing line
@@ -487,10 +487,10 @@ def plot_additional_data(preprocessed_data: dict, output_dir: Path):
                 
                 # Add temperature statistics
                 temp_stats = (
-                    f'Range: {temp_data["temperature (C)"].min():.1f}°C to '
-                    f'{temp_data["temperature (C)"].max():.1f}°C\n'
-                    f'Average: {temp_data["temperature (C)"].mean():.1f}°C\n'
-                    f'Days Below 0°C: {sum(temp_data["temperature (C)"] < 0)}'
+                    f'Range: {temp_data["temperature"].min():.1f}°C to '
+                    f'{temp_data["temperature"].max():.1f}°C\n'
+                    f'Average: {temp_data["temperature"].mean():.1f}°C\n'
+                    f'Days Below 0°C: {sum(temp_data["temperature"] < 0)}'
                 )
                 ax.text(0.02, 0.98, temp_stats, transform=ax.transAxes,
                        verticalalignment='top',
@@ -559,7 +559,7 @@ def create_interactive_temperature_plot(preprocessed_data: dict, output_dir: Pat
             fig.add_trace(
                 go.Scatter(
                     x=temp_data.index,
-                    y=temp_data['temperature (C)'],
+                    y=temp_data['temperature'],
                     name="Temperature",
                     line=dict(color=colors['temperature'], width=1.5),
                     hovertemplate="Date: %{x}<br>Temperature: %{y:.1f}°C<extra></extra>"
@@ -580,7 +580,7 @@ def create_interactive_temperature_plot(preprocessed_data: dict, output_dir: Pat
             )
             
             # Find freezing periods
-            temp_series = temp_data['temperature (C)']
+            temp_series = temp_data['temperature']
             freezing = temp_series < 0
             state_changes = freezing.ne(freezing.shift()).fillna(True)
             change_points = temp_series.index[state_changes]
@@ -605,7 +605,7 @@ def create_interactive_temperature_plot(preprocessed_data: dict, output_dir: Pat
             fig.add_trace(
                 go.Scatter(
                     x=vst_data.index,
-                    y=vst_data['Value'],
+                    y=vst_data['vst_raw'],
                     name="Water Level",
                     line=dict(color=colors['water_level'], width=1.5),
                     hovertemplate="Date: %{x}<br>Water Level: %{y:.1f}mm<extra></extra>"
@@ -615,16 +615,16 @@ def create_interactive_temperature_plot(preprocessed_data: dict, output_dir: Pat
             
             # Add statistics as annotations
             temp_stats = (
-                f"Temperature Range: {temp_data['temperature (C)'].min():.1f}°C to "
-                f"{temp_data['temperature (C)'].max():.1f}°C<br>"
-                f"Average: {temp_data['temperature (C)'].mean():.1f}°C<br>"
+                f"Temperature Range: {temp_data['temperature'].min():.1f}°C to "
+                f"{temp_data['temperature'].max():.1f}°C<br>"
+                f"Average: {temp_data['temperature'].mean():.1f}°C<br>"
                 f"Days Below 0°C: {sum(freezing)}"
             )
             
             water_stats = (
-                f"Water Level Range: {vst_data['Value'].min():.1f}mm to "
-                f"{vst_data['Value'].max():.1f}mm<br>"
-                f"Average: {vst_data['Value'].mean():.1f}mm"
+                f"Water Level Range: {vst_data['vst_raw'].min():.1f}mm to "
+                f"{vst_data['vst_raw'].max():.1f}mm<br>"
+                f"Average: {vst_data['vst_raw'].mean():.1f}mm"
             )
             
             # Update layout with professional styling

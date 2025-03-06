@@ -58,6 +58,7 @@ import pickle
 import json
 from tqdm.auto import tqdm  # Import tqdm for progress bars
 
+
 class LSTMForecaster(nn.Module):
     """
     Unidirectional LSTM model for forecasting future time series values.
@@ -370,7 +371,7 @@ class ForecasterWrapper:
         
         # Extract key parameters
         self.input_length = config.get('input_length', 72)  # Default 72 timesteps
-        self.feature_cols = config.get('feature_cols', ['Value'])  # Default to just Value
+        self.feature_cols = config.get('feature_cols', ['vst_raw'])  # Default to just Value
         self.weather_cols = config.get('weather_cols', [])  # Optional weather features
         self.all_features = self.feature_cols + self.weather_cols  # Combined feature list
         self.n_features = len(self.all_features)  # Total number of features
@@ -1090,9 +1091,9 @@ def evaluate_forecaster(model, test_data, ground_truth=None, config=None, split_
                     )
                     
                     # Prepare input data
-                    if 'Value' in input_window.columns:
+                    if 'vst_raw' in input_window.columns:
                         # Get input values
-                        values = input_window['Value'].values.reshape(-1, 1)
+                        values = input_window['vst_raw'].values.reshape(-1, 1)
                         
                         # Scale input using model's scaler
                         if model.is_fitted:
@@ -1155,11 +1156,11 @@ def evaluate_forecaster(model, test_data, ground_truth=None, config=None, split_
                         
                         # Store results
                         all_timestamps.extend(target_window.index)
-                        all_actual_values.extend(target_window['Value'].values)
+                        all_actual_values.extend(target_window['vst_raw'].values)
                         all_predicted_values.extend(forecasts)
                         successful_forecasts += 1
                     else:
-                        window_pbar.write(f"Window {i//stride + 1}: No 'Value' column found, skipping")
+                        window_pbar.write(f"Window {i//stride + 1}: No 'vst_raw' column found, skipping")
                         
                 except Exception as e:
                     window_pbar.write(f"Error forecasting window {i//stride + 1}: {str(e)}")
@@ -1327,7 +1328,7 @@ def create_empty_results(data):
     
     Args:
         data (pd.DataFrame or None): Input data frame, potentially containing
-            timestamps and 'Value' column. Can be None or empty.
+            timestamps and 'vst_raw' column. Can be None or empty.
     
     Returns:
         dict: Empty results structure with these components:
@@ -1354,7 +1355,7 @@ def create_empty_results(data):
     # Create minimal empty results
     if isinstance(data, pd.DataFrame) and not data.empty:
         sample_timestamps = data.index.values
-        sample_values = data['Value'].values if 'Value' in data.columns else np.zeros(len(data))
+        sample_values = data['vst_raw'].values if 'vst_raw' in data.columns else np.zeros(len(data))
     else:
         # Create truly empty results if data is not available
         sample_timestamps = np.array([])
@@ -1371,6 +1372,513 @@ def create_empty_results(data):
         'z_scores': np.zeros_like(sample_values),
         'imputed_data': sample_values.copy()
     }
+
+
+########################################################
+import sys
+project_root = Path(__file__).parent.parent  # Go up one level from current file
+sys.path.append(str(project_root))
+
+import pandas as pd
+from pathlib import Path
+from _1_preprocessing.split import split_data, split_data_yearly
+from data_utils.data_loading import load_all_station_data
+from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, generate_preprocessing_report, plot_additional_data, create_interactive_temperature_plot
+from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
+from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
+from config import SYNTHETIC_ERROR_PARAMS, PHYSICAL_LIMITS, LSTM_CONFIG
+from diagnostics.lstm_diagnostics import run_all_diagnostics
+from _3_lstm_model.lstm_forecaster import train_forecaster, evaluate_forecaster
+
+
+
+#1
+print("Loading and preprocessing station data...")
+preprocessed_data = pd.read_pickle('../data_utils/Sample data/preprocessed_data.pkl')
+
+
+#2
+print("\nSplitting data into yearly windows...")
+split_datasets = split_data_yearly(preprocessed_data)
+
+#3
+print("\nStep 3: Generating synthetic errors...")
+# Dictionary to store results for each station/year
+stations_results = {}
+# Create synthetic error generator
+error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
+
+for year, stations in split_datasets['windows'].items():
+        print(f"\nProcessing year {year}")
+        for station, station_data in stations.items():
+            try:
+                print(f"Generating synthetic errors for {station} ({year})...")
+                station_data = station_data['vst_raw']
+                
+                if station_data is None or station_data.empty:
+                    print(f"No data available for station {station} in {year}")
+                    continue
+                
+                # Generate synthetic errors
+                modified_data, ground_truth = error_generator.inject_all_errors(station_data)
+                
+                # Store results
+                station_key = f"{station}_{year}"
+                stations_results[station_key] = {
+                    'modified_data': modified_data,
+                    'ground_truth': ground_truth,
+                    'error_periods': error_generator.error_periods
+                }
+                
+            except Exception as e:
+                print(f"Error processing station {station}: {str(e)}")
+                continue
+
+print("\nStep 4: Training LSTM models with Station-Specific Approach...")
+
+# Prepare train and validation data
+print("\nPreparing training and validation data...")
+years = sorted(list(split_datasets['windows'].keys()))
+
+validation_year = years[-1]
+training_years = years[:-1]
+
+print(f"Splitting across years:")
+print(f"Training years: {training_years}")
+print(f"Validation year: {validation_year}")
+
+# Use the LSTM configuration from config.py
+lstm_config = LSTM_CONFIG.copy()
+
+# Add adaptive thresholding configuration
+lstm_config.update({
+    'use_z_score': True,               # Use statistical z-scores instead of percentile
+    'z_score_threshold': 2.5,          # Flag points > 2.5 standard deviations from mean
+    'anomaly_threshold_percentile': 95 # Fallback percentile if not using z-scores
+})
+
+# Create station-specific models
+station_ids = set()
+station_models = {}
+training_results = {}
+
+# Identify all unique stations across all years
+for year in years:
+    for station in split_datasets['windows'][year].keys():
+        station_ids.add(station)
+
+station_ids = set({'21006845'})
+print(f"Found {len(station_ids)} unique stations to model")
+
+
+# Train a model for each station
+for station_id in sorted(station_ids):
+    print(f"\nTraining model for station {station_id}...")
+    
+    # Collect training data for this station
+    station_train_data = {}
+    station_val_data = {}
+    
+    # Gather training data from all training years for this station
+    for year in training_years:
+        if station_id in split_datasets['windows'][year]:
+            data = split_datasets['windows'][year][station_id]
+            if 'vst_raw' in data and data['vst_raw'] is not None:
+                # Create a clean copy of the training data with only the original values
+                station_train_data[f"{station_id}_{year}"] = {
+                    'vst_raw': data['vst_raw'].copy()  # Ensure we have a clean copy
+                }
+    
+    # Gather validation data from validation year for this station - also original data
+    if validation_year in split_datasets['windows'] and station_id in split_datasets['windows'][validation_year]:
+        data = split_datasets['windows'][validation_year][station_id]
+        if 'vst_raw' in data and data['vst_raw'] is not None:
+            station_val_data[f"{station_id}_{validation_year}"] = {
+                'vst_raw': data['vst_raw'].copy()  # Use clean data for validation too
+            }
+    
+    # Check if we have enough data
+    if len(station_train_data) == 0:
+        print(f"  No training data available for station {station_id}, skipping")
+        continue
+        
+    print(f"  Training with {len(station_train_data)} years of CLEAN data")
+    print(f"  Validation with {len(station_val_data)} years of CLEAN data")
+    
+    # Train the model
+    try:
+        station_model, station_history = train_forecaster(
+            train_data=station_train_data,
+            validation_data=station_val_data,
+            config=lstm_config
+        )
+        
+        # Store model and history
+        station_models[station_id] = station_model
+        training_results[f"model_{station_id}"] = {
+            'history': station_history
+        }
+        
+        print(f"  Training complete for station {station_id}")
+        
+        if 'val_loss' in station_history and len(station_history['val_loss']) > 0:
+            print(f"  Final validation loss: {station_history['val_loss'][-1]:.6f}")
+        elif 'train_loss' in station_history and len(station_history['train_loss']) > 0:
+            print(f"  Final training loss: {station_history['train_loss'][-1]:.6f}")
+    except Exception as e:
+        print(f"  Error training model for station {station_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+# Evaluate models on test data with synthetic errors
+print("\nEvaluating models on test data with synthetic errors...")
+all_results = {}
+
+# Process each year and station to evaluate
+for year, stations in split_datasets['windows'].items():
+    for station_name, station_data in stations.items():
+        try:
+            # Create station key
+            station_key = f"{station_name}_{year}"
+            
+            # Skip if we don't have a model for this station
+            if station_name not in station_models:
+                print(f"Skipping {station_key} - no model available")
+                continue
+            
+            # We need both clean data and modified data for evaluation
+            if 'vst_raw' not in station_data or station_data['vst_raw'] is None:
+                print(f"Skipping {station_key} - no original data available")
+                continue
+            
+            if station_key not in stations_results:
+                print(f"Skipping {station_key} - no synthetic errors data")
+                continue
+            
+            # Get the model for this station
+            model = station_models[station_name]
+            
+            # Create test data structure
+            test_data = {
+                station_key: {
+                    'vst_raw': station_data['vst_raw'],           # Original clean data
+                    'vst_raw_modified': stations_results[station_key]['modified_data']  # Data with errors
+                }
+            }
+            
+            # Get ground truth
+            ground_truth = {
+                station_key: stations_results[station_key]['ground_truth']
+            }
+            
+            # Evaluate the model
+            print(f"Evaluating {station_key}...")
+            print(f"  Testing how well model trained on CLEAN data detects anomalies in MODIFIED data")
+            station_results = evaluate_forecaster(
+                model=model,
+                test_data=test_data,
+                ground_truth=ground_truth,
+                config=lstm_config,
+                split_datasets=split_datasets
+            )
+            
+            # Add results to combined results
+            all_results.update(station_results)
+            
+        except Exception as e:
+            print(f"Error evaluating {station_name} for year {year}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+# Update training results with all evaluation results
+training_results.update(all_results)
+
+
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.offline as pyo
+import pandas as pd
+import numpy as np
+import plotly.offline as pyo
+import webbrowser
+import os
+
+def create_interactive_combined_plot(all_results, station_id='21006845'):
+    """
+    Generate an interactive plot showing original data, predictions, and anomalies across all years.
+    
+    Args:
+        all_results: Dictionary containing results from evaluate_forecaster
+        station_id: Base station ID without year suffix
+    
+    Returns:
+        Plotly figure object that can be displayed in a browser
+    """
+    # Collect all data across years
+    all_original_timestamps = []
+    all_original_values = []
+    all_prediction_timestamps = []
+    all_prediction_values = []
+    all_anomaly_timestamps = []
+    all_anomaly_values = []
+    all_error_timestamps = []
+    all_error_values = []
+    
+    # Track years found for the title
+    years_found = []
+    
+    # Process each station-year key
+    for station_key in sorted(all_results.keys()):
+        # Check if this key belongs to our station
+        if not station_key.startswith(f"{station_id}_"):
+            continue
+            
+        # Extract year from key
+        year = station_key.split('_')[1]
+        years_found.append(year)
+        
+        # Get results for this station-year
+        station_results = all_results[station_key]
+        
+        # Check if we have the necessary data
+        if ('original_data' not in station_results or 
+            station_results['original_data'] is None or 
+            'timestamps' not in station_results or 
+            'predictions' not in station_results):
+            print(f"  Missing required data for {station_key}, skipping")
+            continue
+        
+        # Determine value column name
+        if 'Value' in station_results['original_data'].columns:
+            value_col = 'Value'
+        elif 'vst_raw' in station_results['original_data'].columns:
+            value_col = 'vst_raw'
+        else:
+            # Try to find a suitable column
+            numeric_cols = station_results['original_data'].select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                value_col = numeric_cols[0]
+            else:
+                print(f"  No suitable value column found for {station_key}, skipping")
+                continue
+        
+        # Collect original data
+        all_original_timestamps.extend(station_results['original_data'].index)
+        all_original_values.extend(station_results['original_data'][value_col].values)
+        
+        # Collect prediction data
+        all_prediction_timestamps.extend(station_results['timestamps'])
+        all_prediction_values.extend(station_results['predictions'])
+        
+        # Collect error data
+        if 'prediction_errors' in station_results and 'timestamps' in station_results:
+            all_error_timestamps.extend(station_results['timestamps'])
+            all_error_values.extend(station_results['prediction_errors'])
+        
+        # Collect anomaly points
+        if 'anomaly_flags' in station_results and 'timestamps' in station_results:
+            anomaly_indices = np.where(station_results['anomaly_flags'] == 1)[0]
+            if len(anomaly_indices) > 0:
+                anomaly_timestamps = [station_results['timestamps'][i] for i in anomaly_indices]
+                anomaly_values = [station_results['original_values'][i] for i in anomaly_indices]
+                all_anomaly_timestamps.extend(anomaly_timestamps)
+                all_anomaly_values.extend(anomaly_values)
+    
+    # Sort all data by timestamp to ensure proper chronological order
+    if all_original_timestamps:
+        # Create DataFrames for sorting
+        original_df = pd.DataFrame({
+            'timestamp': all_original_timestamps,
+            'value': all_original_values
+        }).sort_values('timestamp')
+        
+        prediction_df = pd.DataFrame({
+            'timestamp': all_prediction_timestamps,
+            'value': all_prediction_values
+        }).sort_values('timestamp')
+        
+        error_df = pd.DataFrame({
+            'timestamp': all_error_timestamps,
+            'value': all_error_values
+        }).sort_values('timestamp')
+        
+        anomaly_df = pd.DataFrame({
+            'timestamp': all_anomaly_timestamps,
+            'value': all_anomaly_values
+        }).sort_values('timestamp')
+        
+        # Calculate statistics for annotations
+        total_points = len(original_df)
+        anomaly_count = len(anomaly_df)
+        anomaly_percentage = (anomaly_count / total_points) * 100 if total_points > 0 else 0
+        mean_error = np.mean(error_df['value']) if not error_df.empty else 0
+        
+        # Calculate average threshold
+        thresholds = [all_results[k]['threshold'] for k in all_results 
+                     if k.startswith(f"{station_id}_") and 'threshold' in all_results[k]]
+        avg_threshold = np.mean(thresholds) if thresholds else None
+        
+        # Create interactive plot with two subplots
+        fig = make_subplots(
+            rows=2, cols=1, 
+            shared_xaxes=True,
+            vertical_spacing=0.1,
+            subplot_titles=("Water Level Data", "Prediction Error"),
+            row_heights=[0.7, 0.3]
+        )
+        
+        # Add original data trace
+        fig.add_trace(
+            go.Scatter(
+                x=original_df['timestamp'], 
+                y=original_df['value'],
+                mode='lines',
+                name='Original Data',
+                line=dict(color='blue', width=1.5),
+                hovertemplate='%{x}<br>Value: %{y:.2f}<extra></extra>'
+            ),
+            row=1, col=1
+        )
+        
+        # Add prediction trace
+        fig.add_trace(
+            go.Scatter(
+                x=prediction_df['timestamp'], 
+                y=prediction_df['value'],
+                mode='lines',
+                name='Predictions',
+                line=dict(color='green', width=1.5),
+                hovertemplate='%{x}<br>Prediction: %{y:.2f}<extra></extra>'
+            ),
+            row=1, col=1
+        )
+        
+        # Add anomalies as scatter points
+        if not anomaly_df.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=anomaly_df['timestamp'], 
+                    y=anomaly_df['value'],
+                    mode='markers',
+                    name='Detected Anomalies',
+                    marker=dict(color='red', size=8, symbol='circle'),
+                    hovertemplate='%{x}<br>Anomaly Value: %{y:.2f}<extra></extra>'
+                ),
+                row=1, col=1
+            )
+        
+        # Add error trace
+        if not error_df.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=error_df['timestamp'], 
+                    y=error_df['value'],
+                    mode='lines',
+                    name='Prediction Error',
+                    line=dict(color='red', width=1),
+                    hovertemplate='%{x}<br>Error: %{y:.4f}<extra></extra>'
+                ),
+                row=2, col=1
+            )
+            
+            # Add threshold line if available
+            if avg_threshold is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[error_df['timestamp'].min(), error_df['timestamp'].max()],
+                        y=[avg_threshold, avg_threshold],
+                        mode='lines',
+                        name=f'Threshold ({avg_threshold:.2f})',
+                        line=dict(color='black', width=1, dash='dash'),
+                        hoverinfo='name'
+                    ),
+                    row=2, col=1
+                )
+        
+        # Set title and axis labels
+        year_range = f"{min(years_found)} to {max(years_found)}" if years_found else "All Years"
+        fig.update_layout(
+            title=f'Water Level Data and Predictions for Station {station_id} ({year_range})',
+            height=800,
+            width=1200,
+            hovermode='closest',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            # Enable full zooming capabilities
+            dragmode='zoom',  # Default to zoom mode instead of pan
+            xaxis=dict(
+                rangeslider=dict(visible=True),
+                type="date"
+            ),
+            # Make sure both axes are fully interactive
+            yaxis=dict(
+                fixedrange=False,  # Allow y-axis zooming
+                autorange=True
+            ),
+            yaxis2=dict(
+                fixedrange=False,  # Allow y-axis zooming in the error plot too
+                autorange=True
+            )
+        )
+        
+        # Add modebar buttons for additional interactivity
+        fig.update_layout(
+            modebar_add=[
+                'resetScale',  # Add button to reset axes
+                'toggleSpikelines',  # Add button for reference lines
+                'zoomIn2d',  # Add zoom in button
+                'zoomOut2d'  # Add zoom out button
+            ]
+        )
+        
+        # Add annotation with statistics
+        stats_text = (f"Total points: {total_points}<br>"
+                     f"Anomalies detected: {anomaly_count} ({anomaly_percentage:.2f}%)<br>"
+                     f"Mean error: {mean_error:.4f}")
+        
+        fig.add_annotation(
+            xref="paper", yref="paper",
+            x=0.01, y=0.01,
+            text=stats_text,
+            showarrow=False,
+            font=dict(size=12),
+            bgcolor="white",
+            bordercolor="black",
+            borderwidth=1,
+            borderpad=4,
+            align="left"
+        )
+        
+        return fig
+    else:
+        print(f"No data found for station {station_id}")
+        return None
+
+# Create the interactive plot
+fig = create_interactive_combined_plot(all_results, station_id='21006845')
+
+if fig:
+    # Save the HTML file
+    html_path = 'water_level_plot.html'
+    fig.write_html(html_path, include_plotlyjs='cdn')
+    
+    # Open the file in a browser
+    absolute_path = os.path.abspath(html_path)
+    print(f"Opening plot in browser: {absolute_path}")
+    webbrowser.open('file://' + absolute_path)
+
+
+# To save the figure:
+# fig.savefig(f'station_21006845_all_years.png', dpi=300, bbox_inches='tight')
+
+
+
+
 
 '''
 1. Architecture: Encoder-Decoder with Bidirectional Pattern Recognition

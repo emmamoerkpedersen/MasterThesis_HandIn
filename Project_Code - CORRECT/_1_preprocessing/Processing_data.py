@@ -172,13 +172,13 @@ def preprocess_data():
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename='preprocessed_data.pkl')
     save_data_Dict(All_station_data_original, filename='original_data.pkl')
-
+    save_data_Dict(frost_periods, filename='frost_periods.pkl')
     
     
-    return All_station_data, All_station_data_original
+    return All_station_data, All_station_data_original, frost_periods
 
 if __name__ == "__main__":
-    processed_data, original_data = preprocess_data()
+    processed_data, original_data, frost_periods = preprocess_data()
 
 
 

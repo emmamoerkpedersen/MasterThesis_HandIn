@@ -121,7 +121,7 @@ PHYSICAL_LIMITS = {
 # LSTM Model Configuration
 LSTM_CONFIG = {
     'model_type': 'forecaster',
-    'feature_cols': ['Value'],
+    'feature_cols': ['vst_raw'],
     
     # Sequence parameters - reduced for speed
     'input_length': 72,           # Reduced from 144 to 72 (9 hours of data)

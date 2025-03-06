@@ -96,7 +96,7 @@ class SyntheticErrorGenerator:
             return None, None
         
         # Make sure we're working with the 'Value' column
-        values = data['Value']
+        values = data['vst_raw']
         
         # Calculate rolling statistics
         local_std = values.rolling(window=window, center=True).std()
@@ -165,7 +165,7 @@ class SyntheticErrorGenerator:
                     continue
                 
                 # Get current value and values before/after
-                current_value = float(data.iloc[idx]['Value'])
+                current_value = float(data.iloc[idx]['vst_raw'])
                 
                 # Generate spike magnitude
                 magnitude = self._generate_magnitude(
@@ -188,7 +188,7 @@ class SyntheticErrorGenerator:
                 original_value = current_value
                 
                 # Apply the spike (single point)
-                modified_data.iloc[idx, modified_data.columns.get_loc('Value')] = spike_value
+                modified_data.iloc[idx, modified_data.columns.get_loc('vst_raw')] = spike_value
                 
                 # Record error period
                 self.error_periods.append(
@@ -499,7 +499,7 @@ class SyntheticErrorGenerator:
                 # Add random noise to the middle section
                 if end_idx - idx > 2:  # If there's room for a middle section
                     noise_level = np.random.uniform(*intensity_range)
-                    local_std = modified_data.iloc[idx:end_idx]['Value'].std()
+                    local_std = modified_data.iloc[idx:end_idx]['vst_raw'].std()
                     noise = np.random.normal(0, local_std * noise_level, size=end_idx-idx-2)
                     modified_data.iloc[idx+1:end_idx-1, 0] += noise
                 

@@ -5,6 +5,7 @@ TODO:
 Implement cross validation strategies?
 
 """
+import pandas as pd
 from pathlib import Path
 from _1_preprocessing.Processing_data import preprocess_data
 from _1_preprocessing.split import split_data, split_data_yearly
@@ -16,11 +17,12 @@ from config import SYNTHETIC_ERROR_PARAMS, PHYSICAL_LIMITS, LSTM_CONFIG
 from diagnostics.lstm_diagnostics import run_all_diagnostics
 from _3_lstm_model.lstm_forecaster import train_forecaster, evaluate_forecaster
 
+
 def run_pipeline(
     data_path: str, 
     output_path: str, 
-    test_mode: bool = False,
-    test_years: int = 5,
+    test_mode: bool = True,
+    test_years: int = 1,
     preprocess_diagnostics: bool = False,
     split_diagnostics: bool = False,
     synthetic_diagnostics: bool = True,
@@ -45,13 +47,18 @@ def run_pipeline(
     #########################################################
     
     print("Loading and preprocessing station data...")
+   
+   
     
     # Load original data first (if preprocessing diagnostics enabled)
     if preprocess_diagnostics:
-        original_data = load_all_station_data()
+        original_data = pd.read_pickle('data_utils/Sample data/original_data.pkl')
     
-    # Preprocess data
-    preprocessed_data, freezing_periods = preprocess_data()
+    # Load Preprocessed data
+    preprocessed_data = pd.read_pickle('data_utils/Sample data/preprocessed_data.pkl')
+    freezing_periods = pd.read_pickle('data_utils/Sample data/frost_periods.pkl')
+
+    #preprocessed_data, original_data, freezing_periods = preprocess_data()
     
     # Generate preprocessing diagnostics if enabled
     if preprocess_diagnostics and original_data:

@@ -4,3 +4,10 @@ Rain_data/**
 QGIS/**
 *.png
 *.pkl
+*.html
+*.js
+*.css
+*.json
+*.png
+*.jpg
+*.jpeg
