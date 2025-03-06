@@ -1,0 +1,48 @@
+
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Hyperparameter Tuning Report</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                h1, h2 { color: #333; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+                tr:nth-child(even) { background-color: #f9f9f9; }
+                .best { background-color: #d4edda; }
+                .container { margin-bottom: 30px; }
+            </style>
+        </head>
+        <body>
+            <h1>Hyperparameter Tuning Report</h1>
+        
+            <div class="container">
+                <h2>Best Configuration</h2>
+                <table>
+                    <tr><th>Parameter</th><th>Value</th></tr>
+        <tr><td>sequence_length</td><td>58</td></tr><tr><td>n_features</td><td>1</td></tr><tr><td>lstm_units</td><td>[32, 16]</td></tr><tr><td>dropout_rate</td><td>0.2</td></tr><tr><td>learning_rate</td><td>0.001</td></tr><tr><td>epochs</td><td>10</td></tr><tr><td>batch_size</td><td>56</td></tr><tr><td>early_stopping_patience</td><td>5</td></tr><tr><td>feature_cols</td><td>['Value']</td></tr>
+                </table>
+            </div>
+        
+            <div class="container">
+                <h2>Parameter Analysis</h2>
+                <p><a href="parameter_impact.html" target="_blank">Parameter Impact Analysis</a></p>
+                <p><a href="parallel_coordinates.html" target="_blank">Parallel Coordinates Plot</a></p>
+            </div>
+        
+            <div class="container">
+                <h2>All Trials</h2>
+                <table>
+                    <tr>
+                        <th>Trial</th>
+        <th>batch_size</th><th>dropout_rate</th><th>early_stopping_patience</th><th>epochs</th><th>feature_cols</th><th>learning_rate</th><th>lstm_units</th><th>n_features</th><th>sequence_length</th>
+                        <th>reconstruction_error</th>
+                        <th>Time (s)</th>
+                    </tr>
+        <tr class=""><td>1</td><td>36</td><td>0.2</td><td>5</td><td>10</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>64</td><td>0.029598</td><td>176.4</td></tr><tr class="best"><td>2</td><td>56</td><td>0.2</td><td>5</td><td>10</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>58</td><td>0.019701</td><td>128.5</td></tr><tr class=""><td>3</td><td>56</td><td>0.2</td><td>5</td><td>11</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>89</td><td>0.026144</td><td>233.5</td></tr><tr class=""><td>4</td><td>39</td><td>0.2</td><td>5</td><td>11</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>87</td><td>0.022765</td><td>214.5</td></tr><tr class=""><td>5</td><td>33</td><td>0.2</td><td>5</td><td>13</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>53</td><td>0.020822</td><td>172.9</td></tr><tr class=""><td>6</td><td>64</td><td>0.2</td><td>5</td><td>15</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>79</td><td>0.022914</td><td>191.6</td></tr><tr class=""><td>7</td><td>57</td><td>0.2</td><td>5</td><td>12</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>59</td><td>0.023233</td><td>152.2</td></tr><tr class=""><td>8</td><td>32</td><td>0.2</td><td>5</td><td>13</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>48</td><td>0.020839</td><td>160.0</td></tr><tr class=""><td>9</td><td>56</td><td>0.2</td><td>5</td><td>14</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>55</td><td>0.023493</td><td>127.6</td></tr><tr class=""><td>10</td><td>43</td><td>0.2</td><td>5</td><td>14</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>55</td><td>0.024094</td><td>208.8</td></tr><tr class=""><td>11</td><td>51</td><td>0.2</td><td>5</td><td>11</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>69</td><td>0.027685</td><td>185.4</td></tr><tr class=""><td>12</td><td>33</td><td>0.2</td><td>5</td><td>12</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>82</td><td>0.027555</td><td>281.4</td></tr><tr class=""><td>13</td><td>53</td><td>0.2</td><td>5</td><td>10</td><td>['Value']</td><td>0.001</td><td>[32, 16]</td><td>1</td><td>52</td><td>0.021648</td><td>101.0</td></tr>
+                </table>
+            </div>
+        </body>
+        </html>
+        

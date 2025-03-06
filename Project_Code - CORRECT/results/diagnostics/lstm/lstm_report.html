@@ -1,0 +1,296 @@
+
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>LSTM Anomaly Detection Report</title>
+            <style>
+                body {
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                    color: #333;
+                    background-color: #f8f9fa;
+                }
+                .container {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    padding: 20px;
+                }
+                header {
+                    background-color: #2c3e50;
+                    color: white;
+                    padding: 20px;
+                    margin-bottom: 30px;
+                    border-radius: 5px;
+                }
+                h1, h2, h3 {
+                    margin-top: 30px;
+                    color: #2c3e50;
+                }
+                h1 {
+                    font-size: 26px;
+                    margin-top: 0;
+                    color: white;
+                }
+                h2 {
+                    font-size: 22px;
+                    border-bottom: 1px solid #eee;
+                    padding-bottom: 10px;
+                }
+                h3 {
+                    font-size: 18px;
+                    margin-top: 20px;
+                }
+                .card {
+                    background-color: white;
+                    border-radius: 5px;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                    padding: 20px;
+                    margin-bottom: 20px;
+                }
+                .metrics-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                    gap: 15px;
+                    margin-top: 20px;
+                }
+                .metric-card {
+                    background-color: #f8f9fa;
+                    border-radius: 5px;
+                    padding: 15px;
+                    text-align: center;
+                }
+                .metric-value {
+                    font-size: 24px;
+                    font-weight: bold;
+                    color: #3498db;
+                    margin: 10px 0;
+                }
+                .metric-name {
+                    font-size: 14px;
+                    color: #7f8c8d;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 20px 0;
+                }
+                th, td {
+                    padding: 12px 15px;
+                    text-align: left;
+                    border-bottom: 1px solid #ddd;
+                }
+                th {
+                    background-color: #f2f2f2;
+                    font-weight: bold;
+                }
+                tr:hover {
+                    background-color: #f5f5f5;
+                }
+                .plot-container {
+                    margin: 20px 0;
+                    text-align: center;
+                }
+                .plot-img {
+                    max-width: 100%;
+                    height: auto;
+                    border-radius: 5px;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                }
+                .timestamp {
+                    font-size: 14px;
+                    color: #95a5a6;
+                    margin-top: 5px;
+                }
+                footer {
+                    text-align: center;
+                    margin-top: 50px;
+                    padding: 20px;
+                    color: #7f8c8d;
+                    font-size: 14px;
+                }
+                .link-button {
+                    display: inline-block;
+                    margin: 10px 0;
+                    padding: 10px 15px;
+                    background-color: #3498db;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 4px;
+                    transition: background-color 0.3s;
+                }
+                .link-button:hover {
+                    background-color: #2980b9;
+                }
+            </style>
+        </head>
+        <body>
+            <header>
+                <div class="container">
+                    <h1>LSTM Anomaly Detection Report</h1>
+                    <div class="timestamp">Generated on 2025-03-05 09:30:00</div>
+                </div>
+            </header>
+            
+            <div class="container">
+        
+                <section id="model-summary">
+                    <h2>Model Summary</h2>
+                    <div class="card">
+        <h3>Training Results</h3><div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-name">Initial Validation Loss</div>
+                            <div class="metric-value">0.001479</div>
+                        </div>
+                    
+                        <div class="metric-card">
+                            <div class="metric-name">Final Validation Loss</div>
+                            <div class="metric-value">0.000250</div>
+                        </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-name">Training Epochs</div>
+                        <div class="metric-value">0</div>
+                    </div>
+                </div>
+                    <div class="plot-container">
+                        <h3>Training History</h3>
+                        <img src="../diagnostics\lstm\plots\lstm_forecaster_training_history.png" class="plot-img" alt="Training History">
+                    </div>
+                </div></section>
+                <section id="detection-summary">
+                    <h2>Detection Results Summary</h2>
+                    <div class="card">
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-name">Stations Analyzed</div>
+                <div class="metric-value">2</div>
+            </div>
+        
+            <div class="metric-card">
+                <div class="metric-name">Total Data Points</div>
+                <div class="metric-value">5,662</div>
+            </div>
+        
+            <div class="metric-card">
+                <div class="metric-name">Total Anomalies</div>
+                <div class="metric-value">284</div>
+            </div>
+        
+            <div class="metric-card">
+                <div class="metric-name">Overall Anomaly Rate</div>
+                <div class="metric-value">5.02%</div>
+            </div>
+        </div><h3>Results by Station</h3><table><tr><th>Station</th><th>Data Points</th><th>Anomalies</th><th>Anomaly %</th><th>Threshold</th></tr>
+                    <tr>
+                        <td>21006845_2022</td>
+                        <td>2,872</td>
+                        <td>144</td>
+                        <td>5.01%</td>
+                        <td>2919.689115</td>
+                    </tr>
+                
+                    <tr>
+                        <td>21006845_2023</td>
+                        <td>2,790</td>
+                        <td>140</td>
+                        <td>5.02%</td>
+                        <td>2611.250350</td>
+                    </tr>
+                </table>
+                <div class="plot-container">
+                    <h3>Error Distribution</h3>
+                    <img src="../diagnostics\lstm\plots\error_distribution.png" class="plot-img" alt="Error Distribution">
+                </div>
+            </div></section>
+                <section id="performance">
+                    <h2>Performance Evaluation</h2>
+                    <div class="card">
+        
+                    <div class="plot-container">
+                        <h3>Confusion Matrix</h3>
+                        <img src="../diagnostics\lstm\plots\confusion_matrix.png" class="plot-img" alt="Confusion Matrix">
+                    </div>
+                
+                    <div class="plot-container">
+                        <h3>ROC Curve</h3>
+                        <img src="../diagnostics\lstm\plots\roc_curve.png" class="plot-img" alt="ROC Curve">
+                    </div>
+                </div></section>
+                <section id="station-details">
+                    <h2>Station Details</h2>
+        
+                <div class="card">
+                    <h3>21006845_2022</h3>
+            <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-name">Data Points</div>
+                        <div class="metric-value">2,872</div>
+                    </div>
+                
+                    <div class="metric-card">
+                        <div class="metric-name">Detected Anomalies</div>
+                        <div class="metric-value">144</div>
+                    </div>
+                
+                    <div class="metric-card">
+                        <div class="metric-name">Anomaly Rate</div>
+                        <div class="metric-value">5.01%</div>
+                    </div>
+                
+                        <div class="metric-card">
+                            <div class="metric-name">Detection Threshold</div>
+                            <div class="metric-value">2919.689115</div>
+                        </div>
+                    </div>
+                    <div class="plot-container">
+                        <img src="../diagnostics\lstm\plots\21006845_2022_forecasting_results.png" class="plot-img" alt="21006845_2022 Results">
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>21006845_2023</h3>
+            <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-name">Data Points</div>
+                        <div class="metric-value">2,790</div>
+                    </div>
+                
+                    <div class="metric-card">
+                        <div class="metric-name">Detected Anomalies</div>
+                        <div class="metric-value">140</div>
+                    </div>
+                
+                    <div class="metric-card">
+                        <div class="metric-name">Anomaly Rate</div>
+                        <div class="metric-value">5.02%</div>
+                    </div>
+                
+                        <div class="metric-card">
+                            <div class="metric-name">Detection Threshold</div>
+                            <div class="metric-value">2611.250350</div>
+                        </div>
+                    </div>
+                    <div class="plot-container">
+                        <img src="../diagnostics\lstm\plots\21006845_2023_forecasting_results.png" class="plot-img" alt="21006845_2023 Results">
+                    </div>
+                </div></section>
+                <section id="conclusion">
+                    <h2>Conclusion</h2>
+                    <div class="card">
+                        <p>This report presents the results of anomaly detection using an LSTM model on water level data.</p>
+                        <p>The model was trained to detect anomalies by predicting normal patterns in the data and identifying deviations.</p>
+                        <p>For more detailed analysis, please refer to the interactive plots and individual station results.</p>
+                    </div>
+                </section>
+        
+            </div>
+            
+            <footer>
+                <div class="container">
+                    <p>Generated by LSTM Anomaly Detection System</p>
+                    <p>© 2023 All Rights Reserved</p>
+                </div>
+            </footer>
+        </body>
+        </html>
+        
