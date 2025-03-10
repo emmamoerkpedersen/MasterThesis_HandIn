@@ -122,8 +122,7 @@ LSTM_CONFIG = {
     'output_features': ['vst_raw'],  
 
     # Sequence parameters - reduced for speed
-    'sequence_length': 72,           
-    'output_length': 4,          
+    'sequence_length': 24,                    
     
     # Model architecture - simplified
     'hidden_size': 64,            

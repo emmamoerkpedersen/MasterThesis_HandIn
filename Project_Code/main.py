@@ -11,7 +11,7 @@ from pathlib import Path
 #from data_loading import prepare_data_for_error_detection
 #from error_detection.config import SYNTHETIC_ERROR_PARAMS, PHYSICAL_LIMITS
 from _1_preprocessing.Processing_data import preprocess_data
-from _1_preprocessing.split import split_data, split_data_yearly
+from _1_preprocessing.split import split_data, split_data_yearly, split_data_rolling
 from data_utils.data_loading import load_all_station_data
 from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, generate_preprocessing_report, plot_additional_data, create_interactive_temperature_plot
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
@@ -19,6 +19,9 @@ from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
 from diagnostics.synthetic_diagnostics import plot_synthetic_errors, generate_synthetic_report, create_interactive_plot, plot_synthetic_vs_actual
 from diagnostics.lstm_diagnostics import plot_training_history, plot_detection_results, generate_lstm_report
+
+# Import the LSTM model and trainer
+from _3_lstm_model.lstm_forecaster import LSTMModel, train_LSTM, create_full_plot
 
 # Update these imports to match new structure
 #from _3_lstm_model.lstm_model import LSTMModel
@@ -28,18 +31,131 @@ from diagnostics.lstm_diagnostics import plot_training_history, plot_detection_r
 
 #import torch
 import numpy as np
+import sys
+
+def run_lstm_training_pipeline(lstm_config):
+    """
+    Run the LSTM training and prediction pipeline.
+    """
+    #1 Load and preprocess data
+    station_id = ['21006846']
+    print(f"Loading and preprocessing station data for station {station_id}...")
+    preprocessed_data = pd.read_pickle('../data_utils/Sample data/preprocessed_data.pkl')
+    
+    # Generate dictionary with same structure but with the specified station_id
+    preprocessed_data = {station_id[0]: preprocessed_data[station_id[0]] for station_id in [station_id]}
+    
+    #2 Split data
+    print("\nSplitting data into rolling windows")
+    split_datasets = split_data_rolling(preprocessed_data)
+    
+    #3 Generate synthetic errors for test data
+    print("\nStep 3: Generating synthetic errors for test data only...")
+    stations_results = {}
+    error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
+    
+    # Process only test data
+    if 'test' in split_datasets:
+        print("\nProcessing test data...")
+        for station, station_data in split_datasets['test'].items():
+            try:
+                print(f"Generating synthetic errors for {station} (Test)...")
+                test_data = station_data['vst_raw']
+                
+                if test_data is None or test_data.empty:
+                    print(f"No test data available for station {station}")
+                    continue
+                
+                # Generate synthetic errors
+                modified_data, ground_truth = error_generator.inject_all_errors(test_data)
+                
+                # Store results
+                station_key = f"{station}_test"
+                stations_results[station_key] = {
+                    'modified_data': modified_data,
+                    'ground_truth': ground_truth,
+                    'error_periods': error_generator.error_periods
+                }
+                
+            except Exception as e:
+                print(f"Error processing station {station}: {str(e)}")
+                continue
+    
+    #4 Train LSTM models
+    print("\nStep 4: Training LSTM models with Station-Specific Approach...")
+    
+    # Prepare train and validation data
+    print("\nPreparing training and validation data...")
+    
+    # Get all available windows
+    num_windows = len(split_datasets['windows'])
+    print(f"Total number of windows: {num_windows}")
+    
+    # Use all windows - each window has its own train/val split
+    print(f"Using all {num_windows} windows for training/validation")
+    print(f"Each window contains:")
+    print(f"- 3 years of training data")
+    print(f"- 1 year of validation data")
+    print(f"(Test data is stored separately in split_datasets['test'])")
+    
+    print(f"Input feature size: {len(lstm_config.get('feature_cols'))}")
+    
+    # Initialize model and trainer
+    model = LSTMModel(
+        input_size=len(lstm_config['feature_cols']),
+        sequence_length=lstm_config.get('sequence_length'),
+        hidden_size=lstm_config.get('hidden_size'),
+        output_size=1,
+        num_layers=lstm_config.get('num_layers'),
+        dropout=lstm_config.get('dropout')
+    )
+    
+    trainer = train_LSTM(model, lstm_config)
+    
+    # Train on each window
+    for window_idx, window_data in split_datasets['windows'].items():
+        print(f"\nProcessing window {window_idx}")
+        
+        # Get training and validation data for this window
+        train_data = window_data['train']
+        val_data = window_data['validation']
+        
+        # Train the model
+        history = trainer.train(
+            train_data=train_data,
+            val_data=val_data,
+            epochs=lstm_config.get('epochs'),
+            batch_size=lstm_config.get('batch_size'),
+            patience=lstm_config.get('patience')
+        )
+        # Optionally save the model after each window
+        torch.save(model.state_dict(), f'model_window_{window_idx}.pth')
+    
+    # After training, use the model for predictions
+    test_predictions = trainer.predict(split_datasets['test'])
+    
+    # Create and show the plot
+    create_full_plot(
+        test_data=split_datasets['test'][station_id[0]], 
+        test_predictions=test_predictions, 
+        station_id=station_id,
+        sequence_length=lstm_config.get('sequence_length')
+    )
+    
+    return model, trainer, test_predictions
 
 def run_pipeline(
     data_path: str, 
     output_path: str, 
     preprocess_diagnostics: bool = False,
     split_diagnostics: bool = False,
-    synthetic_diagnostics: bool = True,  # Default to True since we want to verify error injection
-    detection_diagnostics: bool = False,  # For future use
-    imputation_diagnostics: bool = False,  # For future use
-    validation_diagnostics: bool = False,  # For future use
-    plot_final_diagnostics: bool = False,  # For future use
-    split_mode: str = "normal"  # Options: "normal" or "yearly"
+    synthetic_diagnostics: bool = True,
+    detection_diagnostics: bool = False,
+    imputation_diagnostics: bool = False,
+    validation_diagnostics: bool = False,
+    plot_final_diagnostics: bool = False,
+    split_mode: str = "normal",
+    run_lstm: bool = True  # New parameter to control LSTM execution
     ):
     """
     Run the complete error detection and imputation pipeline.
@@ -445,6 +561,15 @@ def run_pipeline(
         }
     }, output_path)
 
+    # Add LSTM execution
+    if run_lstm:
+        print("\nRunning LSTM training and prediction pipeline...")
+        lstm_config_copy = LSTM_CONFIG.copy()
+        model, trainer, predictions = run_lstm_training_pipeline(lstm_config_copy)
+        
+        # You can add additional code here to use the trained model
+        print("LSTM pipeline completed successfully!")
+
 if __name__ == "__main__":
     # Set up paths
     project_root = Path(__file__).parent
@@ -454,16 +579,17 @@ if __name__ == "__main__":
     # Create output directory if it doesn't exist
     output_path.mkdir(parents=True, exist_ok=True)
     
-    # Run pipeline with preprocessing, split and synthetic diagnostics enabled
+    # Run just the LSTM pipeline
     run_pipeline(
         str(data_path), 
-        str(output_path), 
+        str(output_path),
+        run_lstm=True,
         preprocess_diagnostics=False,
         split_diagnostics=False,
-        synthetic_diagnostics=True,
-        detection_diagnostics=False,
-        imputation_diagnostics=False,
-        validation_diagnostics=False,
-        plot_final_diagnostics=False,
+        synthetic_diagnostics=False,  # Set to False to focus only on LSTM
         split_mode="yearly"
     )
+    
+    # Alternatively, you can directly call the LSTM function
+    # lstm_config_copy = LSTM_CONFIG.copy()
+    # model, trainer, predictions = run_lstm_training_pipeline(lstm_config_copy)

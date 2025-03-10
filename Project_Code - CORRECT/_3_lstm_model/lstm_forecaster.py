@@ -77,7 +77,7 @@ class train_LSTM:
         # Initialize optimizer and loss function
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), 
-            lr=config.get('learning_rate', 0.001)
+            lr=config.get('learning_rate')
         )
         self.criterion = nn.MSELoss()
         
@@ -105,48 +105,48 @@ class train_LSTM:
             print(f"  mean: {features[col].mean():.4f}")
             print(f"  std: {features[col].std():.4f}")
         
-        # Handle NaN values
+        # Handle NaN values - We need to figure out how we handle this
         if features.isna().any().any():
             print("\nWarning: NaN values found in features. Filling with forward fill then backward fill.")
             features = features.ffill().bfill()
-        
-        # Scale each feature independently
+            
+        # Scale each feature independently, might not be needed to scale independently
         if is_training and not self.is_fitted:
             self.scalers = {col: MinMaxScaler(feature_range=(-1, 1)) for col in self.config['feature_cols']}
             for col in self.config['feature_cols']:
                 self.scalers[col].fit(features[[col]])
             self.is_fitted = True
-        
+            
         # Transform each feature
         scaled_features = []
         for col in self.config['feature_cols']:
             scaled_col = self.scalers[col].transform(features[[col]])
             scaled_features.append(scaled_col)
-        
+            
         # Combine scaled features
         scaled_data = np.hstack(scaled_features)
-        
+            
         # Create sequences
         X, y = self._create_sequences(scaled_data)
-        
+            
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)
 
     def _create_sequences(self, data):
         """
-        Create input/output sequences for training, maintaining temporal order.
+        Create input/output sequences f or training, maintaining temporal order.
         """
+        print(f"Data shape: {data.shape}, Data size in MB: {data.nbytes / (1024 * 1024):.2f}")
         X, y = [], []
-        sequence_length = self.config.get('sequence_length', 24)
-        
+        sequence_length = self.config.get('sequence_length')
+
         # Get index of target feature (vst_raw)
         target_idx = self.config['feature_cols'].index('vst_raw')
-        
+
         # Create sequences in temporal order
         for i in range(len(data) - sequence_length):
             # Input sequence includes all features
             sequence = data[i:(i + sequence_length)]
             target = data[i + sequence_length, target_idx]
-            
             # Skip if sequence contains invalid values
             if np.isnan(sequence).any() or np.isinf(sequence).any():
                 continue
@@ -157,7 +157,7 @@ class train_LSTM:
         # Convert to numpy arrays while maintaining order
         X = np.array(X)
         y = np.array(y).reshape(-1, 1)
-        
+
         return X, y
 
     def train_epoch(self, train_loader):
@@ -176,26 +176,26 @@ class train_LSTM:
         batch_targets = []
         
         for batch_X, batch_y in tqdm(train_loader, desc="Training", leave=False):
-            self.optimizer.zero_grad()
-            outputs, _ = self.model(batch_X)
-            loss = self.criterion(outputs, batch_y)
+            self.optimizer.zero_grad() # Zero the gradients
+            outputs, _ = self.model(batch_X) # LSTM forward pass
+            loss = self.criterion(outputs, batch_y) # MSE loss
             
             # Store predictions and targets
-            batch_predictions.extend(outputs.detach().cpu().numpy())
-            batch_targets.extend(batch_y.detach().cpu().numpy())
+            batch_predictions.extend(outputs.detach().cpu().numpy()) # Detach and convert to numpy
+            batch_targets.extend(batch_y.detach().cpu().numpy()) # Detach and convert to numpy
             
-            loss.backward()
-            self.optimizer.step()
-            total_loss += loss.item()
+            loss.backward() # Backward pass
+            self.optimizer.step() # Update weights
+            total_loss += loss.item() # Accumulate loss
         
         # Print statistics about predictions
-        predictions = np.array(batch_predictions)
-        targets = np.array(batch_targets)
+        predictions = np.array(batch_predictions) # Convert to numpy
+        targets = np.array(batch_targets) # Convert to numpy
         print("\nTraining statistics:")
         print(f"Predictions - min: {predictions.min():.4f}, max: {predictions.max():.4f}")
         print(f"Targets - min: {targets.min():.4f}, max: {targets.max():.4f}")
         
-        return total_loss / len(train_loader)
+        return total_loss / len(train_loader) 
 
     def validate(self, val_loader):
         """
@@ -207,14 +207,14 @@ class train_LSTM:
         Returns:
             float: Validation loss
         """
-        self.model.eval()
-        total_loss = 0
+        self.model.eval() # Set model to evaluation mode
+        total_loss = 0 # Initialize total loss  
         
-        with torch.no_grad():
+        with torch.no_grad(): # Disable gradient calculation
             for batch_X, batch_y in tqdm(val_loader, desc="Validating", leave=False):
-                outputs, _ = self.model(batch_X)
-                loss = self.criterion(outputs, batch_y)
-                total_loss += loss.item()
+                outputs, _ = self.model(batch_X) # LSTM forward pass
+                loss = self.criterion(outputs, batch_y) # MSE loss
+                total_loss += loss.item() # Accumulate loss
                 
         return total_loss / len(val_loader)
 
@@ -245,14 +245,14 @@ class train_LSTM:
         print(f"Input Size: {self.model.input_size}")
         print(f"Hidden Size: {self.model.hidden_size}")
         print(f"Number of Layers: {self.model.num_layers}")
-        print(f"Dropout Rate: {self.config.get('dropout', 0.2)}")
+        print(f"Dropout Rate: {self.config.get('dropout')}")
         
         print("\nTraining Parameters:")
-        print(f"Learning Rate: {self.config.get('learning_rate', 0.001)}")
+        print(f"Learning Rate: {self.config.get('learning_rate')}")
         print(f"Batch Size: {batch_size}")
         print(f"Max Epochs: {epochs}")
         print(f"Early Stopping Patience: {patience}")
-        print(f"Sequence Length: {self.config.get('sequence_length', 72)}")
+        print(f"Sequence Length: {self.config.get('sequence_length')}")
         print(f"Features Used: {self.config.get('feature_cols', ['vst_raw'])}")
         print(f"Device: {self.device}")
         print("\nStarting training...\n")
@@ -337,7 +337,95 @@ class train_LSTM:
         predictions_reshaped[:, 0] = predictions.flatten()
         
         return self.scalers['vst_raw'].inverse_transform(predictions_reshaped)[:, 0]
+
+def create_full_plot(test_data, test_predictions, station_id, sequence_length=72):
+    """
+    Create an interactive plot with aligned datetime indices.
+    """
+    # Get the actual test data with its datetime index
+    test_actual = test_data['vst_raw']  # Fixed: access using station_id
     
+    # Print lengths for debugging
+    print(f"Length of test_actual: {len(test_actual)}")
+    print(f"Length of predictions: {len(test_predictions)}")
+    
+    # Calculate the difference in lengths
+    print(f"Sequence length: {sequence_length}")
+    
+    # Trim the actual data to match predictions
+    if len(test_predictions) > len(test_actual):
+        print("Trimming predictions to match actual data length")
+        test_predictions = test_predictions[:len(test_actual)]
+    else:
+        print("Using full predictions")
+    
+    # Create a pandas Series for predictions with the matching datetime index
+    predictions_series = pd.Series(
+        data=test_predictions,
+        index=test_actual.index[:len(test_predictions)],
+        name='Predictions'
+    )
+    
+    # Print final shapes for verification
+    print(f"Final test data shape: {test_actual.shape}")
+    print(f"Final predictions shape: {predictions_series.shape}")
+    
+    # Create figure
+    fig = go.Figure()
+
+    # Add actual data
+    fig.add_trace(
+        go.Scatter(
+            x=test_actual.index,
+            y=test_actual.values,
+            name="Actual",
+            line=dict(color='blue', width=1)
+        )
+    )
+
+    # Add predictions
+    fig.add_trace(
+        go.Scatter(
+            x=predictions_series.index,
+            y=predictions_series.values,
+            name="Predicted",
+            line=dict(color='red', width=1)
+        )
+    )
+
+    # Update layout
+    fig.update_layout(
+        title=f'Water Level - Actual vs Predicted (Station {station_id[0]})',
+        xaxis_title='Time',
+        yaxis_title='Water Level',
+        width=1200,
+        height=600,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        xaxis=dict(
+            rangeslider=dict(visible=True),
+            type="date"  # This will format the x-axis as dates
+        )
+    )
+
+    # Save and open in browser
+    html_path = 'predictions_with_dates.html'
+    fig.write_html(html_path)
+    
+    # Open in browser
+    absolute_path = os.path.abspath(html_path)
+    print(f"Opening plot in browser: {absolute_path}")
+    webbrowser.open('file://' + absolute_path)
+
+
+
+
 ########################################################
 import sys
 project_root = Path(__file__).parent.parent  # Go up one level from current file
@@ -416,18 +504,18 @@ print(f"- 3 years of training data")
 print(f"- 1 year of validation data")
 print(f"(Test data is stored separately in split_datasets['test'])")
 
-# Use the LSTM configuration from config.py
+#Use the LSTM configuration from config.py
 
 print(f"Input feature size: {len(lstm_config.get('feature_cols'))}")
 
 # Initialize model and trainer
 model = LSTMModel(
     input_size=len(lstm_config['feature_cols']),
-    sequence_length=lstm_config.get('sequence_length', 72),
-    hidden_size=lstm_config.get('hidden_size', 64),
+    sequence_length=lstm_config.get('sequence_length'),
+    hidden_size=lstm_config.get('hidden_size'),
     output_size=1,
-    num_layers=lstm_config.get('num_layers', 2),
-    dropout=lstm_config.get('dropout', 0.2)
+    num_layers=lstm_config.get('num_layers'),
+    dropout=lstm_config.get('dropout')
 )
 
 trainer = train_LSTM(model, lstm_config)
@@ -444,103 +532,15 @@ for window_idx, window_data in split_datasets['windows'].items():
     history = trainer.train(
         train_data=train_data,
         val_data=val_data,
-        epochs=lstm_config.get('epochs', 100),
-        batch_size=lstm_config.get('batch_size', 32),
-        patience=lstm_config.get('patience', 15)
+        epochs=lstm_config.get('epochs'),
+        batch_size=lstm_config.get('batch_size'),
+        patience=lstm_config.get('patience')
     )
     # Optionally save the model after each window
     torch.save(model.state_dict(), f'model_window_{window_idx}.pth')
 
-# After training, you can use the model for predictions
+#After training, you can use the model for predictions
 test_predictions = trainer.predict(split_datasets['test'])
-
-def create_full_plot(test_data, test_predictions, station_id):
-    """
-    Create an interactive plot with aligned datetime indices.
-    """
-    # Get the actual test data with its datetime index
-    test_actual = test_data['vst_raw']  # Fixed: access using station_id
-    
-    # Print lengths for debugging
-    print(f"Length of test_actual: {len(test_actual)}")
-    print(f"Length of predictions: {len(test_predictions)}")
-    
-    # Calculate the difference in lengths
-    sequence_length = lstm_config.get('sequence_length', 72)
-    print(f"Sequence length: {sequence_length}")
-    
-    # Trim the actual data to match predictions
-    if len(test_predictions) > len(test_actual):
-        print("Trimming predictions to match actual data length")
-        test_predictions = test_predictions[:len(test_actual)]
-    else:
-        print("Using full predictions")
-    
-    # Create a pandas Series for predictions with the matching datetime index
-    predictions_series = pd.Series(
-        data=test_predictions,
-        index=test_actual.index[:len(test_predictions)],
-        name='Predictions'
-    )
-    
-    # Print final shapes for verification
-    print(f"Final test data shape: {test_actual.shape}")
-    print(f"Final predictions shape: {predictions_series.shape}")
-    
-    # Create figure
-    fig = go.Figure()
-
-    # Add actual data
-    fig.add_trace(
-        go.Scatter(
-            x=test_actual.index,
-            y=test_actual.values,
-            name="Actual",
-            line=dict(color='blue', width=1)
-        )
-    )
-
-    # Add predictions
-    fig.add_trace(
-        go.Scatter(
-            x=predictions_series.index,
-            y=predictions_series.values,
-            name="Predicted",
-            line=dict(color='red', width=1)
-        )
-    )
-
-    # Update layout
-    fig.update_layout(
-        title=f'Water Level - Actual vs Predicted (Station {station_id[0]})',
-        xaxis_title='Time',
-        yaxis_title='Water Level',
-        width=1200,
-        height=600,
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
-        xaxis=dict(
-            rangeslider=dict(visible=True),
-            type="date"  # This will format the x-axis as dates
-        )
-    )
-
-    # Save and open in browser
-    html_path = 'predictions_with_dates.html'
-    fig.write_html(html_path)
-    
-    # Open in browser
-    absolute_path = os.path.abspath(html_path)
-    print(f"Opening plot in browser: {absolute_path}")
-    webbrowser.open('file://' + absolute_path)
-
-import matplotlib.pyplot as plt
 # After making predictions, create and show the plot
 create_full_plot(test_data, test_predictions, station_id)
 
