@@ -122,19 +122,19 @@ LSTM_CONFIG = {
     'output_features': ['vst_raw'],  
 
     # Sequence parameters - reduced for speed
-    'sequence_length': 72,           # Reduced from 144 to 72 (9 hours of data)
-    'output_length': 4,           # Reduced from 8 to 4 for faster training
+    'sequence_length': 72,           
+    'output_length': 4,          
     
     # Model architecture - simplified
-    'hidden_size': 128,            
+    'hidden_size': 64,            
     'num_layers': 2,             
     'dropout': 0.2,         
     
     # Training parameters - optimized
-    'batch_size': 128,            # Reduced from 128 to 64
-    'learning_rate': 0.001,      # Reduced from 0.1 to 0.001 (more stable)
-    'epochs': 100,
-    'patience': 8,              # Reduced from 15 to 10
+    'batch_size': 64,            
+    'learning_rate': 0.001,      
+    'epochs': 10,
+    'patience': 8,              
     
 
 } 
