@@ -121,19 +121,22 @@ PHYSICAL_LIMITS = {
 # LSTM Model Configuration
 LSTM_CONFIG = {
     'model_type': 'forecaster',
-    'feature_cols': ['vst_raw'],
+    'feature_cols': ['vst_raw', 'temperature', 'rainfall'],
     
+    # Output features - specify we only want to predict water level
+    'output_features': ['vst_raw'],  
+
     # Sequence parameters - reduced for speed
-    'input_length': 72,           # Reduced from 144 to 72 (9 hours of data)
-    'output_length': 4,           # Reduced from 8 to 4 for faster training
+    'input_length': 1000,           # Reduced from 144 to 72 (9 hours of data)
+    'output_length': 8,           # Reduced from 8 to 4 for faster training
     
     # Model architecture - simplified
-    'hidden_dim': 32,            # Reduced from 96 to 32
-    'num_layers': 1,             # Reduced from 2 to 1 layer
-    'dropout_rate': 0.2,         # Slightly reduced dropout
+    'hidden_dim': 32,            
+    'num_layers': 3,             
+    'dropout_rate': 0.2,         
     
     # Training parameters - optimized
-    'batch_size': 64,            # Reduced from 128 to 64
+    'batch_size': 1,            # Reduced from 128 to 64
     'learning_rate': 0.001,      # Reduced from 0.1 to 0.001 (more stable)
     'epochs': 5,
     'patience': 10,              # Reduced from 15 to 10
@@ -142,7 +145,7 @@ LSTM_CONFIG = {
     'weather_cols': [],
     
     # Anomaly detection
-    'anomaly_threshold_percentile': 98,
+    'anomaly_threshold_percentile': 100,
     
     # Validation parameters
     'validation_split': 0.2,
