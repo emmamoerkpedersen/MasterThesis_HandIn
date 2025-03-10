@@ -114,20 +114,20 @@ SYNTHETIC_ERROR_PARAMS = {
 # Physical Constraints
 PHYSICAL_LIMITS = {
     'min_value': 0,  # Water level can't be negative
-    'max_value': 3000,  # Maximum reasonable water level
+    'max_value': 4000,  # Maximum reasonable water level
     'max_rate_of_change': 50  # Maximum change per hour
 }
 
 # LSTM Model Configuration
 LSTM_CONFIG = {
     'model_type': 'forecaster',
-    'feature_cols': ['vst_raw', 'temperature', 'rainfall'],
+    'feature_cols': ['vst_raw'],
     
     # Output features - specify we only want to predict water level
     'output_features': ['vst_raw'],  
 
     # Sequence parameters - reduced for speed
-    'input_length': 1000,           # Reduced from 144 to 72 (9 hours of data)
+    'input_length': 100,           # Reduced from 144 to 72 (9 hours of data)
     'output_length': 8,           # Reduced from 8 to 4 for faster training
     
     # Model architecture - simplified
@@ -136,7 +136,7 @@ LSTM_CONFIG = {
     'dropout_rate': 0.2,         
     
     # Training parameters - optimized
-    'batch_size': 1,            # Reduced from 128 to 64
+    'batch_size': 64,            # Reduced from 128 to 64
     'learning_rate': 0.001,      # Reduced from 0.1 to 0.001 (more stable)
     'epochs': 5,
     'patience': 10,              # Reduced from 15 to 10
