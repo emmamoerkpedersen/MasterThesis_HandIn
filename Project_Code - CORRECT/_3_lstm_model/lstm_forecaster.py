@@ -1,55 +1,12 @@
-"""
-LSTM-based Forecasting Model for Anomaly Detection in Time Series Data.
-
-This module implements LSTM-based forecasting models for time series anomaly detection.
-Two primary model architectures are provided:
-
-1. LSTMForecaster: A unidirectional LSTM that predicts future values based only on past data.
-   - Takes a sequence of input_length timesteps
-   - Predicts output_length future timesteps
-   - Purely causal (no future information leakage)
-
-2. BidirectionalForecaster: A more advanced architecture combining:
-   - A bidirectional LSTM encoder to capture patterns from the input sequence
-   - A unidirectional decoder that forecasts future values
-   - Leverages pattern recognition while maintaining proper forecasting
-
-Key Components:
-- ForecasterWrapper: Manages data preprocessing, training, evaluation, and prediction
-- train_forecaster: High-level function to create and train models
-- evaluate_forecaster: Evaluates models on test data for anomaly detection
-
-Anomaly Detection Approach:
-1. Train model on normal (clean) data to learn typical patterns
-2. Apply model to test data (potentially containing anomalies)
-3. Compare model forecasts with actual values
-4. Flag significant deviations as potential anomalies
-5. Calculate performance metrics using known ground truth
-
-Data Handling:
-- Uses sliding windows to create input-output pairs
-- Normalizes data using Min-Max scaling
-- Handles multiple features if available
-- Supports multi-station training
-
-The forecasting approach is particularly effective for water level data, as it:
-1. Preserves temporal causality (predictions only use past data)
-2. Can detect both sudden spikes and gradual drift
-3. Adapts to normal seasonal or daily patterns
-
-TODO:
-   # Add rate-of-change detection after calculating errors
-   # Flag sudden changes that exceed physical limits
-   rate_of_change = np.abs(np.diff(aligned_actual, prepend=aligned_actual[0]))
-   physical_anomalies = (rate_of_change > 50).astype(int)  # 50mm per interval is suspicious
-   anomaly_flags = np.logical_or(anomaly_flags, physical_anomalies).astype(int)
-"""
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import webbrowser
+import os
 
 from sklearn.preprocessing import MinMaxScaler
 from pathlib import Path
@@ -97,6 +54,7 @@ class LSTMModel(nn.Module):
         last_out = out[:, -1, :]  # Shape: (batch_size, hidden_size)
         # Apply dropout
         last_out = self.dropout(last_out)
+
         # Pass through fully connected layer
         prediction = self.fc(last_out)  # Shape: (batch_size, input_size)
 
@@ -124,46 +82,83 @@ class train_LSTM:
         self.criterion = nn.MSELoss()
         
         # Initialize data scaler
-        self.scaler = MinMaxScaler()
+        self.scalers = {}
         self.is_fitted = False
 
     def prepare_data(self, data, is_training=True):
         """
         Prepare data for training or validation.
         """
-        # Get station data (we only have one station)
+        # Get station data
         station_id = list(data.keys())[0]
-        features = pd.concat([data[station_id][col] for col in self.config['feature_cols']], axis=1)
         
-        # Scale the data
+        # Create DataFrame with all features
+        features = pd.concat([data[station_id][col] for col in self.config['feature_cols']], axis=1)
+        features.columns = self.config['feature_cols']
+        
+        # Print raw data statistics
+        print("\nRaw data statistics:")
+        for col in self.config['feature_cols']:
+            print(f"{col}:")
+            print(f"  min: {features[col].min():.4f}")
+            print(f"  max: {features[col].max():.4f}")
+            print(f"  mean: {features[col].mean():.4f}")
+            print(f"  std: {features[col].std():.4f}")
+        
+        # Handle NaN values
+        if features.isna().any().any():
+            print("\nWarning: NaN values found in features. Filling with forward fill then backward fill.")
+            features = features.ffill().bfill()
+        
+        # Scale each feature independently
         if is_training and not self.is_fitted:
-            self.scaler.fit(features)
+            self.scalers = {col: MinMaxScaler(feature_range=(-1, 1)) for col in self.config['feature_cols']}
+            for col in self.config['feature_cols']:
+                self.scalers[col].fit(features[[col]])
             self.is_fitted = True
         
-        scaled_data = self.scaler.transform(features)
+        # Transform each feature
+        scaled_features = []
+        for col in self.config['feature_cols']:
+            scaled_col = self.scalers[col].transform(features[[col]])
+            scaled_features.append(scaled_col)
         
-        # Create sequences and convert to tensors
+        # Combine scaled features
+        scaled_data = np.hstack(scaled_features)
+        
+        # Create sequences
         X, y = self._create_sequences(scaled_data)
+        
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)
 
     def _create_sequences(self, data):
         """
-        Create input/output sequences for training.
-        
-        Args:
-            data: Scaled numpy array of shape [samples, features]
-            
-        Returns:
-        tuple: (X, y) where X is input sequences    and y is target values
+        Create input/output sequences for training, maintaining temporal order.
         """
         X, y = [], []
-        sequence_length = self.config.get('sequence_length', 1000)
+        sequence_length = self.config.get('sequence_length', 24)
         
+        # Get index of target feature (vst_raw)
+        target_idx = self.config['feature_cols'].index('vst_raw')
+        
+        # Create sequences in temporal order
         for i in range(len(data) - sequence_length):
-            X.append(data[i:(i + sequence_length)])
-            y.append(data[i + sequence_length, 0])
+            # Input sequence includes all features
+            sequence = data[i:(i + sequence_length)]
+            target = data[i + sequence_length, target_idx]
             
-        return np.array(X), np.array(y).reshape(-1, 1)
+            # Skip if sequence contains invalid values
+            if np.isnan(sequence).any() or np.isinf(sequence).any():
+                continue
+            
+            X.append(sequence)
+            y.append(target)
+        
+        # Convert to numpy arrays while maintaining order
+        X = np.array(X)
+        y = np.array(y).reshape(-1, 1)
+        
+        return X, y
 
     def train_epoch(self, train_loader):
         """
@@ -177,19 +172,29 @@ class train_LSTM:
         """
         self.model.train()
         total_loss = 0
+        batch_predictions = []
+        batch_targets = []
         
         for batch_X, batch_y in tqdm(train_loader, desc="Training", leave=False):
-            # Forward pass
             self.optimizer.zero_grad()
             outputs, _ = self.model(batch_X)
             loss = self.criterion(outputs, batch_y)
             
-            # Backward pass
+            # Store predictions and targets
+            batch_predictions.extend(outputs.detach().cpu().numpy())
+            batch_targets.extend(batch_y.detach().cpu().numpy())
+            
             loss.backward()
             self.optimizer.step()
-            
             total_loss += loss.item()
-            
+        
+        # Print statistics about predictions
+        predictions = np.array(batch_predictions)
+        targets = np.array(batch_targets)
+        print("\nTraining statistics:")
+        print(f"Predictions - min: {predictions.min():.4f}, max: {predictions.max():.4f}")
+        print(f"Targets - min: {targets.min():.4f}, max: {targets.max():.4f}")
+        
         return total_loss / len(train_loader)
 
     def validate(self, val_loader):
@@ -213,20 +218,28 @@ class train_LSTM:
                 
         return total_loss / len(val_loader)
 
-    def train(self, train_data, val_data, epochs=100, batch_size=1, patience=10):
-        """
-        Train the model with early stopping.
-        
-        Args:
-            train_data: Training data DataFrame
-            val_data: Validation data DataFrame
-            epochs: Maximum number of epochs
-            batch_size: Batch size for training
-            patience: Early stopping patience
+    def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
+        # Verify data before training
+        def verify_data(X, y, name):
+            print(f"\nVerifying {name} data:")
+            print(f"X shape: {X.shape}")
+            print(f"y shape: {y.shape}")
+            print(f"y unique values: {len(torch.unique(y))}")
+            print(f"y range: [{y.min().item():.4f}, {y.max().item():.4f}]")
+            print(f"y mean: {y.mean().item():.4f}")
+            print(f"y std: {y.std().item():.4f}")
             
-        Returns:
-            dict: Training history
-        """
+            if len(torch.unique(y)) < 10:
+                raise ValueError(f"Too few unique values in {name} targets!")
+        
+        # Prepare data
+        X_train, y_train = self.prepare_data(train_data, is_training=True)
+        X_val, y_val = self.prepare_data(val_data, is_training=False)
+        
+        # Verify data
+        verify_data(X_train, y_train, "training")
+        verify_data(X_val, y_val, "validation")
+        
         # Print hyperparameters
         print("\nModel Hyperparameters:")
         print(f"Input Size: {self.model.input_size}")
@@ -239,28 +252,30 @@ class train_LSTM:
         print(f"Batch Size: {batch_size}")
         print(f"Max Epochs: {epochs}")
         print(f"Early Stopping Patience: {patience}")
-        print(f"Sequence Length: {self.config.get('sequence_length', 1000)}")
+        print(f"Sequence Length: {self.config.get('sequence_length', 72)}")
         print(f"Features Used: {self.config.get('feature_cols', ['vst_raw'])}")
         print(f"Device: {self.device}")
         print("\nStarting training...\n")
         
-        # Prepare data
-        X_train, y_train = self.prepare_data(train_data, is_training=True)
-        X_val, y_val = self.prepare_data(val_data, is_training=False)
-        
         # Print data shapes
         print(f"Training Data Shapes - X: {X_train.shape}, y: {y_train.shape}")
         print(f"Validation Data Shapes - X: {X_val.shape}, y: {y_val.shape}\n")
-        
-        # Create data loaders
+
+        # Create data loaders WITHOUT shuffling
         train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
         val_dataset = torch.utils.data.TensorDataset(X_val, y_val)
         
         train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=False
+            train_dataset, 
+            batch_size=batch_size, 
+            shuffle=False,  # Keep temporal order
+            drop_last=False  # Keep all sequences
         )
+        
         val_loader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=batch_size
+            val_dataset, 
+            batch_size=batch_size,
+            shuffle=False
         )
         
         # Initialize early stopping
@@ -308,25 +323,20 @@ class train_LSTM:
     def predict(self, data):
         """
         Make predictions on new data.
-        
-        Args:
-            data: Input data DataFrame
-            
-        Returns:
-            numpy.ndarray: Predictions in original scale
         """
         self.model.eval()
         X, _ = self.prepare_data(data, is_training=False)
         
         with torch.no_grad():
             predictions, _ = self.model(X)
-            
+        
         # Convert predictions back to original scale
         predictions = predictions.cpu().numpy()
-        predictions_reshaped = np.zeros((predictions.shape[0], self.scaler.n_features_in_))
-        predictions_reshaped[:, 0] = predictions.flatten()  # Assuming prediction is first feature
+        # Use the vst_raw scaler to inverse transform predictions
+        predictions_reshaped = np.zeros((predictions.shape[0], 1))
+        predictions_reshaped[:, 0] = predictions.flatten()
         
-        return self.scaler.inverse_transform(predictions_reshaped)[:, 0]
+        return self.scalers['vst_raw'].inverse_transform(predictions_reshaped)[:, 0]
     
 ########################################################
 import sys
@@ -335,7 +345,7 @@ sys.path.append(str(project_root))
 
 import pandas as pd
 from pathlib import Path
-from _1_preprocessing.split import split_data_rolling
+from _1_preprocessing.split import split_data_rolling, split_data_yearly
 
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from config import LSTM_CONFIG, SYNTHETIC_ERROR_PARAMS
@@ -353,7 +363,7 @@ preprocessed_data = {station_id: preprocessed_data[station_id] for station_id in
 
 
 #2
-print("\nSplitting data into rolling windows, 3 years training, 1 year validation, 2 years test...")
+print("\nSplitting data into yearly")
 split_datasets = split_data_rolling(preprocessed_data)
 
 #3
@@ -436,7 +446,7 @@ for window_idx, window_data in split_datasets['windows'].items():
         val_data=val_data,
         epochs=lstm_config.get('epochs', 100),
         batch_size=lstm_config.get('batch_size', 32),
-        patience=lstm_config.get('patience', 10)
+        patience=lstm_config.get('patience', 15)
     )
     # Optionally save the model after each window
     torch.save(model.state_dict(), f'model_window_{window_idx}.pth')
@@ -444,406 +454,93 @@ for window_idx, window_data in split_datasets['windows'].items():
 # After training, you can use the model for predictions
 test_predictions = trainer.predict(split_datasets['test'])
 
-
-
-# import plotly.graph_objects as go
-# from plotly.subplots import make_subplots
-# import plotly.offline as pyo
-# import pandas as pd
-# import numpy as np
-# import plotly.offline as pyo
-# import webbrowser
-# import os
-
-# def create_interactive_combined_plot(all_results, station_id='21006845'):
-#     """
-#     Generate an interactive plot showing original data, predictions, and anomalies across all years.
+def create_full_plot(test_data, test_predictions, station_id):
+    """
+    Create an interactive plot with aligned datetime indices.
+    """
+    # Get the actual test data with its datetime index
+    test_actual = test_data['vst_raw']  # Fixed: access using station_id
     
-#     Args:
-#         all_results: Dictionary containing results from evaluate_forecaster
-#         station_id: Base station ID without year suffix
+    # Print lengths for debugging
+    print(f"Length of test_actual: {len(test_actual)}")
+    print(f"Length of predictions: {len(test_predictions)}")
     
-#     Returns:
-#         Plotly figure object that can be displayed in a browser
-#     """
-#     # Collect all data across years
-#     all_original_timestamps = []
-#     all_original_values = []
-#     all_prediction_timestamps = []
-#     all_prediction_values = []
-#     all_anomaly_timestamps = []
-#     all_anomaly_values = []
-#     all_error_timestamps = []
-#     all_error_values = []
+    # Calculate the difference in lengths
+    sequence_length = lstm_config.get('sequence_length', 72)
+    print(f"Sequence length: {sequence_length}")
     
-#     # Track years found for the title
-#     years_found = []
+    # Trim the actual data to match predictions
+    if len(test_predictions) > len(test_actual):
+        print("Trimming predictions to match actual data length")
+        test_predictions = test_predictions[:len(test_actual)]
+    else:
+        print("Using full predictions")
     
-#     # Process each station-year key
-#     for station_key in sorted(all_results.keys()):
-#         # Check if this key belongs to our station
-#         if not station_key.startswith(f"{station_id}_"):
-#             continue
-            
-#         # Extract year from key
-#         year = station_key.split('_')[1]
-#         years_found.append(year)
-        
-#         # Get results for this station-year
-#         station_results = all_results[station_key]
-        
-#         # Check if we have the necessary data
-#         if ('original_data' not in station_results or 
-#             station_results['original_data'] is None or 
-#             'timestamps' not in station_results or 
-#             'predictions' not in station_results):
-#             print(f"  Missing required data for {station_key}, skipping")
-#             continue
-        
-#         # Determine value column name
-#         if 'Value' in station_results['original_data'].columns:
-#             value_col = 'Value'
-#         elif 'vst_raw' in station_results['original_data'].columns:
-#             value_col = 'vst_raw'
-#         else:
-#             # Try to find a suitable column
-#             numeric_cols = station_results['original_data'].select_dtypes(include=[np.number]).columns
-#             if len(numeric_cols) > 0:
-#                 value_col = numeric_cols[0]
-#             else:
-#                 print(f"  No suitable value column found for {station_key}, skipping")
-#                 continue
-        
-#         # Collect original data
-#         all_original_timestamps.extend(station_results['original_data'].index)
-#         all_original_values.extend(station_results['original_data'][value_col].values)
-        
-#         # Collect prediction data
-#         all_prediction_timestamps.extend(station_results['timestamps'])
-#         all_prediction_values.extend(station_results['predictions'])
-        
-#         # Collect error data
-#         if 'prediction_errors' in station_results and 'timestamps' in station_results:
-#             all_error_timestamps.extend(station_results['timestamps'])
-#             all_error_values.extend(station_results['prediction_errors'])
-        
-#         # Collect anomaly points
-#         if 'anomaly_flags' in station_results and 'timestamps' in station_results:
-#             anomaly_indices = np.where(station_results['anomaly_flags'] == 1)[0]
-#             if len(anomaly_indices) > 0:
-#                 anomaly_timestamps = [station_results['timestamps'][i] for i in anomaly_indices]
-#                 anomaly_values = [station_results['original_values'][i] for i in anomaly_indices]
-#                 all_anomaly_timestamps.extend(anomaly_timestamps)
-#                 all_anomaly_values.extend(anomaly_values)
+    # Create a pandas Series for predictions with the matching datetime index
+    predictions_series = pd.Series(
+        data=test_predictions,
+        index=test_actual.index[:len(test_predictions)],
+        name='Predictions'
+    )
     
-#     # Sort all data by timestamp to ensure proper chronological order
-#     if all_original_timestamps:
-#         # Create DataFrames for sorting
-#         original_df = pd.DataFrame({
-#             'timestamp': all_original_timestamps,
-#             'value': all_original_values
-#         }).sort_values('timestamp')
-        
-#         prediction_df = pd.DataFrame({
-#             'timestamp': all_prediction_timestamps,
-#             'value': all_prediction_values
-#         }).sort_values('timestamp')
-        
-#         error_df = pd.DataFrame({
-#             'timestamp': all_error_timestamps,
-#             'value': all_error_values
-#         }).sort_values('timestamp')
-        
-#         anomaly_df = pd.DataFrame({
-#             'timestamp': all_anomaly_timestamps,
-#             'value': all_anomaly_values
-#         }).sort_values('timestamp')
-        
-#         # Calculate statistics for annotations
-#         total_points = len(original_df)
-#         anomaly_count = len(anomaly_df)
-#         anomaly_percentage = (anomaly_count / total_points) * 100 if total_points > 0 else 0
-#         mean_error = np.mean(error_df['value']) if not error_df.empty else 0
-        
-#         # Calculate average threshold
-#         thresholds = [all_results[k]['threshold'] for k in all_results 
-#                      if k.startswith(f"{station_id}_") and 'threshold' in all_results[k]]
-#         avg_threshold = np.mean(thresholds) if thresholds else None
-        
-#         # Create interactive plot with two subplots
-#         fig = make_subplots(
-#             rows=2, cols=1, 
-#             shared_xaxes=True,
-#             vertical_spacing=0.1,
-#             subplot_titles=("Water Level Data", "Prediction Error"),
-#             row_heights=[0.7, 0.3]
-#         )
-        
-#         # Add original data trace
-#         fig.add_trace(
-#             go.Scatter(
-#                 x=original_df['timestamp'], 
-#                 y=original_df['value'],
-#                 mode='lines',
-#                 name='Original Data',
-#                 line=dict(color='blue', width=1.5),
-#                 hovertemplate='%{x}<br>Value: %{y:.2f}<extra></extra>'
-#             ),
-#             row=1, col=1
-#         )
-        
-#         # Add prediction trace
-#         fig.add_trace(
-#             go.Scatter(
-#                 x=prediction_df['timestamp'], 
-#                 y=prediction_df['value'],
-#                 mode='lines',
-#                 name='Predictions',
-#                 line=dict(color='green', width=1.5),
-#                 hovertemplate='%{x}<br>Prediction: %{y:.2f}<extra></extra>'
-#             ),
-#             row=1, col=1
-#         )
-        
-#         # Add anomalies as scatter points
-#         if not anomaly_df.empty:
-#             fig.add_trace(
-#                 go.Scatter(
-#                     x=anomaly_df['timestamp'], 
-#                     y=anomaly_df['value'],
-#                     mode='markers',
-#                     name='Detected Anomalies',
-#                     marker=dict(color='red', size=4, symbol='circle'),
-#                     hovertemplate='%{x}<br>Anomaly Value: %{y:.2f}<extra></extra>'
-#                 ),
-#                 row=1, col=1
-#             )
-        
-#         # Add error trace
-#         if not error_df.empty:
-#             fig.add_trace(
-#                 go.Scatter(
-#                     x=error_df['timestamp'], 
-#                     y=error_df['value'],
-#                     mode='lines',
-#                     name='Prediction Error',
-#                     line=dict(color='red', width=1),
-#                     hovertemplate='%{x}<br>Error: %{y:.4f}<extra></extra>'
-#                 ),
-#                 row=2, col=1
-#             )
-            
-#             # Add threshold line if available
-#             if avg_threshold is not None:
-#                 fig.add_trace(
-#                     go.Scatter(
-#                         x=[error_df['timestamp'].min(), error_df['timestamp'].max()],
-#                         y=[avg_threshold, avg_threshold],
-#                         mode='lines',
-#                         name=f'Threshold ({avg_threshold:.2f})',
-#                         line=dict(color='black', width=1, dash='dash'),
-#                         hoverinfo='name'
-#                     ),
-#                     row=2, col=1
-#                 )
-        
-#         # Set title and axis labels
-#         year_range = f"{min(years_found)} to {max(years_found)}" if years_found else "All Years"
-#         fig.update_layout(
-#             title=f'Water Level Data and Predictions for Station {station_id} ({year_range})',
-#             height=800,
-#             width=1200,
-#             hovermode='closest',
-#             legend=dict(
-#                 orientation="h",
-#                 yanchor="bottom",
-#                 y=1.02,
-#                 xanchor="right",
-#                 x=1
-#             ),
-#             # Enable full zooming capabilities
-#             dragmode='zoom',  # Default to zoom mode instead of pan
-#             xaxis=dict(
-#                 rangeslider=dict(visible=True),
-#                 type="date"
-#             ),
-#             # Make sure both axes are fully interactive
-#             yaxis=dict(
-#                 fixedrange=False,  # Allow y-axis zooming
-#                 autorange=True
-#             ),
-#             yaxis2=dict(
-#                 fixedrange=False,  # Allow y-axis zooming in the error plot too
-#                 autorange=True
-#             )
-#         )
-        
-#         # Add modebar buttons for additional interactivity
-#         fig.update_layout(
-#             modebar_add=[
-#                 'resetScale',  # Add button to reset axes
-#                 'toggleSpikelines',  # Add button for reference lines
-#                 'zoomIn2d',  # Add zoom in button
-#                 'zoomOut2d'  # Add zoom out button
-#             ]
-#         )
-        
-#         # Add annotation with statistics
-#         stats_text = (f"Total points: {total_points}<br>"
-#                      f"Anomalies detected: {anomaly_count} ({anomaly_percentage:.2f}%)<br>"
-#                      f"Mean error: {mean_error:.4f}")
-        
-#         fig.add_annotation(
-#             xref="paper", yref="paper",
-#             x=0.01, y=0.01,
-#             text=stats_text,
-#             showarrow=False,
-#             font=dict(size=12),
-#             bgcolor="white",
-#             bordercolor="black",
-#             borderwidth=1,
-#             borderpad=4,
-#             align="left"
-#         )
-        
-#         return fig
-#     else:
-#         print(f"No data found for station {station_id}")
-#         return None
-
-# # Create the interactive plot
-# fig = create_interactive_combined_plot(all_results, station_id='21006847')
-
-# if fig:
-#     # Save the HTML file
-#     html_path = 'water_level_plot.html'
-#     fig.write_html(html_path, include_plotlyjs='cdn')
+    # Print final shapes for verification
+    print(f"Final test data shape: {test_actual.shape}")
+    print(f"Final predictions shape: {predictions_series.shape}")
     
-#     # Open the file in a browser
-#     absolute_path = os.path.abspath(html_path)
-#     print(f"Opening plot in browser: {absolute_path}")
-#     webbrowser.open('file://' + absolute_path)
+    # Create figure
+    fig = go.Figure()
 
+    # Add actual data
+    fig.add_trace(
+        go.Scatter(
+            x=test_actual.index,
+            y=test_actual.values,
+            name="Actual",
+            line=dict(color='blue', width=1)
+        )
+    )
 
-# To save the figure:
-# fig.savefig(f'station_21006845_all_years.png', dpi=300, bbox_inches='tight')
+    # Add predictions
+    fig.add_trace(
+        go.Scatter(
+            x=predictions_series.index,
+            y=predictions_series.values,
+            name="Predicted",
+            line=dict(color='red', width=1)
+        )
+    )
 
+    # Update layout
+    fig.update_layout(
+        title=f'Water Level - Actual vs Predicted (Station {station_id[0]})',
+        xaxis_title='Time',
+        yaxis_title='Water Level',
+        width=1200,
+        height=600,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        xaxis=dict(
+            rangeslider=dict(visible=True),
+            type="date"  # This will format the x-axis as dates
+        )
+    )
 
-
-
-
-'''
-1. Architecture: Encoder-Decoder with Bidirectional Pattern Recognition
-The BidirectionalForecaster model uses a sophisticated encoder-decoder architecture:
-Encoder Component
-Bidirectional LSTM: Processes the input sequence in both forward and backward directions
-Pattern Recognition: Captures complex patterns from both past and future context within the input window
-Hidden State Fusion: Combines forward and backward hidden states to create a rich representation
-Decoder Component
-Unidirectional LSTM: Takes the encoder's hidden states and generates future predictions
-Autoregressive Generation: Each predicted value becomes input for the next prediction
-Temporal Causality: Only uses information available up to the prediction point
-
-# During forward pass:
-# 1. Process input with bidirectional encoder
-encoder_out, (h_n, c_n) = self.encoder(x)
-
-# 2. Combine forward/backward states 
-h_n_forward = h_n[0::2]  # Forward direction
-h_n_backward = h_n[1::2]  # Backward direction
-h_n_combined = torch.cat([h_n_forward, h_n_backward], dim=2)
-
-# 3. Generate predictions autoregressively with decoder
-for _ in range(self.output_length):
-    out, (h_state, c_state) = self.decoder(decoder_input, (h_state, c_state))
-    next_pred = self.output_fc(out).view(batch_size, 1, 1)
-    outputs.append(next_pred)
-    decoder_input = next_pred  # Use prediction as next input
-
-2. Sliding Window Forecasting with Ensemble Predictions
-The system uses an advanced multi-window approach to generate robust predictions:
-Sliding Window Creation
-Input Windows: Each window contains input_length (72) historical points
-Forecast Horizons: For each window, the model predicts output_length (8) future points
-Stride Parameter: Windows slide forward by stride (12) points each time
-Multiple Perspectives: This creates overlapping windows that view the same future point from different past contexts
-# Calculate total forecasting windows
-total_windows = (len(df) - input_length - forecast_horizon + 1) // stride
-
-# Process each window
-for i in range(0, len(df) - input_length - forecast_horizon + 1, stride):
-    # Extract input window (past data)
-    input_window = df.iloc[i:i+input_length]
+    # Save and open in browser
+    html_path = 'predictions_with_dates.html'
+    fig.write_html(html_path)
     
-    # Extract target window (future data to predict)
-    target_window = df.iloc[i+input_length:i+input_length+forecast_horizon]
-    
-    # Generate forecasts and store results
-    # ...
+    # Open in browser
+    absolute_path = os.path.abspath(html_path)
+    print(f"Opening plot in browser: {absolute_path}")
+    webbrowser.open('file://' + absolute_path)
 
-3. Ensemble Prediction Mechanism
-This is where the power of the approach becomes evident:
-Multiple Forecasts Per Point: Each future point gets predicted multiple times from different windows
-Ensemble Averaging: All predictions are averaged to produce the final output
-This approach:
-Combines diverse perspectives from multiple windows
-Reduces overfitting by averaging out idiosyncrasies of individual forecasts
-Provides a more stable and accurate prediction
+import matplotlib.pyplot as plt
+# After making predictions, create and show the plot
+create_full_plot(test_data, test_predictions, station_id)
 
-4. Aggregation of Predictions: For each timestamp, predictions from all windows are averaged
-This final step:
-Ensures a single, consistent prediction for each point in time
-Provides a robust and accurate forecast across the entire dataset
-The ensemble effect is critical - it:
-Reduces noise in individual predictions
-Captures different aspects of the pattern from different contexts
-Makes prediction more robust to local irregularities
-Improves overall forecast accuracy
-
-3. Context-Aware Anomaly Detection
-After generating predictions, the system uses a sophisticated context-aware approach to detect anomalies:
-Local Error Analysis
-Error Calculation: forecast_errors = np.abs(aligned_predicted - aligned_actual)
-Local Statistics: Calculate rolling mean and standard deviation of errors
-  error_series = pd.Series(forecast_errors)
-  window_size_local = 48  # 12 hours with 15-min data
-  rolling_mean = error_series.rolling(window=window_size_local, center=True).mean()
-  rolling_std = error_series.rolling(window=window_size_local, center=True).std()
-
-Z-Score Based Flagging
-Local Z-Scores: Calculate how unusual each error is in its local context
-z_scores = (forecast_errors - rolling_mean) / rolling_std
-
-Anomaly Detection Threshold
-  anomaly_flags = (z_scores_local > z_threshold).astype(int)
-
-This approach is particularly powerful because:
-It adapts to different error levels in different parts of the time series
-It accounts for seasonal or time-dependent variability
-It can detect subtle anomalies in low-variance regions
-It's less likely to flag normal variations in high-variance regions
-
-4. The Complete Process Flow
-Training Phase:
-Model is trained on clean data from multiple years
-Learns normal water level patterns for each station
-Uses early stopping to prevent overfitting
-
-Evaluation Phase:
-Apply trained model to new data with potential anomalies
-For each station:
-Create sliding windows with overlap
-Generate predictions from each window
-Combine predictions into ensemble forecast
-Smooth predictions to reduce noise
-Calculate local error statistics
-Flag anomalies using adaptive z-score threshold
-Calculate performance metrics against ground truth
-Provide detailed visualization and analysis
-
-Memory Efficiency:
-Processes data in manageable windows
-Doesn't require loading entire time series into memory
-Scalable to very long time series
-
-'''
