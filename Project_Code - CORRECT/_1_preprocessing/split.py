@@ -1,12 +1,21 @@
+from pathlib import Path
+import sys
+project_root = Path(__file__).parent.parent  # Go up one level from current file
+sys.path.append(str(project_root))
+
 import pandas as pd
 from typing import Dict
 from datetime import timedelta
+from config import LSTM_CONFIG  # Import the config
+
+
 
 def split_data(preprocessed_data: dict, 
                train_ratio: float = 0.6,
                validation_ratio: float = 0.2) -> dict:
     """
     Split preprocessed data into training, validation and test sets chronologically.
+    Uses features specified in LSTM_CONFIG['feature_cols'].
     
     Args:
         preprocessed_data: Dictionary containing station data
@@ -50,6 +59,9 @@ def split_data(preprocessed_data: dict,
     }
     
     test_ratio = 1 - (train_ratio + validation_ratio)
+    feature_cols = LSTM_CONFIG.get('feature_cols', ['vst_raw'])  # Get features from config
+    
+    print(f"Splitting data for features: {feature_cols}")
     
     for station_name, station_data in preprocessed_data.items():
         # Initialize empty dictionaries for this station in each split
@@ -57,17 +69,18 @@ def split_data(preprocessed_data: dict,
         split_data['validation'][station_name] = {}
         split_data['test'][station_name] = {}
         
-        # Get the time range for this station from VST_RAW data
-        if station_data['vst_raw'] is not None:
-            vst_data = station_data['vst_raw']
+        # Check if we have the primary feature (usually vst_raw) for determining time range
+        primary_feature = feature_cols[0]
+        if station_data[primary_feature] is not None:
+            primary_data = station_data[primary_feature]
             
             # Ensure we're working with datetime index
-            if not isinstance(vst_data.index, pd.DatetimeIndex):
-                vst_data.set_index('Date', inplace=True)
+            if not isinstance(primary_data.index, pd.DatetimeIndex):
+                primary_data.set_index('Date', inplace=True)
             
             # Get the date range (ensure timezone-naive)
-            start_date = vst_data.index.min().tz_localize(None)
-            end_date = vst_data.index.max().tz_localize(None)
+            start_date = primary_data.index.min().tz_localize(None)
+            end_date = primary_data.index.max().tz_localize(None)
             date_range = end_date - start_date
             
             # Calculate split dates
@@ -79,9 +92,11 @@ def split_data(preprocessed_data: dict,
             print(f"Validation period: {train_end.strftime('%Y-%m-%d')} to {val_end.strftime('%Y-%m-%d')}")
             print(f"Testing period: {val_end.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
             
-            # Split each data type using the same date ranges
-            for data_type, data in station_data.items():
-                if data is not None and isinstance(data, pd.DataFrame):
+            # Split each required feature using the same date ranges
+            for feature in feature_cols:
+                if feature in station_data and station_data[feature] is not None:
+                    data = station_data[feature]
+                    
                     # Ensure datetime index and convert to timezone-naive
                     if not isinstance(data.index, pd.DatetimeIndex):
                         data.set_index('Date', inplace=True)
@@ -94,61 +109,184 @@ def split_data(preprocessed_data: dict,
                     val_data = data[(data.index > train_end) & (data.index <= val_end)].copy()
                     test_data = data[data.index > val_end].copy()
                     
-                    split_data['train'][station_name][data_type] = train_data
-                    split_data['validation'][station_name][data_type] = val_data
-                    split_data['test'][station_name][data_type] = test_data
+                    split_data['train'][station_name][feature] = train_data
+                    split_data['validation'][station_name][feature] = val_data
+                    split_data['test'][station_name][feature] = test_data
                 else:
-                    # Initialize empty DataFrames for missing data types
-                    split_data['train'][station_name][data_type] = pd.DataFrame()
-                    split_data['validation'][station_name][data_type] = pd.DataFrame()
-                    split_data['test'][station_name][data_type] = pd.DataFrame()
+                    print(f"Warning: Feature '{feature}' not found for station {station_name}")
+                    # Initialize empty DataFrames for missing features
+                    split_data['train'][station_name][feature] = pd.DataFrame()
+                    split_data['validation'][station_name][feature] = pd.DataFrame()
+                    split_data['test'][station_name][feature] = pd.DataFrame()
     
     return split_data
 
 def split_data_yearly(preprocessed_data: dict, window_size: int = 365) -> dict:
     """
     Splits the preprocessed data into yearly windows for unsupervised anomaly detection.
-    Each window is used for both training and evaluation.
-    
-    The model learns normal patterns from the entire window and identifies
-    anomalies as deviations from these patterns.
+    Uses features specified in LSTM_CONFIG['feature_cols'].
     """
     split_result = {'windows': {}}
+    feature_cols = LSTM_CONFIG.get('feature_cols') # Get features from config
+    
+    print(f"Creating yearly windows for features: {feature_cols}")
     
     for station_name, station_data in preprocessed_data.items():
-        if station_data['vst_raw'] is not None and not station_data['vst_raw'].empty:
-            vst_data = station_data['vst_raw']
+        # Check if we have the primary feature for determining time range
+        primary_feature = feature_cols[0]
+        if station_data[primary_feature] is not None and not station_data[primary_feature].empty:
+            primary_data = station_data[primary_feature]
             
             # Ensure datetime index
-            if not isinstance(vst_data.index, pd.DatetimeIndex):
-                vst_data.set_index('Date', inplace=True)
+            if not isinstance(primary_data.index, pd.DatetimeIndex):
+                primary_data.set_index('Date', inplace=True)
             
-            if vst_data.index.tz is not None:
-                vst_data.index = vst_data.index.tz_localize(None)
+            if primary_data.index.tz is not None:
+                primary_data.index = primary_data.index.tz_localize(None)
             
-            start_date = vst_data.index.min()
-            end_date = vst_data.index.max()
+            start_date = primary_data.index.min()
+            end_date = primary_data.index.max()
             current_start = start_date
             
             while current_start + timedelta(days=window_size) <= end_date:
                 window_end = current_start + timedelta(days=window_size)
                 year_key = str(current_start.year)
                 
-                # Get data for this window
-                window_data = vst_data[(vst_data.index >= current_start) & 
-                                     (vst_data.index < window_end)]
+                # Initialize the year and station in the results if needed
+                if year_key not in split_result['windows']:
+                    split_result['windows'][year_key] = {}
+                if station_name not in split_result['windows'][year_key]:
+                    split_result['windows'][year_key][station_name] = {}
                 
-                # Only create window if there's actually data in it
-                if not window_data.empty:
-                    if year_key not in split_result['windows']:
-                        split_result['windows'][year_key] = {}
-                    if station_name not in split_result['windows'][year_key]:
-                        split_result['windows'][year_key][station_name] = {}
-                    
-                    # Store the window data
-                    split_result['windows'][year_key][station_name]['vst_raw'] = window_data
-                    
+                # Process each feature
+                for feature in feature_cols:
+                    if feature in station_data and station_data[feature] is not None:
+                        feature_data = station_data[feature]
+                        
+                        # Ensure datetime index
+                        if not isinstance(feature_data.index, pd.DatetimeIndex):
+                            feature_data.set_index('Date', inplace=True)
+                        
+                        if feature_data.index.tz is not None:
+                            feature_data.index = feature_data.index.tz_localize(None)
+                        
+                        # Get data for this window
+                        window_data = feature_data[
+                            (feature_data.index >= current_start) & 
+                            (feature_data.index < window_end)
+                        ]
+                        
+                        if not window_data.empty:
+                            split_result['windows'][year_key][station_name][feature] = window_data
+                        else:
+                            print(f"Warning: No data for feature '{feature}' in window {year_key} for station {station_name}")
+                            split_result['windows'][year_key][station_name][feature] = pd.DataFrame()
+                    else:
+                        print(f"Warning: Feature '{feature}' not found for station {station_name}")
+                        split_result['windows'][year_key][station_name][feature] = pd.DataFrame()
+                
                 current_start = current_start + timedelta(days=window_size)
+    
+    return split_result
+
+def split_data_rolling(preprocessed_data: dict, 
+                      train_years: int = 3,
+                      val_years: int = 1,
+                      test_years: int = 2) -> dict:
+    """
+    Split data into rolling windows of training and validation sets, with final test set.
+    Uses features specified in LSTM_CONFIG['feature_cols'].
+    
+    Returns:
+        Dictionary with structure:
+        {
+            'windows': {
+                0: {
+                    'train': {...},
+                    'validation': {...}
+                },
+                1: {...},
+                ...
+            },
+            'test': {...}
+        }
+    """
+    split_result = {
+        'windows': {},  # Changed from list to dictionary
+        'test': {}
+    }
+    
+    feature_cols = LSTM_CONFIG.get('feature_cols')
+    
+    for station_name, station_data in preprocessed_data.items():
+        primary_feature = feature_cols[0]
+        if station_data[primary_feature] is not None:
+            primary_data = station_data[primary_feature]
+            
+            # Ensure datetime index
+            if not isinstance(primary_data.index, pd.DatetimeIndex):
+                primary_data.set_index('Date', inplace=True)
+            
+            # Convert to timezone-naive if needed
+            if primary_data.index.tz is not None:
+                primary_data.index = primary_data.index.tz_localize(None)
+            
+            start_date = primary_data.index.min()
+            end_date = primary_data.index.max()
+            
+            # Reserve last test_years for testing
+            test_start = end_date - pd.DateOffset(years=test_years)
+            
+            # Create rolling windows
+            current_start = start_date
+            window_size = pd.DateOffset(years=train_years + val_years)
+            window_idx = 0  # Initialize window counter
+            
+            while current_start + window_size <= test_start:
+                train_end = current_start + pd.DateOffset(years=train_years)
+                val_end = train_end + pd.DateOffset(years=val_years)
+                
+                window_data = {
+                    'train': {station_name: {}},
+                    'validation': {station_name: {}}
+                }
+                
+                # Process each feature for this window
+                for feature in feature_cols:
+                    if feature in station_data and station_data[feature] is not None:
+                        data = station_data[feature]
+                        
+                        # Ensure datetime index
+                        if not isinstance(data.index, pd.DatetimeIndex):
+                            data.set_index('Date', inplace=True)
+                        if data.index.tz is not None:
+                            data.index = data.index.tz_localize(None)
+                        
+                        # Split for current window
+                        train_data = data[(data.index >= current_start) & 
+                                        (data.index < train_end)].copy()
+                        val_data = data[(data.index >= train_end) & 
+                                      (data.index < val_end)].copy()
+                        
+                        window_data['train'][station_name][feature] = train_data
+                        window_data['validation'][station_name][feature] = val_data
+                
+                split_result['windows'][window_idx] = window_data  # Use dictionary assignment
+                window_idx += 1  # Increment window counter
+                current_start = train_end  # Move to next window
+            
+            # Process final test set
+            if station_name not in split_result['test']:
+                split_result['test'][station_name] = {}
+            
+            for feature in feature_cols:
+                if feature in station_data and station_data[feature] is not None:
+                    data = station_data[feature]
+                    if data.index.tz is not None:
+                        data.index = data.index.tz_localize(None)
+                    
+                    test_data = data[data.index >= test_start].copy()
+                    split_result['test'][station_name][feature] = test_data
     
     return split_result
 

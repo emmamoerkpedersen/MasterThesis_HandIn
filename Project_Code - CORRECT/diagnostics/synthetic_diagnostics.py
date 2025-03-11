@@ -25,7 +25,7 @@ def plot_synthetic_errors(original_data: pd.DataFrame,
     
     # Get the overall min and max values for the "Value" column,
     # using dropna() to avoid NaN values.
-    value_col = "Value"
+    value_col = "vst_raw"
     orig_vals = original_data[value_col].dropna()
     mod_vals = modified_data[value_col].dropna()
     
@@ -171,7 +171,7 @@ def create_interactive_plot(original_data: pd.DataFrame,
     
     # Plot original data
     fig.add_trace(
-        go.Scatter(x=original_data.index, y=original_data['Value'],
+        go.Scatter(x=original_data.index, y=original_data['vst_raw'],
                   name='Original Data',
                   line=dict(color=ERROR_COLORS['base'], width=1),
                   opacity=0.7),
@@ -180,7 +180,7 @@ def create_interactive_plot(original_data: pd.DataFrame,
     
     # Plot base modified data
     fig.add_trace(
-        go.Scatter(x=modified_data.index, y=modified_data['Value'],
+        go.Scatter(x=modified_data.index, y=modified_data['vst_raw'],
                   name='Base Data',
                   line=dict(color=ERROR_COLORS['base'], width=1),
                   opacity=0.7),
@@ -207,7 +207,7 @@ def create_interactive_plot(original_data: pd.DataFrame,
         fig.add_trace(
             go.Scatter(
                 x=period_data.index,
-                y=period_data['Value'],
+                y=period_data['vst_raw'],
                 name=error_type.capitalize(),
                 line=dict(color=ERROR_COLORS[error_type], width=2),
                 hovertext=hover_text,
@@ -388,9 +388,9 @@ def plot_synthetic_vs_actual(original_data, modified_data, error_periods, statio
             window_modified = modified_data[mask]
             
             # Plot zoomed data
-            ax_synthetic.plot(window_original.index, window_original['Value'], 
+            ax_synthetic.plot(window_original.index, window_original['vst_raw'], 
                             label='Original', color='blue', alpha=0.6)
-            ax_synthetic.plot(window_modified.index, window_modified['Value'], 
+            ax_synthetic.plot(window_modified.index, window_modified['vst_raw'], 
                             label='With Synthetic Error', color='red', alpha=0.6)
             
             # Highlight synthetic error period
@@ -405,7 +405,7 @@ def plot_synthetic_vs_actual(original_data, modified_data, error_periods, statio
         
         # Plot actual anomaly (full range)
         ax_actual = axes[idx, 1]
-        ax_actual.plot(original_data.index, original_data['Value'], 
+        ax_actual.plot(original_data.index, original_data['vst_raw'], 
                       label='Original Data', color='blue')
         
         # Highlight actual anomaly periods

@@ -34,7 +34,7 @@ def plot_split_visualization(split_data: dict, output_dir: Path):
             all_data = pd.concat([window_data['vst_raw'] for _, window_data in windows_sorted 
                                 if 'vst_raw' in window_data and not window_data['vst_raw'].empty])
             if not all_data.empty:
-                ax.plot(all_data.index, all_data['Value'],
+                ax.plot(all_data.index, all_data['vst_raw'],
                        'b-', label='Data', alpha=0.7, linewidth=0.5)
                 
                 # Add vertical lines for each window boundary
@@ -61,13 +61,13 @@ def plot_split_visualization(split_data: dict, output_dir: Path):
             if 'vst_raw' in split_data['train'][station_name]:
                 fig, ax = plt.subplots(figsize=(15, 8))
                 ax.plot(split_data['train'][station_name]['vst_raw'].index,
-                        split_data['train'][station_name]['vst_raw']['Value'],
+                        split_data['train'][station_name]['vst_raw']['vst_raw'],
                         'b-', label='Training', alpha=0.7, linewidth=0.5)
                 ax.plot(split_data['validation'][station_name]['vst_raw'].index,
-                        split_data['validation'][station_name]['vst_raw']['Value'],
+                        split_data['validation'][station_name]['vst_raw']['vst_raw'],
                         'g-', label='Validation', alpha=0.7, linewidth=0.5)
                 ax.plot(split_data['test'][station_name]['vst_raw'].index,
-                        split_data['test'][station_name]['vst_raw']['Value'],
+                        split_data['test'][station_name]['vst_raw']['vst_raw'],
                         'r-', label='Test', alpha=0.7, linewidth=0.5)
                 val_start = split_data['validation'][station_name]['vst_raw'].index[0]
                 test_start = split_data['test'][station_name]['vst_raw'].index[0]
@@ -127,7 +127,7 @@ def generate_split_report(split_data: dict, output_dir: Path):
                             f.write(f"    - Points: {len(data)}\n")
                             f.write(f"    - Time range: {data.index.min().strftime('%Y-%m-%d')} to {data.index.max().strftime('%Y-%m-%d')}\n")
                             if data_type == 'vst_raw':
-                                f.write(f"    - Value range: {data['Value'].min():.2f} to {data['Value'].max():.2f}\n")
+                                f.write(f"    - Value range: {data['vst_raw'].min():.2f} to {data['vst_raw'].max():.2f}\n")
                     if 'window_start' in station_data and 'window_end' in station_data:
                         f.write(f"  Window: {station_data['window_start']} to {station_data['window_end']}\n")
                     f.write("\n" + "="*50 + "\n")
@@ -144,5 +144,5 @@ def generate_split_report(split_data: dict, output_dir: Path):
                             f.write(f"    - Points: {len(data)}\n")
                             f.write(f"    - Time range: {data.index.min().strftime('%Y-%m-%d')} to {data.index.max().strftime('%Y-%m-%d')}\n")
                             if data_type == 'vst_raw':
-                                f.write(f"    - Value range: {data['Value'].min():.2f} to {data['Value'].max():.2f}\n")
+                                f.write(f"    - Value range: {data['vst_raw'].min():.2f} to {data['vst_raw'].max():.2f}\n")
                 f.write("\n" + "="*50 + "\n") 

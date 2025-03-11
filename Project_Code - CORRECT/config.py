@@ -27,11 +27,6 @@ IMPUTATION_PARAMS = {
     }
 }
 
-# Validation Parameters
-VALIDATION_PARAMS = {
-    'train_years': (1970, 2010),
-    'test_years': (2010, 2020)
-}
 
 # Synthetic Error Generation Parameters
 SYNTHETIC_ERROR_PARAMS = {
@@ -114,47 +109,31 @@ SYNTHETIC_ERROR_PARAMS = {
 # Physical Constraints
 PHYSICAL_LIMITS = {
     'min_value': 0,  # Water level can't be negative
-    'max_value': 3000,  # Maximum reasonable water level
+    'max_value': 4000,  # Maximum reasonable water level
     'max_rate_of_change': 50  # Maximum change per hour
 }
 
 # LSTM Model Configuration
 LSTM_CONFIG = {
     'model_type': 'forecaster',
-    'feature_cols': ['Value'],
+    'feature_cols': ['vst_raw', 'temperature', 'rainfall'],
     
+    # Output features - specify we only want to predict water level
+    'output_features': ['vst_raw'],  
+
     # Sequence parameters - reduced for speed
-    'input_length': 72,           # Reduced from 144 to 72 (9 hours of data)
-    'output_length': 4,           # Reduced from 8 to 4 for faster training
+    'sequence_length': 24,                    
     
     # Model architecture - simplified
-    'hidden_dim': 32,            # Reduced from 96 to 32
-    'num_layers': 1,             # Reduced from 2 to 1 layer
-    'dropout_rate': 0.2,         # Slightly reduced dropout
+    'hidden_size': 64,            
+    'num_layers': 2,             
+    'dropout': 0.2,         
     
     # Training parameters - optimized
-    'batch_size': 64,            # Reduced from 128 to 64
-    'learning_rate': 0.001,      # Reduced from 0.1 to 0.001 (more stable)
-    'epochs': 5,
-    'patience': 10,              # Reduced from 15 to 10
+    'batch_size': 64,            
+    'learning_rate': 0.001,      
+    'epochs': 10,
+    'patience': 8,              
     
-    # Weather data
-    'weather_cols': [],
-    
-    # Anomaly detection
-    'anomaly_threshold_percentile': 98,
-    
-    # Validation parameters
-    'validation_split': 0.2,
-    'min_samples': 100,
-    'max_samples': 10000,
-    
-    # Iterative training settings
-    'iterative_training': {
-        'max_iterations': 5,
-        'confidence_level': 0.95,
-    },
-    
-    'use_bidirectional': True,  # Changed to False for much faster training
-    'stride': 24,                # Increased from 12 to 24 for fewer sequences
+
 } 
