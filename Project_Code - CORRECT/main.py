@@ -71,10 +71,10 @@ def run_pipeline(
         
         if original_data:
             # Convert freezing_periods to list if it's not already
-            #frost_periods = freezing_periods if isinstance(freezing_periods, list) else []
-            #plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), frost_periods)
+            frost_periods = freezing_periods if isinstance(freezing_periods, list) else []
+            plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), frost_periods)
             #generate_preprocessing_report(preprocessed_data, Path(output_path), original_data)
-            #plot_additional_data(preprocessed_data, Path(output_path), original_data)
+            plot_additional_data(preprocessed_data, Path(output_path), original_data)
             plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
         else:
             print(f"Warning: No original data found for station {station_id}")
@@ -241,4 +241,8 @@ if __name__ == "__main__":
     output_path.mkdir(parents=True, exist_ok=True)
     
     # Run pipeline with proper hyperparameter tuning
-    test_predictions, split_datasets = run_pipeline(data_path, output_path, preprocess_diagnostics=False, split_diagnostics=False, synthetic_diagnostics=False, detection_diagnostics=False)
+    test_predictions, split_datasets = run_pipeline(data_path, output_path,
+                                                     preprocess_diagnostics=False,
+                                                     split_diagnostics=False,
+                                                     synthetic_diagnostics=False,
+                                                    detection_diagnostics=False)
