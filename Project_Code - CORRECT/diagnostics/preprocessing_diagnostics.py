@@ -306,19 +306,16 @@ def generate_preprocessing_report(preprocessed_data: dict, output_dir: Path, ori
             f.write("\n" + "="*50 + "\n")
 
 def plot_station_data_overview(original_data: dict, preprocessed_data: dict, output_dir: Path):
-    """Create comprehensive visualization of all data types for each station."""
+    """Create simple visualization of VST, temperature, and rainfall data."""
     set_plot_style()
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
     
-    # Set start date to February 1, 2010
-    start_date = pd.to_datetime('2010-02-01')
-    
     for station_name in preprocessed_data.keys():
         if station_name in original_data and original_data[station_name]['vst_raw'] is not None:
-            # Create figure with GridSpec for better control
+            # Create figure with three subplots
             fig = plt.figure(figsize=(15, 12))
-            gs = GridSpec(3, 1, height_ratios=[2, 1, 1], hspace=0.4)
+            gs = GridSpec(3, 1, height_ratios=[1, 1, 1], hspace=0.4)
             
             # Get data for this station
             orig_data = original_data[station_name]
@@ -326,64 +323,19 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             
             # 1. Water level measurements (VST_RAW)
             ax1 = fig.add_subplot(gs[0])
-            
             if orig_data['vst_raw'] is not None:
                 vst_data = orig_data['vst_raw'].copy()
                 if not isinstance(vst_data.index, pd.DatetimeIndex):
                     vst_data.set_index('Date', inplace=True)
                 
-                # Get the VST column name
+                # Get the VST column name (no date filtering)
                 vst_col = [col for col in vst_data.columns if col != 'Date'][0]
-                
-                # Filter data from 2010
-                vst_data = vst_data[vst_data.index >= start_date]
                 
                 ax1.plot(vst_data.index, vst_data[vst_col],
                         color='#1f77b4', alpha=0.7, linewidth=1, label='VST Raw')
-                
-                # Add statistics text box
-                stats_text = (
-                    f"Statistics:\n"
-                    f"Mean: {vst_data[vst_col].mean():.1f} mm\n"
-                    f"Std: {vst_data[vst_col].std():.1f} mm\n"
-                    f"Range: [{vst_data[vst_col].min():.1f}, {vst_data[vst_col].max():.1f}] mm"
-                )
-                ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes,
-                        verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5',
-                        facecolor='white', alpha=0.9, edgecolor='#cccccc'))
             
-            # 2. Rainfall data
+            # 2. Temperature data
             ax2 = fig.add_subplot(gs[1])
-            if proc_data['rainfall'] is not None:
-                rain_data = proc_data['rainfall'].copy()
-                if not isinstance(rain_data.index, pd.DatetimeIndex):
-                    rain_data.set_index('Date', inplace=True)
-                
-                # Get rainfall column name
-                rain_col = [col for col in rain_data.columns if col != 'Date'][0]
-                
-                # Filter data from 2010
-                rain_data = rain_data[rain_data.index >= start_date]
-                
-                # Calculate daily sum for better visualization
-                daily_rain = rain_data[rain_col].resample('D').sum()
-                
-                ax2.bar(daily_rain.index, daily_rain.values,
-                       color='#1f77b4', alpha=0.7, width=1, label='Daily Rainfall')
-                
-                # Add statistics text box
-                stats_text = (
-                    f"Statistics:\n"
-                    f"Total: {daily_rain.sum():.1f} mm\n"
-                    f"Daily Max: {daily_rain.max():.1f} mm\n"
-                    f"Rainy Days: {(daily_rain > 0).sum()}"
-                )
-                ax2.text(0.02, 0.98, stats_text, transform=ax2.transAxes,
-                        verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5',
-                        facecolor='white', alpha=0.9, edgecolor='#cccccc'))
-            
-            # 3. Temperature data
-            ax3 = fig.add_subplot(gs[2])
             if proc_data['temperature'] is not None:
                 temp_data = proc_data['temperature'].copy()
                 if not isinstance(temp_data.index, pd.DatetimeIndex):
@@ -392,57 +344,39 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 # Get temperature column name
                 temp_col = [col for col in temp_data.columns if col != 'Date'][0]
                 
-                # Filter data from 2010
-                temp_data = temp_data[temp_data.index >= start_date]
-                
-                ax3.plot(temp_data.index, temp_data[temp_col],
+                ax2.plot(temp_data.index, temp_data[temp_col],
                         color='#d62728', alpha=0.7, linewidth=1, label='Temperature')
-                
-                # Add freezing line
-                ax3.axhline(y=0, color='#2ca02c', linestyle='--', alpha=0.8,
-                           label='Freezing Point')
-                
-                # Add statistics text box
-                stats_text = (
-                    f"Statistics:\n"
-                    f"Mean: {temp_data[temp_col].mean():.1f}°C\n"
-                    f"Range: [{temp_data[temp_col].min():.1f}, {temp_data[temp_col].max():.1f}]°C\n"
-                    f"Days Below 0°C: {(temp_data[temp_col] < 0).sum()}"
-                )
-                ax3.text(0.02, 0.98, stats_text, transform=ax3.transAxes,
-                        verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5',
-                        facecolor='white', alpha=0.9, edgecolor='#cccccc'))
             
-            # Set titles and labels with consistent styling
+            # 3. Rainfall data
+            ax3 = fig.add_subplot(gs[2])
+            if proc_data['rainfall'] is not None:
+                rain_data = proc_data['rainfall'].copy()
+                if not isinstance(rain_data.index, pd.DatetimeIndex):
+                    rain_data.set_index('Date', inplace=True)
+                
+                # Get rainfall column name
+                rain_col = [col for col in rain_data.columns if col != 'Date'][0]
+                
+                # Plot rainfall directly without resampling
+                ax3.bar(rain_data.index, rain_data[rain_col],
+                       color='#1f77b4', alpha=0.7, width=0.8, label='Rainfall')
+            
+            # Set titles and labels
             axes = [ax1, ax2, ax3]
-            titles = ['Water Level Measurements', 'Daily Rainfall', 'Temperature']
-            ylabels = ['Water Level (mm)', 'Precipitation (mm)', 'Temperature (°C)']
+            titles = ['Water Level Measurements', 'Temperature', 'Rainfall']
+            ylabels = ['Water Level (mm)', 'Temperature (°C)', 'Precipitation (mm)']
             
-            # Format x-axis to show years properly
+            # Format x-axis and style plots
             for ax in axes:
-                # Set date formatter for x-axis
-                years_fmt = mdates.DateFormatter('%Y')
-                ax.xaxis.set_major_formatter(years_fmt)
-                ax.xaxis.set_major_locator(mdates.YearLocator(1))  # Show every year
-                ax.xaxis.set_minor_locator(mdates.MonthLocator())  # Minor ticks for months
-                
-                # Style the grid
-                ax.grid(True, which='major', alpha=0.3, color='#cccccc')
-                ax.grid(True, which='minor', alpha=0.1, color='#cccccc')
-                
-                # Rotate x-axis labels
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+                ax.xaxis.set_major_locator(mdates.YearLocator(1))
+                ax.grid(True, alpha=0.3)
                 ax.tick_params(axis='x', rotation=45)
             
             for ax, title, ylabel in zip(axes, titles, ylabels):
-                ax.set_title(title, pad=20, fontsize=14, fontweight='bold')
-                ax.set_ylabel(ylabel, labelpad=15)
-                ax.legend(loc='upper right', frameon=True, framealpha=0.9, edgecolor='#cccccc')
-                ax.set_facecolor('#f8f9fa')
-                
-                # Add more padding to y-axis
-                y_min, y_max = ax.get_ylim()
-                y_range = y_max - y_min
-                ax.set_ylim(y_min - 0.05 * y_range, y_max + 0.05 * y_range)
+                ax.set_title(title, pad=20, fontsize=14)
+                ax.set_ylabel(ylabel, labelpad=10)
+                ax.legend(loc='upper right')
             
             # Add main title
             fig.suptitle(f'Station {station_name} - Data Overview',

@@ -229,16 +229,12 @@ def preprocess_data():
             station_data['temperature'] = temperature.resample('15min').ffill() / 4  # Hold mean temperature constant but divide by 4
             print(f"  - Resampled temperature data to 15-minute intervals")
         
-        # Resample rainfall data if it exists
+        # Keep rainfall data in its original form
         if station_data['rainfall'] is not None:
             # Ensure rainfall index is datetime
             if not isinstance(station_data['rainfall'].index, pd.DatetimeIndex):
                 station_data['rainfall'].index = pd.to_datetime(station_data['rainfall'].index)
-            
-            # Resample rainfall to 15-minute intervals
-            rainfall = station_data['rainfall']
-            station_data['rainfall'] = rainfall.resample('15min').ffill()  # Distribute accumulated rainfall
-            print(f"  - Resampled rainfall data to 15-minute intervals")
+            print(f"  - Keeping rainfall data in original hourly intervals")
 
 
     # Save the preprocessed data
