@@ -512,6 +512,13 @@ def run_all_synthetic_diagnostics(
                         output_dir=output_dir
                     )
                     
+                    plot_synthetic_vs_actual(
+                        original_data=stations[station]['vst_raw'],
+                        modified_data=stations_results[station_key]['modified_data'],
+                        error_periods=stations_results[station_key]['error_periods'],
+                        station_name=station_key,
+                        output_dir=output_dir
+                    )
                     # Store results
                     diagnostic_results[station_key] = {
                         'static_plot': static_plot,
