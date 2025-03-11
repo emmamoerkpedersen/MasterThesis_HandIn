@@ -192,7 +192,7 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             f.write(f"{station} & ")
             f.write(f"{row['Total Points']:,.0f} & ")
             f.write(f"{row['Points Removed']:,.0f} & ")
-            f.write(f"{row['Removal %']:.1f} & ")  # Already a float, no need to strip
+            f.write(f"{row['Removal %']:.1f} & ")
             f.write(f"{row['Outliers']:,.0f} & ")
             f.write(f"{row['Freezing']:,.0f} & ")
             f.write(f"{row['Flatlines']:,.0f} \\\\\n")

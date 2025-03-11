@@ -65,7 +65,7 @@ def load_vinge_file(file_path):
         df.set_index('Date', inplace=True)
         df.index.name = 'Date'  # Ensure index is named Date
         
-        # Keep only the water level column and rename it
+        # Keep only the water level column
         df = df[['W.L [cm]']]
         
         # Sort by date
