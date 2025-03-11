@@ -80,7 +80,7 @@ def run_pipeline(
             print(f"Warning: No original data found for station {station_id}")
             # Still generate plots that don't require original data
             plot_additional_data(preprocessed_data, Path(output_path))
-    s
+    
     #########################################################
     #    Step 2: Split data into rolling windows           #
     #########################################################
@@ -241,4 +241,4 @@ if __name__ == "__main__":
     output_path.mkdir(parents=True, exist_ok=True)
     
     # Run pipeline with proper hyperparameter tuning
-    test_predictions, split_datasets = run_pipeline(data_path, output_path, preprocess_diagnostics=True, split_diagnostics=False, synthetic_diagnostics=False, detection_diagnostics=False)
+    test_predictions, split_datasets = run_pipeline(data_path, output_path, preprocess_diagnostics=False, split_diagnostics=False, synthetic_diagnostics=False, detection_diagnostics=False)
