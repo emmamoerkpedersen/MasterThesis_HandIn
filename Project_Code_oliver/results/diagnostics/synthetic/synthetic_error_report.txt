@@ -1,0 +1,158 @@
+Synthetic Error Injection Report
+==============================
+
+
+Station: 21006845_2019
+----------------------
+
+Injected Errors:
+
+  Offset:
+    - Count: 1 instances
+    - Time ranges:
+      * 2020-09-23 17:15 to 2020-09-27 11:00 (duration: 89.8 hours)
+        Parameters: {'magnitude': 270.31296142538895, 'direction': -1, 'duration': 360, 'local_multiplier': 0.9243680014862352}
+
+  Drift:
+    - Count: 1 instances
+    - Time ranges:
+      * 2020-07-06 22:30 to 2020-07-08 14:15 (duration: 39.8 hours)
+        Parameters: {'duration': 160, 'max_drift': 7.830344882633637, 'drift_type': 'linear'}
+
+  Flatline:
+    - Count: 1 instances
+    - Time ranges:
+      * 2020-10-16 05:15 to 2020-10-16 09:15 (duration: 4.0 hours)
+        Parameters: {'duration': 17, 'flatline_value': 1421.67}
+
+  Spike:
+    - Count: 1 instances
+    - Time ranges:
+      * 2020-04-09 07:45 to 2020-04-09 07:45 (duration: 0.0 hours)
+        Parameters: {'magnitude': 1280.4903384017937, 'direction': -1}
+
+==================================================
+
+Station: 21006845_2020
+----------------------
+
+Injected Errors:
+
+  Offset:
+    - Count: 1 instances
+    - Time ranges:
+      * 2021-06-20 21:15 to 2021-06-24 04:00 (duration: 78.8 hours)
+        Parameters: {'magnitude': 596.2408471795187, 'direction': -1, 'duration': 316, 'local_multiplier': 1.379574279577823}
+
+  Drift:
+    - Count: 1 instances
+    - Time ranges:
+      * 2021-08-24 13:00 to 2021-08-25 13:15 (duration: 24.2 hours)
+        Parameters: {'duration': 98, 'max_drift': 28.475615400425795, 'drift_type': 'linear'}
+
+  Flatline:
+    - Count: 1 instances
+    - Time ranges:
+      * 2021-05-23 15:15 to 2021-05-25 01:45 (duration: 34.5 hours)
+        Parameters: {'duration': 139, 'flatline_value': 1475.81}
+
+  Spike:
+    - Count: 1 instances
+    - Time ranges:
+      * 2021-12-22 21:45 to 2021-12-22 21:45 (duration: 0.0 hours)
+        Parameters: {'magnitude': 1600.8727708554989, 'direction': 1}
+
+==================================================
+
+Station: 21006845_2021
+----------------------
+
+Injected Errors:
+
+  Offset:
+    - Count: 1 instances
+    - Time ranges:
+      * 2022-01-28 15:30 to 2022-01-29 21:00 (duration: 29.5 hours)
+        Parameters: {'magnitude': 168.23863669921917, 'direction': -1, 'duration': 119, 'local_multiplier': 0.6770440065704112}
+
+  Drift:
+    - Count: 1 instances
+    - Time ranges:
+      * 2022-08-16 23:45 to 2022-08-17 18:30 (duration: 18.8 hours)
+        Parameters: {'duration': 76, 'max_drift': 8.265024493521498, 'drift_type': 'linear'}
+
+  Flatline:
+    - Count: 1 instances
+    - Time ranges:
+      * 2022-10-26 18:30 to 2022-10-27 07:15 (duration: 12.8 hours)
+        Parameters: {'duration': 52, 'flatline_value': 1451.93}
+
+  Spike:
+    - Count: 1 instances
+    - Time ranges:
+      * 2022-04-02 18:45 to 2022-04-02 18:45 (duration: 0.0 hours)
+        Parameters: {'magnitude': 510.2620362043651, 'direction': -1}
+
+==================================================
+
+Station: 21006845_2022
+----------------------
+
+Injected Errors:
+
+  Offset:
+    - Count: 1 instances
+    - Time ranges:
+      * 2023-08-22 18:15 to 2023-08-24 09:45 (duration: 39.5 hours)
+        Parameters: {'magnitude': 274.36605761103607, 'direction': -1, 'duration': 159, 'local_multiplier': 0.644139189314749}
+
+  Drift:
+    - Count: 1 instances
+    - Time ranges:
+      * 2023-06-08 12:15 to 2023-06-08 17:45 (duration: 5.5 hours)
+        Parameters: {'duration': 23, 'max_drift': 44.828170371869426, 'drift_type': 'exponential'}
+
+  Flatline:
+    - Count: 1 instances
+    - Time ranges:
+      * 2023-10-27 12:30 to 2023-10-28 01:00 (duration: 12.5 hours)
+        Parameters: {'duration': 51, 'flatline_value': 1941.5}
+
+  Spike:
+    - Count: 1 instances
+    - Time ranges:
+      * 2023-08-25 12:00 to 2023-08-25 12:00 (duration: 0.0 hours)
+        Parameters: {'magnitude': 706.0552380468811, 'direction': 1}
+
+==================================================
+
+Station: 21006845_2023
+----------------------
+
+Injected Errors:
+
+  Offset:
+    - Count: 1 instances
+    - Time ranges:
+      * 2024-06-28 19:15 to 2024-06-30 11:00 (duration: 39.8 hours)
+        Parameters: {'magnitude': 399.2649220816942, 'direction': -1, 'duration': 159, 'local_multiplier': 0.8314979810146588}
+
+  Drift:
+    - Count: 1 instances
+    - Time ranges:
+      * 2024-02-11 16:30 to 2024-02-12 15:00 (duration: 22.5 hours)
+        Parameters: {'duration': 91, 'max_drift': 18.929846027573454, 'drift_type': 'linear'}
+
+  Flatline:
+    - Count: 1 instances
+    - Time ranges:
+      * 2024-11-03 14:30 to 2024-11-05 01:00 (duration: 34.5 hours)
+        Parameters: {'duration': 111, 'flatline_value': 1652.0}
+
+  Spike:
+    - Count: 1 instances
+    - Time ranges:
+      * 2024-12-13 16:15 to 2024-12-13 16:15 (duration: 0.0 hours)
+        Parameters: {'magnitude': 443.4622199322504, 'direction': -1}
+
+==================================================
