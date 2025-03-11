@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import plotly.io as pio
 from plotly.offline import plot
+import copy
 
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -153,12 +154,31 @@ def detect_flatlines(vst_data, window=20):
     return filtered_data, n_flatlines
 
 def preprocess_data():
+    """
+    Preprocess the data and save to pickle files.
+    
+    Returns:
+        tuple: (preprocessed_data, original_data, frost_periods)
+    """
+    print("Loading raw station data...")
     All_station_data_original = load_all_station_data()
 
-    # Rename columns before processing
-    All_station_data = rename_columns(All_station_data_original)
+    # Save the original data before any processing
+    # Use absolute path from project root
+    save_path = Path(__file__).parent.parent / "data_utils" / "Sample data"
+    save_path.mkdir(parents=True, exist_ok=True)
     
-    # Process each station's dataA
+    print(f"Saving original data to {save_path}")
+    save_data_Dict(All_station_data_original, filename=save_path / 'original_data.pkl')
+
+    print("Processing data...")
+    # Create a deep copy for processing to keep original data intact
+    All_station_data = copy.deepcopy(All_station_data_original)
+    
+    # Rename columns before processing
+    All_station_data = rename_columns(All_station_data)
+    
+    # Process each station's data
     for station_name, station_data in All_station_data.items():
         # Set start date to January 1, 2010
         start_date = pd.to_datetime('2010-02-01').tz_localize('UTC')
@@ -209,23 +229,18 @@ def preprocess_data():
             station_data['temperature'] = temperature.resample('15min').ffill() / 4  # Hold mean temperature constant but divide by 4
             print(f"  - Resampled temperature data to 15-minute intervals")
         
-        # Resample rainfall data if it exists
+        # Keep rainfall data in its original form
         if station_data['rainfall'] is not None:
             # Ensure rainfall index is datetime
             if not isinstance(station_data['rainfall'].index, pd.DatetimeIndex):
                 station_data['rainfall'].index = pd.to_datetime(station_data['rainfall'].index)
-            
-            # Resample rainfall to 15-minute intervals
-            rainfall = station_data['rainfall']
-            station_data['rainfall'] = rainfall.resample('15min').ffill()  # Distribute accumulated rainfall
-            print(f"  - Resampled rainfall data to 15-minute intervals")
+            print(f"  - Keeping rainfall data in original hourly intervals")
 
 
     # Save the preprocessed data
-    save_data_Dict(All_station_data, filename='preprocessed_data.pkl')
-    save_data_Dict(All_station_data_original, filename='original_data.pkl')
-    save_data_Dict(frost_periods, filename='frost_periods.pkl')
-    
+    print("Saving processed data to pickle files...")
+    save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
+    save_data_Dict(frost_periods, filename=save_path / 'frost_periods.pkl')
     
     return All_station_data, All_station_data_original, frost_periods
 

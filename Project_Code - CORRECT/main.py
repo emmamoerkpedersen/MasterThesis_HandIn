@@ -10,7 +10,7 @@ import torch
 from pathlib import Path
 import sys
 
-from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, generate_preprocessing_report, plot_additional_data, create_interactive_temperature_plot
+from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, plot_additional_data, generate_preprocessing_report, plot_station_data_overview
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
@@ -48,30 +48,39 @@ def run_pipeline(
     #########################################################
     #    Step 1: Load and preprocess all station data       #
     #########################################################
-    station_id =['21006846']
-
+    station_id = '21006846'
     print(f"Loading and preprocessing station data for station {station_id}...")
    
-    
-    # # Load original data first (if preprocessing diagnostics enabled)
-    # if preprocess_diagnostics:
-    #     original_data = pd.read_pickle('data_utils/Sample data/original_data.pkl')
-    
     # Load Preprocessed data
     preprocessed_data = pd.read_pickle('data_utils/Sample data/preprocessed_data.pkl')
     freezing_periods = pd.read_pickle('data_utils/Sample data/frost_periods.pkl')
     
     # Generate dictionary keeping same structure but with the specified station_id
-    preprocessed_data = {station_id: preprocessed_data[station_id] for station_id in station_id}
+    preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
     
-    # # Generate preprocessing diagnostics if enabled
-    # if preprocess_diagnostics and original_data:
-    #     print("Generating preprocessing diagnostics...")
-    #     plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), freezing_periods)
-    #     generate_preprocessing_report(preprocessed_data, Path(output_path), original_data)
-    #     plot_additional_data(preprocessed_data, Path(output_path))
-    #     create_interactive_temperature_plot(preprocessed_data, Path(output_path))
+    # Skip preprocessing diagnostics if no data found for the station
+    if not preprocessed_data:
+        print(f"Warning: No data found for station {station_id} in preprocessed data")
+        preprocess_diagnostics = False
     
+    # Generate preprocessing diagnostics if enabled
+    if preprocess_diagnostics:
+        print("Generating preprocessing diagnostics...")
+        original_data = pd.read_pickle('data_utils/Sample data/original_data.pkl')
+        original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
+        
+        if original_data:
+            # Convert freezing_periods to list if it's not already
+            #frost_periods = freezing_periods if isinstance(freezing_periods, list) else []
+            #plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), frost_periods)
+            #generate_preprocessing_report(preprocessed_data, Path(output_path), original_data)
+            #plot_additional_data(preprocessed_data, Path(output_path), original_data)
+            plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
+        else:
+            print(f"Warning: No original data found for station {station_id}")
+            # Still generate plots that don't require original data
+            plot_additional_data(preprocessed_data, Path(output_path))
+    s
     #########################################################
     #    Step 2: Split data into rolling windows           #
     #########################################################
@@ -150,6 +159,8 @@ def run_pipeline(
     #         output_dir=Path(output_path)
     #     )
     
+    
+
     #########################################################
     # Step 4: LSTM-based Anomaly Detection                  #
     #########################################################
@@ -210,7 +221,7 @@ def run_pipeline(
     
     # Create and show plot
     create_full_plot(
-        test_data=split_datasets['test'][station_id[0]], 
+        test_data=test_data, 
         test_predictions=test_predictions, 
         station_id=station_id,
         sequence_length=lstm_config.get('sequence_length', 72)
@@ -230,4 +241,4 @@ if __name__ == "__main__":
     output_path.mkdir(parents=True, exist_ok=True)
     
     # Run pipeline with proper hyperparameter tuning
-    test_predictions, split_datasets = run_pipeline(data_path, output_path)
+    test_predictions, split_datasets = run_pipeline(data_path, output_path, preprocess_diagnostics=True, split_diagnostics=False, synthetic_diagnostics=False, detection_diagnostics=False)

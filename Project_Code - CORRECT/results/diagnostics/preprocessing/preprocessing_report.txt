@@ -1,0 +1,32 @@
+Preprocessing Diagnostics Report
+==============================
+
+
+Station: 21006846
+-----------------
+
+VST_RAW Data:
+  - Measurements: 402337
+  - Time range: 2010-04-15 10:45:00 to 2025-01-07 10:15:00
+  - Value range: 0.00 to 1605.78
+
+IQR Statistics:
+  - Q1: 478.27
+  - Q3: 789.24
+  - IQR: 310.97
+  - Lower bound: 11.81
+  - Upper bound: 2033.12
+
+Points removed by bounds:
+  - Below lower bound: 1
+  - Above upper bound: 0
+  - Total points removed: 1
+
+VINGE Measurements:
+  - Number of measurements: 230
+  - Average measurements per year: 15.3
+  - Years covered: 2010 to 2024
+
+Rainfall Data:
+  - Measurements: 522989
+  - Time period: 2010-02-01 to 2024-12-31
