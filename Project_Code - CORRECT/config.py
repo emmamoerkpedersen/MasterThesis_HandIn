@@ -118,12 +118,16 @@ LSTM_CONFIG = {
     'model_type': 'seq2seq_forecaster',
     'feature_cols': ['temperature', 'rainfall'],
     'output_features': ['vst_raw'],
-    'hidden_size': 256,        # Increased from 128 for better pattern capture
-    'num_layers': 3,           # Increased from 2 for deeper pattern recognition
-    'dropout': 0.2,           # Reduced from 0.3 for better peak learning
-    'batch_size': 1,          # Keep as is for sequence prediction
-    'learning_rate': 0.0005,   # Reduced from 0.001 for more stable learning
-    'epochs': 3,             # Increased from 4 for better convergence
-    'patience': 8,            # Increased from 5 for better exploration
-    'min_delta': 0.0001
+    'hidden_size': 512,        # Keep as is for model capacity
+    'num_layers': 3,           # Keep as is for model capacity
+    'dropout': 0.2,           # Increased dropout for better regularization
+    'batch_size': 1,          # Keep as is
+    'learning_rate': 0.0002,   # Slightly reduced for more stable learning
+    'epochs': 25,             # Keep as is
+    'patience': 10,           # Keep as is
+    'min_delta': 0.00005,     # Keep as is
+    'max_chunk_size': 2500,   # Keep as is
+    'smoothness_weight': 0.4,  # Added: increased weight for smoothness penalty
+    'attention_heads': 8,      # Added: number of attention heads
+    'attention_dropout': 0.15  # Added: attention-specific dropout
 } 

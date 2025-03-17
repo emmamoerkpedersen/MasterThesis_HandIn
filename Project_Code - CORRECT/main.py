@@ -8,52 +8,8 @@ Sequence length should be the entire training dataset, entire validation and tes
 Batch size should be 1 since we use the entire period for sequences
 The output should instad of predicting the next value in the sequence, should be the entire sequence. So isntead of predicting simulate?
 
-
-Improvement Phases for LSTM Model:
-
-Phase 2 - Enhanced Feature Engineering:
-1. Additional Lag Features
-   - 2-week lag (1344 timesteps): vst_raw_lag_1344
-   - 4-week lag (2688 timesteps): vst_raw_lag_2688
-   - Captures longer-term patterns and seasonal effects
-
-2. Extended Rolling Statistics
-   - Standard deviation: vst_raw_rolling_std_96
-   - Minimum: vst_raw_rolling_min_96
-   - Maximum: vst_raw_rolling_max_96
-   - Better capture of local variability and extremes
-
-3. Rate of Change Features
-   - 24-hour change: vst_raw_rate_of_change_24
-   - 96-hour change: vst_raw_rate_of_change_96
-   - Improve prediction of rapid changes and peaks
-
-Phase 3 - Loss Function Modification:
-1. Weighted MSE Loss
-   - Higher weights for higher water levels
-   - Exponential weighting based on target values
-   - Focus model training on peak prediction
-   - Implementation through custom loss class
-
-Phase 4 - Scaling and Normalization:
-1. Target Scaling Adjustment
-   - Increase padding for upper range (70% vs current 50%)
-   - Allow more room for peak predictions
-   - Maintain lower bound padding at 50%
-
-2. Dynamic Smoothing
-   - Adapt smoothing factor based on rate of change
-   - Less smoothing during rapid changes (alpha = 0.8)
-   - More smoothing during stable periods (alpha = 0.5)
-   - Use local standard deviation as threshold
-
-Current Results (Phase 1):
-- Good tracking of general patterns
-- Prediction range: [390.36, 1230.53]
-- Actual range: [156.32, 1605.78]
-- Main gap: Underestimation of extreme peaks
+Remove bidirectional?
 """
-
 import pandas as pd
 import torch
 from pathlib import Path
@@ -399,23 +355,6 @@ if __name__ == "__main__":
     print("\nAvailable data files:")
     for file in data_dir.glob("*"):
         print(f"  {file.name}")
-    
-    # Load and check the preprocessed data
-    try:
-        preprocessed_data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
-        station_id = '21006846'
-        
-        if station_id in preprocessed_data:
-            station_data = preprocessed_data[station_id]
-            print(f"\nStation {station_id} data:")
-            print(f"  Available features: {list(station_data.keys())}")
-            for feature, data in station_data.items():
-                if isinstance(data, pd.Series):
-                    print(f"  {feature}: {len(data)} samples, {data.isna().sum()} NaN values")
-        else:
-            print(f"\nStation {station_id} not found in preprocessed data")
-    except Exception as e:
-        print(f"\nError loading preprocessed data: {e}")
     
     # Run pipeline with simplified configuration handling
     try:
