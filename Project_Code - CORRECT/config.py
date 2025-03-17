@@ -123,7 +123,7 @@ LSTM_CONFIG = {
     'dropout': 0.2,           # Reduced from 0.3 for better peak learning
     'batch_size': 1,          # Keep as is for sequence prediction
     'learning_rate': 0.0005,   # Reduced from 0.001 for more stable learning
-    'epochs': 50,             # Increased from 4 for better convergence
+    'epochs': 3,             # Increased from 4 for better convergence
     'patience': 8,            # Increased from 5 for better exploration
     'min_delta': 0.0001
 } 
