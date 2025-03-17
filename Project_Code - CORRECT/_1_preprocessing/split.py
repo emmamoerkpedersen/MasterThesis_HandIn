@@ -195,7 +195,7 @@ def split_data_rolling(preprocessed_data: dict,
                       test_years: int = 2) -> dict:
     """
     Split data into rolling windows of training and validation sets, with final test set.
-    Uses features specified in LSTM_CONFIG['feature_cols'].
+    Uses features specified in LSTM_CONFIG['feature_cols'] and includes the target feature.
     
     Returns:
         Dictionary with structure:
@@ -216,77 +216,103 @@ def split_data_rolling(preprocessed_data: dict,
         'test': {}
     }
     
+    # Get feature columns from config
     feature_cols = LSTM_CONFIG.get('feature_cols')
     
+    # Get target feature (default to vst_raw if not specified)
+    target_feature = LSTM_CONFIG.get('output_features', ['vst_raw'])[0]
+    
+    # Make sure target feature is included in processing
+    all_features = list(feature_cols)
+    if target_feature not in all_features:
+        all_features.append(target_feature)
+        print(f"Added target feature '{target_feature}' to features list for splitting")
+    
     for station_name, station_data in preprocessed_data.items():
-        primary_feature = feature_cols[0]
-        if station_data[primary_feature] is not None:
-            primary_data = station_data[primary_feature]
+        # Check if target feature exists
+        if target_feature not in station_data or station_data[target_feature] is None:
+            print(f"Warning: Target feature '{target_feature}' missing for station {station_name}")
+            print(f"Available features: {list(station_data.keys())}")
+            continue
             
-            # Ensure datetime index
-            if not isinstance(primary_data.index, pd.DatetimeIndex):
-                primary_data.set_index('Date', inplace=True)
+        primary_feature = target_feature  # Use target feature as primary
+        primary_data = station_data[primary_feature]
+        
+        # Ensure datetime index
+        if not isinstance(primary_data.index, pd.DatetimeIndex):
+            primary_data.set_index('Date', inplace=True)
+        
+        # Convert to timezone-naive if needed
+        if primary_data.index.tz is not None:
+            primary_data.index = primary_data.index.tz_localize(None)
+        
+        start_date = primary_data.index.min()
+        end_date = primary_data.index.max()
+        
+        # Reserve last test_years for testing
+        test_start = end_date - pd.DateOffset(years=test_years)
+        
+        # Create rolling windows
+        current_start = start_date
+        window_size = pd.DateOffset(years=train_years + val_years)
+        window_idx = 0  # Initialize window counter
+        
+        while current_start + window_size <= test_start:
+            train_end = current_start + pd.DateOffset(years=train_years)
+            val_end = train_end + pd.DateOffset(years=val_years)
             
-            # Convert to timezone-naive if needed
-            if primary_data.index.tz is not None:
-                primary_data.index = primary_data.index.tz_localize(None)
+            window_data = {
+                'train': {station_name: {}},
+                'validation': {station_name: {}}
+            }
             
-            start_date = primary_data.index.min()
-            end_date = primary_data.index.max()
-            
-            # Reserve last test_years for testing
-            test_start = end_date - pd.DateOffset(years=test_years)
-            
-            # Create rolling windows
-            current_start = start_date
-            window_size = pd.DateOffset(years=train_years + val_years)
-            window_idx = 0  # Initialize window counter
-            
-            while current_start + window_size <= test_start:
-                train_end = current_start + pd.DateOffset(years=train_years)
-                val_end = train_end + pd.DateOffset(years=val_years)
-                
-                window_data = {
-                    'train': {station_name: {}},
-                    'validation': {station_name: {}}
-                }
-                
-                # Process each feature for this window
-                for feature in feature_cols:
-                    if feature in station_data and station_data[feature] is not None:
-                        data = station_data[feature]
-                        
-                        # Ensure datetime index
-                        if not isinstance(data.index, pd.DatetimeIndex):
-                            data.set_index('Date', inplace=True)
-                        if data.index.tz is not None:
-                            data.index = data.index.tz_localize(None)
-                        
-                        # Split for current window
-                        train_data = data[(data.index >= current_start) & 
-                                        (data.index < train_end)].copy()
-                        val_data = data[(data.index >= train_end) & 
-                                      (data.index < val_end)].copy()
-                        
-                        window_data['train'][station_name][feature] = train_data
-                        window_data['validation'][station_name][feature] = val_data
-                
-                split_result['windows'][window_idx] = window_data  # Use dictionary assignment
-                window_idx += 1  # Increment window counter
-                current_start = train_end  # Move to next window
-            
-            # Process final test set
-            if station_name not in split_result['test']:
-                split_result['test'][station_name] = {}
-            
-            for feature in feature_cols:
+            # Process each feature for this window
+            for feature in all_features:
                 if feature in station_data and station_data[feature] is not None:
                     data = station_data[feature]
+                    
+                    # Ensure datetime index
+                    if not isinstance(data.index, pd.DatetimeIndex):
+                        data.set_index('Date', inplace=True)
                     if data.index.tz is not None:
                         data.index = data.index.tz_localize(None)
                     
-                    test_data = data[data.index >= test_start].copy()
-                    split_result['test'][station_name][feature] = test_data
+                    # Split for current window
+                    train_data = data[(data.index >= current_start) & 
+                                    (data.index < train_end)].copy()
+                    val_data = data[(data.index >= train_end) & 
+                                  (data.index < val_end)].copy()
+                    
+                    window_data['train'][station_name][feature] = train_data
+                    window_data['validation'][station_name][feature] = val_data
+            
+            split_result['windows'][window_idx] = window_data  # Use dictionary assignment
+            window_idx += 1  # Increment window counter
+            current_start = train_end  # Move to next window
+        
+        # Process final test set
+        if station_name not in split_result['test']:
+            split_result['test'][station_name] = {}
+        
+        for feature in all_features:
+            if feature in station_data and station_data[feature] is not None:
+                data = station_data[feature]
+                if data.index.tz is not None:
+                    data.index = data.index.tz_localize(None)
+                
+                test_data = data[data.index >= test_start].copy()
+                split_result['test'][station_name][feature] = test_data
+    
+    # Verify that target feature is included in all splits
+    for window_idx, window_data in split_result['windows'].items():
+        for split_type in ['train', 'validation']:
+            for station_name in window_data[split_type]:
+                if target_feature not in window_data[split_type][station_name]:
+                    print(f"Warning: Target feature '{target_feature}' missing in window {window_idx}, {split_type} split for station {station_name}")
+    
+    for station_name in split_result['test']:
+        if target_feature not in split_result['test'][station_name]:
+            print(f"Warning: Target feature '{target_feature}' missing in test split for station {station_name}")
     
     return split_result
 

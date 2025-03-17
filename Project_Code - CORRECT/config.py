@@ -113,27 +113,17 @@ PHYSICAL_LIMITS = {
     'max_rate_of_change': 50  # Maximum change per hour
 }
 
-# LSTM Model Configuration
+# LSTM Configuration with improved hyperparameters
 LSTM_CONFIG = {
-    'model_type': 'forecaster',
-    'feature_cols': ['vst_raw', 'temperature', 'rainfall'],
-    
-    # Output features - specify we only want to predict water level
-    'output_features': ['vst_raw'],  
-
-    # Sequence parameters - reduced for speed
-    'sequence_length': 24,                    
-    
-    # Model architecture - simplified
-    'hidden_size': 64,            
-    'num_layers': 2,             
-    'dropout': 0.2,         
-    
-    # Training parameters - optimized
-    'batch_size': 64,            
-    'learning_rate': 0.001,      
-    'epochs': 10,
-    'patience': 8,              
-    
-
+    'model_type': 'seq2seq_forecaster',
+    'feature_cols': ['temperature', 'rainfall'],
+    'output_features': ['vst_raw'],
+    'hidden_size': 256,        # Increased from 128 for better pattern capture
+    'num_layers': 3,           # Increased from 2 for deeper pattern recognition
+    'dropout': 0.2,           # Reduced from 0.3 for better peak learning
+    'batch_size': 1,          # Keep as is for sequence prediction
+    'learning_rate': 0.0005,   # Reduced from 0.001 for more stable learning
+    'epochs': 50,             # Increased from 4 for better convergence
+    'patience': 8,            # Increased from 5 for better exploration
+    'min_delta': 0.0001
 } 

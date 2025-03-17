@@ -16,8 +16,7 @@ from sklearn.preprocessing import MinMaxScaler
 from matplotlib.cm import viridis
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
-
-from diagnostics.lstm_diagnostics import plot_reconstruction_results
+from scipy import stats
 
 def convert_to_serializable(obj):
     """Convert objects to JSON serializable format."""
@@ -63,22 +62,79 @@ def plot_best_model_results(
     plots_dir = output_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
     
-    # Call plot_reconstruction_results but override its output directory
-    # to prevent it from creating additional nested directories
-    plot_reconstruction_results(
-        original_data=original_data,
-        modified_data=modified_data,
-        reconstruction_errors=results['reconstruction_errors'],
-        anomaly_flags=results['anomaly_flags'],
-        timestamps=results['timestamps'],
-        threshold=results['threshold'],
-        station_name=f"{station_name}_best_trial_{trial_number}",
-        output_dir=plots_dir,  # Use the plots_dir directly
-        reconstructed_values=results.get('reconstructions'),
-        create_subdirs=False,  # Add this parameter to lstm_diagnostics.py
-        figsize=(14, 10),
-        dpi=300
+    # Implement our own plotting logic instead of calling plot_reconstruction_results
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    
+    # Plot original vs modified data
+    axes[0].plot(original_data['timestamp'], original_data['vst_raw'], 
+                 label='Original', color='blue', alpha=0.7)
+    axes[0].plot(modified_data['timestamp'], modified_data['vst_raw'], 
+                 label='Modified', color='red', alpha=0.7)
+    axes[0].set_title(f'Original vs Modified Data - Station {station_name} - Trial {trial_number}')
+    axes[0].set_ylabel('Value')
+    axes[0].legend()
+    axes[0].grid(True)
+    
+    # Plot prediction if available
+    if 'vst_pred' in modified_data.columns:
+        axes[1].plot(modified_data['timestamp'], modified_data['vst_raw'], 
+                     label='Actual', color='blue', alpha=0.7)
+        axes[1].plot(modified_data['timestamp'], modified_data['vst_pred'], 
+                     label='Predicted', color='green', alpha=0.7)
+        axes[1].set_title(f'Actual vs Predicted - Trial {trial_number}')
+        axes[1].set_ylabel('Value')
+        axes[1].set_xlabel('Timestamp')
+        axes[1].legend()
+        axes[1].grid(True)
+    
+    # Format x-axis
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    
+    # Save the figure
+    plt.savefig(plots_dir / f'best_model_results_trial_{trial_number}.png')
+    plt.close()
+    
+    # Create an interactive plot with Plotly
+    fig = make_subplots(rows=2, cols=1, 
+                         shared_xaxes=True,
+                         subplot_titles=(f'Original vs Modified Data - Station {station_name}',
+                                         'Actual vs Predicted'))
+    
+    # Add traces for original vs modified
+    fig.add_trace(
+        go.Scatter(x=original_data['timestamp'], y=original_data['vst_raw'],
+                   mode='lines', name='Original', line=dict(color='blue')),
+        row=1, col=1
     )
+    fig.add_trace(
+        go.Scatter(x=modified_data['timestamp'], y=modified_data['vst_raw'],
+                   mode='lines', name='Modified', line=dict(color='red')),
+        row=1, col=1
+    )
+    
+    # Add traces for actual vs predicted
+    if 'vst_pred' in modified_data.columns:
+        fig.add_trace(
+            go.Scatter(x=modified_data['timestamp'], y=modified_data['vst_raw'],
+                       mode='lines', name='Actual', line=dict(color='blue')),
+            row=2, col=1
+        )
+        fig.add_trace(
+            go.Scatter(x=modified_data['timestamp'], y=modified_data['vst_pred'],
+                       mode='lines', name='Predicted', line=dict(color='green')),
+            row=2, col=1
+        )
+    
+    # Update layout
+    fig.update_layout(
+        height=800,
+        title_text=f"Model Results - Trial {trial_number}",
+        showlegend=True
+    )
+    
+    # Save as interactive HTML
+    fig.write_html(plots_dir / f'best_model_results_trial_{trial_number}.html')
 
 def generate_hyperparameter_report(
     results: List[Dict],
@@ -93,38 +149,103 @@ def generate_hyperparameter_report(
         report_dir.mkdir(parents=True, exist_ok=True)
     
         print("\nGenerating hyperparameter tuning visualizations...")
+        print(f"Number of trials in results: {len(results)}")
+        print(f"Output directory: {output_dir}")
         
         # Generate all available visualizations if we have enough data
-        if len(results) >= 5:
+        if len(results) >= 3:
             print("Generating pairwise interaction plots...")
-            plot_hyperparameter_pairwise_interactions(results, output_dir)
+            try:
+                plot_hyperparameter_pairwise_interactions(results, output_dir)
+                print("✓ Pairwise interaction plots generated")
+            except Exception as e:
+                print(f"✗ Error generating pairwise interaction plots: {e}")
             
             print("Generating hyperparameter importance analysis...")
-            analyze_hyperparameter_importance(results, output_dir)
+            try:
+                analyze_hyperparameter_importance(results, output_dir)
+                print("✓ Hyperparameter importance analysis generated")
+            except Exception as e:
+                print(f"✗ Error generating hyperparameter importance analysis: {e}")
             
             print("Generating parameter sensitivity plots...")
-            plot_parameter_sensitivity(results, output_dir)
+            try:
+                plot_parameter_sensitivity(results, output_dir)
+                print("✓ Parameter sensitivity plots generated")
+            except Exception as e:
+                print(f"✗ Error generating parameter sensitivity plots: {e}")
             
             print("Generating training dynamics plots...")
-            plot_training_dynamics(results, output_dir)
+            try:
+                plot_training_dynamics(results, output_dir)
+                print("✓ Training dynamics plots generated")
+            except Exception as e:
+                print(f"✗ Error generating training dynamics plots: {e}")
             
             print("Generating training time analysis...")
-            plot_training_time_analysis(results, output_dir)
+            try:
+                plot_training_time_analysis(results, output_dir)
+                print("✓ Training time analysis generated")
+            except Exception as e:
+                print(f"✗ Error generating training time analysis: {e}")
             
             print("Generating parameter evolution plots...")
-            plot_parameter_evolution(results, output_dir)
+            try:
+                plot_parameter_evolution(results, output_dir)
+                print("✓ Parameter evolution plots generated")
+            except Exception as e:
+                print(f"✗ Error generating parameter evolution plots: {e}")
             
             print("Generating parallel coordinates plot...")
-            plot_parallel_coordinates_clustered(results, output_dir)
-        else:
-            print(f"Not enough trials ({len(results)}) for detailed visualizations. Need at least 5 trials.")
-        
-        if len(results) >= 4:
+            try:
+                plot_parallel_coordinates_clustered(results, output_dir)
+                print("✓ Parallel coordinates plot generated")
+            except Exception as e:
+                print(f"✗ Error generating parallel coordinates plot: {e}")
+                
             print("Generating 3D surface plots...")
-            create_3d_surface_plots(results, output_dir)
+            try:
+                create_3d_surface_plots(results, output_dir)
+                print("✓ 3D surface plots generated")
+            except Exception as e:
+                print(f"✗ Error generating 3D surface plots: {e}")
             
             print("Generating learning curve clusters...")
-            plot_learning_curve_clusters(results, output_dir)
+            try:
+                plot_learning_curve_clusters(results, output_dir)
+                print("✓ Learning curve clusters generated")
+            except Exception as e:
+                print(f"✗ Error generating learning curve clusters: {e}")
+                
+            print("Generating learning rate landscape...")
+            try:
+                plot_learning_rate_landscape(results, output_dir)
+                print("✓ Learning rate landscape generated")
+            except Exception as e:
+                print(f"✗ Error generating learning rate landscape: {e}")
+                
+            print("Generating network architecture performance...")
+            try:
+                plot_network_architecture_performance(results, output_dir)
+                print("✓ Network architecture performance generated")
+            except Exception as e:
+                print(f"✗ Error generating network architecture performance: {e}")
+                
+            print("Generating top N distributions...")
+            try:
+                plot_top_n_distributions(results, output_dir)
+                print("✓ Top N distributions generated")
+            except Exception as e:
+                print(f"✗ Error generating top N distributions: {e}")
+                
+            print("Generating architecture impact plot...")
+            try:
+                generate_architecture_impact_plot(results, output_dir)
+                print("✓ Architecture impact plot generated")
+            except Exception as e:
+                print(f"✗ Error generating architecture impact plot: {e}")
+        else:
+            print(f"Not enough trials ({len(results)}) for detailed visualizations. Need at least 3 trials.")
         
         # Generate HTML report
         report_path = report_dir / "hyperparameter_report.html"
@@ -156,7 +277,13 @@ def generate_hyperparameter_report(
             f.write("<table><tr><th>Metric</th><th>Value</th></tr>")
             
             # Calculate statistics
-            scores = [r['score'] for r in results if 'score' in r]
+            scores = []
+            for r in results:
+                if 'score' in r:
+                    scores.append(r['score'])
+                elif 'value' in r:
+                    scores.append(r['value'])
+                    
             if scores:
                 f.write(f"<tr><td>Number of Trials</td><td>{len(scores)}</td></tr>")
                 f.write(f"<tr><td>Best Score</td><td>{min(scores):.6f}</td></tr>")
@@ -168,21 +295,19 @@ def generate_hyperparameter_report(
             # Add links to generated plots
             f.write("<div class='section'><h2>Generated Visualizations</h2>")
             f.write("<ul>")
-            plot_types = [
-                "pairwise_interactions",
-                "hyperparameter_importance",
-                "parameter_sensitivity",
-                "training_dynamics",
-                "training_time",
-                "parameter_evolution",
-                "parallel_coordinates",
-                "3d_surface",
-                "learning_curves"
-            ]
-            for plot_type in plot_types:
-                plot_path = output_dir / "plots" / f"{plot_type}.png"
-                if plot_path.exists():
-                    f.write(f"<li><a href='../plots/{plot_type}.png'>{plot_type.replace('_', ' ').title()}</a></li>")
+            
+            # Check for generated plots in the output directory
+            plot_files = list(output_dir.glob("*.png"))
+            plot_files.extend(list((output_dir / "plots").glob("*.png")) if (output_dir / "plots").exists() else [])
+            
+            if plot_files:
+                for plot_file in plot_files:
+                    plot_name = plot_file.name
+                    relative_path = plot_file.relative_to(output_dir) if output_dir in plot_file.parents else plot_file.name
+                    f.write(f"<li><a href='../{relative_path}'>{plot_name.replace('_', ' ').replace('.png', '').title()}</a></li>")
+            else:
+                f.write("<li>No visualization files found</li>")
+                
             f.write("</ul></div>")
             
             f.write("</body></html>")
@@ -273,21 +398,17 @@ def plot_hyperparameter_pairwise_interactions(results, output_dir):
     except Exception as e:
         print(f"Error creating pairwise plot: {e}")
 
-def analyze_hyperparameter_importance(results, output_dir):
+def analyze_hyperparameter_importance(results: List[Dict], output_dir: Path):
     """Analyze the importance of different hyperparameters using random forest regression."""
     # Prepare data
-    X = []
-    y = []
-    param_names = []
+    data = []
     
     # Map for display names - updated to focus on core parameters
     display_names = {
         'sequence_length': 'Sequence Length',
-        'lstm_units_0': 'LSTM Layer 1 Units',
-        'lstm_units_1': 'LSTM Layer 2 Units',
-        'lstm_units_2': 'LSTM Layer 3 Units',
-        'lstm_units_3': 'LSTM Layer 4 Units',
-        'dropout_rate': 'Dropout Rate',
+        'hidden_size': 'Hidden Size',
+        'num_layers': 'Number of Layers',
+        'dropout': 'Dropout Rate',
         'learning_rate': 'Learning Rate',
         'batch_size': 'Batch Size',
         'epochs': 'Training Epochs'
@@ -295,59 +416,196 @@ def analyze_hyperparameter_importance(results, output_dir):
     
     # Extract features and target
     for result in results:
-        if 'config' not in result or 'score' not in result:
+        if 'params' not in result or 'value' not in result:
             continue
             
-        config = result['config']
-        score = result['score']
+        params = result['params']
+        value = result['value']
         
         # Extract numerical hyperparameters
         features = {}
         
         # Handle scalar parameters
-        for param in ['sequence_length', 'dropout_rate', 'learning_rate', 
-                     'batch_size', 'epochs']:
-            if param in config:
-                    features[param] = config[param]
+        for param in ['sequence_length', 'hidden_size', 'num_layers', 'dropout', 
+                     'learning_rate', 'batch_size', 'epochs']:
+            if param in params:
+                try:
+                    features[param] = float(params[param])
+                except (ValueError, TypeError):
+                    # Skip non-numeric values
+                    continue
+        
+        # Only add if we have features
+        if features:
+            features['score'] = value
+            data.append(features)
     
-    # Convert features to a DataFrame
-    X = pd.DataFrame([features])
-    y = [score]
+    # Check if we have enough data
+    if not data or len(data) < 5:
+        print("Not enough data for hyperparameter importance analysis")
+        return
     
-    # Train a Random Forest Regressor
-    from sklearn.ensemble import RandomForestRegressor
-    from sklearn.preprocessing import StandardScaler
+    # Convert to DataFrame
+    df = pd.DataFrame(data)
     
-    # Standardize features
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    # Separate features and target
+    X = df.drop('score', axis=1)
+    y = df['score']
     
-    # Train model
-    rf = RandomForestRegressor(n_estimators=100, random_state=42)
-    rf.fit(X_scaled, y)
+    # Check if we have enough features
+    if X.shape[1] < 2:
+        print(f"Not enough features for importance analysis: {X.shape[1]} features")
+        return
     
-    # Get feature importances
-    importances = rf.feature_importances_
-    
-    # Sort feature importances in descending order
-    sorted_idx = importances.argsort()[::-1]
-    
-    # Create a DataFrame for visualization
-    feature_importances = pd.DataFrame(
-        {'Feature': X.columns[sorted_idx], 'Importance': importances[sorted_idx]}
-    )
-    
-    # Plot feature importances
-    plt.figure(figsize=(12, 6))
-    plt.barh(feature_importances['Feature'], feature_importances['Importance'])
-    plt.xlabel('Importance')
-    plt.title('Feature Importances')
-    plt.tight_layout()
-    plt.savefig(output_dir / 'hyperparameter_importance_rf.png', dpi=300)
-    plt.close()
-    
-    # Return feature importances
-    return dict(zip(X.columns[sorted_idx], importances[sorted_idx]))
+    try:
+        # Train a Random Forest Regressor
+        from sklearn.ensemble import RandomForestRegressor
+        from sklearn.preprocessing import StandardScaler
+        from scipy import stats
+        
+        # Standardize features
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Train model
+        rf = RandomForestRegressor(n_estimators=100, random_state=42)
+        rf.fit(X_scaled, y)
+        
+        # Get feature importances
+        importances = rf.feature_importances_
+        
+        # Sort feature importances in descending order
+        sorted_idx = importances.argsort()[::-1]
+        
+        # Create a DataFrame for visualization
+        feature_importances = pd.DataFrame(
+            {'Feature': X.columns[sorted_idx], 'Importance': importances[sorted_idx]}
+        )
+        
+        # Add statistical significance analysis
+        print("\nStatistical Significance Analysis:")
+        print("-" * 50)
+        
+        # Calculate mean and std of scores for each parameter value
+        significance_results = {}
+        for param in X.columns:
+            unique_values = sorted(X[param].unique())
+            if len(unique_values) >= 2:  # Need at least 2 values to compare
+                # Group scores by parameter value
+                value_groups = [y[X[param] == val] for val in unique_values]
+                
+                # Perform one-way ANOVA
+                f_stat, p_value = stats.f_oneway(*value_groups)
+                
+                # Calculate effect size (Eta-squared)
+                groups_mean = [group.mean() for group in value_groups]
+                groups_var = [group.var() for group in value_groups]
+                eta_squared = (np.var(groups_mean) * len(value_groups)) / (np.var(groups_mean) * len(value_groups) + np.mean(groups_var))
+                
+                significance_results[param] = {
+                    'p_value': p_value,
+                    'f_statistic': f_stat,
+                    'effect_size': eta_squared,
+                    'mean_range': max(groups_mean) - min(groups_mean)
+                }
+                
+                print(f"\nParameter: {param}")
+                print(f"  F-statistic: {f_stat:.4f}")
+                print(f"  p-value: {p_value:.4f}")
+                print(f"  Effect size (η²): {eta_squared:.4f}")
+                print(f"  Range of means: {significance_results[param]['mean_range']:.4f}")
+                
+                # Post-hoc analysis if significant
+                if p_value < 0.05:
+                    # Perform Tukey's HSD test
+                    from statsmodels.stats.multicomp import pairwise_tukeyhsd
+                    tukey = pairwise_tukeyhsd(y, X[param])
+                    print("\n  Tukey's HSD test results:")
+                    print(tukey)
+        
+        # Create significance analysis plot
+        plt.figure(figsize=(12, 6))
+        significance_df = pd.DataFrame(significance_results).T
+        
+        # Plot p-values and effect sizes
+        ax1 = plt.gca()
+        ax2 = ax1.twinx()
+        
+        # Plot bars for effect size
+        bars = ax1.bar(np.arange(len(significance_results)), 
+                      [d['effect_size'] for d in significance_results.values()],
+                      alpha=0.3, color='blue', label='Effect Size (η²)')
+        
+        # Plot line for p-values
+        line = ax2.plot(np.arange(len(significance_results)), 
+                       [d['p_value'] for d in significance_results.values()],
+                       'r-o', label='p-value')
+        
+        # Add significance threshold line
+        ax2.axhline(y=0.05, color='r', linestyle='--', alpha=0.5, label='Significance Threshold (p=0.05)')
+        
+        # Customize plot
+        ax1.set_xticks(np.arange(len(significance_results)))
+        ax1.set_xticklabels(significance_results.keys(), rotation=45)
+        ax1.set_ylabel('Effect Size (η²)', color='blue')
+        ax2.set_ylabel('p-value', color='red')
+        
+        # Add legend
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+        
+        plt.title('Statistical Significance Analysis of Hyperparameters')
+        plt.tight_layout()
+        plt.savefig(output_dir / 'hyperparameter_significance.png', dpi=300)
+        plt.close()
+        
+        # Map feature names to display names
+        feature_importances['Display'] = feature_importances['Feature'].map(
+            lambda x: display_names.get(x, x)
+        )
+        
+        # Plot feature importances
+        plt.figure(figsize=(12, 6))
+        plt.barh(feature_importances['Display'], feature_importances['Importance'], color='skyblue')
+        plt.xlabel('Importance')
+        plt.ylabel('')
+        plt.title('Hyperparameter Importance Analysis')
+        plt.grid(axis='x', linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig(output_dir / 'hyperparameter_importance.png', dpi=300)
+        plt.close()
+        
+        # Create interactive Plotly version
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            y=feature_importances['Display'],
+            x=feature_importances['Importance'],
+            orientation='h',
+            marker=dict(color='royalblue')
+        ))
+        
+        fig.update_layout(
+            title='Hyperparameter Importance Analysis',
+            xaxis_title='Importance',
+            yaxis_title='',
+            height=500,
+            margin=dict(l=20, r=20, t=40, b=20),
+            paper_bgcolor='white',
+            plot_bgcolor='white'
+        )
+        
+        fig.write_html(output_dir / 'hyperparameter_importance.html')
+        
+        # Save feature importances to CSV
+        feature_importances.to_csv(output_dir / 'hyperparameter_importance.csv', index=False)
+        
+        print(f"Hyperparameter importance analysis completed")
+        
+    except Exception as e:
+        print(f"Error in hyperparameter importance analysis: {e}")
+        import traceback
+        traceback.print_exc()
 
 def create_3d_surface_plots(results, output_dir):
     """Create 3D surface plots for the most important parameter pairs."""
@@ -357,10 +615,15 @@ def create_3d_surface_plots(results, output_dir):
     # Extract data from results
     data = []
     for result in results:
-        if 'config' in result and 'score' in result and not np.isinf(result['score']):
+        if ('config' in result and 'score' in result and not np.isinf(result['score'])):
             row = {k: v for k, v in result['config'].items() 
                   if not isinstance(v, list)}  # Skip list parameters
             row['score'] = result['score']
+            data.append(row)
+        elif ('params' in result and 'value' in result and not np.isinf(result['value'])):
+            row = {k: v for k, v in result['params'].items() 
+                  if not isinstance(v, list)}  # Skip list parameters
+            row['score'] = result['value']
             data.append(row)
     
     # Check if we have enough data
@@ -382,7 +645,21 @@ def create_3d_surface_plots(results, output_dir):
     df = pd.DataFrame(data)
     
     # Find parameters with most variance
-    param_vars = {col: df[col].var() for col in df.columns if col != 'score'}
+    numeric_cols = [col for col in df.columns if col != 'score' and pd.api.types.is_numeric_dtype(df[col])]
+    if len(numeric_cols) < 2:
+        print("Not enough numeric parameters for 3D surface plot")
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, 
+                "Not enough numeric parameters for 3D surface plot.\n"
+                "Need at least 2 numeric parameters.",
+                ha='center', va='center', fontsize=14)
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(output_dir / "3d_surface_insufficient.png", dpi=300)
+        plt.close()
+        return
+    
+    param_vars = {col: df[col].var() for col in numeric_cols}
     top_params = sorted(param_vars.items(), key=lambda x: x[1], reverse=True)[:2]
     param1, param2 = top_params[0][0], top_params[1][0]
     
@@ -396,83 +673,107 @@ def create_3d_surface_plots(results, output_dir):
     z = df['score'].values
     
     # Create a grid to interpolate on
-    xi = np.linspace(min(x), max(x), 100)
-    yi = np.linspace(min(y), max(y), 100)
+    xi = np.linspace(min(x), max(x), min(50, len(x)))  # Limit grid size
+    yi = np.linspace(min(y), max(y), min(50, len(y)))  # Limit grid size
     xi, yi = np.meshgrid(xi, yi)
     
-    # Interpolate
-    zi = griddata((x, y), z, (xi, yi), method='cubic')
-    
-    # Create 3D plot with enhanced styling
-    fig = plt.figure(figsize=(14, 12))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # Plot the surface with enhanced appearance
-    surf = ax.plot_surface(xi, yi, zi, cmap='viridis', edgecolor='none', alpha=0.8, 
-                          linewidth=0, antialiased=True)
-    
-    # Plot the actual data points with better visibility
-    sc = ax.scatter(x, y, z, c=z, cmap='plasma', s=70, alpha=1.0, edgecolor='black')
-    
-    # Add contour plot at the bottom for additional perspective
-    offset = min(z) - (max(z) - min(z)) * 0.1  # Offset below the minimum z
-    cset = ax.contourf(xi, yi, zi, zdir='z', offset=offset, cmap='viridis', alpha=0.5)
-    
-    # Add labels and title with improved styling
-    ax.set_xlabel(param1_display, fontsize=14, fontweight='bold', labelpad=10)
-    ax.set_ylabel(param2_display, fontsize=14, fontweight='bold', labelpad=10)
-    ax.set_zlabel('Score', fontsize=14, fontweight='bold', labelpad=10)
-    
-    # Format tick labels
-    ax.tick_params(axis='both', which='major', labelsize=12)
-    
-    # Set z-axis limits to include the contour plot
-    ax.set_zlim(offset, max(z) * 1.1)
-    
-    # Add informative title
-    plt.title(f'Parameter Surface: Impact of {param1_display} and {param2_display} on Performance', 
-              fontsize=16, pad=20)
-    
-    # Add colorbar with label
-    cbar = fig.colorbar(surf, ax=ax, shrink=0.6, aspect=10, pad=0.1)
-    cbar.set_label('Score Value', fontsize=12, fontweight='bold')
-    
-    # Add a text box with key insights
-    min_point = np.unravel_index(np.argmin(zi) if np.min(z) == np.min(zi) else np.argmin(z), z.shape if np.min(z) == np.min(zi) else (len(z),))
-    best_x = xi.flatten()[min_point] if np.min(z) == np.min(zi) else x[np.argmin(z)]
-    best_y = yi.flatten()[min_point] if np.min(z) == np.min(zi) else y[np.argmin(z)]
-    
-    ax.text2D(0.02, 0.01, f"Best combination:\n{param1_display}: {best_x:.2f}\n{param2_display}: {best_y:.2f}\nScore: {np.min(z):.6f}", 
-             transform=ax.transAxes, fontsize=12, verticalalignment='top',
-             bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8))
-    
-    # Set the view angle for better visualization
-    ax.view_init(elev=30, azim=45)
-    
-    plt.tight_layout()
-    plt.savefig(output_dir / f'3d_surface_{param1}_{param2}.png', dpi=300)
-    plt.close()
-    
-    # Create a second view from a different angle
-    fig = plt.figure(figsize=(14, 12))
-    ax = fig.add_subplot(111, projection='3d')
-    surf = ax.plot_surface(xi, yi, zi, cmap='viridis', edgecolor='none', alpha=0.8, linewidth=0)
-    ax.scatter(x, y, z, c=z, cmap='plasma', s=70, alpha=1.0, edgecolor='black')
-    
-    # Set labels and title
-    ax.set_xlabel(param1_display, fontsize=14, fontweight='bold', labelpad=10)
-    ax.set_ylabel(param2_display, fontsize=14, fontweight='bold', labelpad=10)
-    ax.set_zlabel('Score', fontsize=14, fontweight='bold', labelpad=10)
-    
-    # Set a different viewing angle
-    ax.view_init(elev=10, azim=120)
-    
-    plt.title(f'Alternate View: {param1_display} and {param2_display} Impact', fontsize=16, pad=20)
-    fig.colorbar(surf, ax=ax, shrink=0.6, aspect=10, pad=0.1)
-    
-    plt.tight_layout()
-    plt.savefig(output_dir / f'3d_surface_{param1}_{param2}_alt_view.png', dpi=300)
-    plt.close()
+    try:
+        # Interpolate
+        zi = griddata((x, y), z, (xi, yi), method='cubic')
+        
+        # Create 3D plot with enhanced styling
+        fig = plt.figure(figsize=(14, 12))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot the surface with enhanced appearance
+        surf = ax.plot_surface(xi, yi, zi, cmap='viridis', edgecolor='none', alpha=0.8, 
+                              linewidth=0, antialiased=True)
+        
+        # Plot the actual data points with better visibility
+        sc = ax.scatter(x, y, z, c=z, cmap='plasma', s=70, alpha=1.0, edgecolor='black')
+        
+        # Find the minimum point safely
+        try:
+            # Find minimum in the interpolated surface
+            min_idx = np.nanargmin(zi)
+            min_point_i, min_point_j = np.unravel_index(min_idx, zi.shape)
+            min_x, min_y = xi[min_point_i, min_point_j], yi[min_point_i, min_point_j]
+            min_z = zi[min_point_i, min_point_j]
+            
+            # Highlight the minimum point
+            ax.scatter([min_x], [min_y], [min_z], color='red', s=200, edgecolor='black', 
+                      marker='*', label='Minimum')
+            
+            # Add text annotation for minimum
+            ax.text(min_x, min_y, min_z, 
+                   f"Min: ({min_x:.2f}, {min_y:.2f})\nScore: {min_z:.4f}",
+                   color='red', fontsize=12)
+        except Exception as e:
+            print(f"Could not highlight minimum point: {e}")
+        
+        # Enhance the plot with better labels and styling
+        ax.set_xlabel(param1_display, fontsize=14, labelpad=10)
+        ax.set_ylabel(param2_display, fontsize=14, labelpad=10)
+        ax.set_zlabel('Score', fontsize=14, labelpad=10)
+        ax.set_title(f'Parameter Surface: {param1_display} vs {param2_display}', fontsize=16, pad=20)
+        
+        # Add a color bar
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.7, aspect=20, pad=0.1)
+        cbar.set_label('Score', fontsize=12)
+        
+        # Rotate the plot for better visibility
+        ax.view_init(elev=30, azim=45)
+        
+        # Save the figure
+        plt.tight_layout()
+        plt.savefig(output_dir / f"3d_surface_{param1}_{param2}.png", dpi=300)
+        
+        # Create an alternative view
+        ax.view_init(elev=20, azim=135)
+        plt.savefig(output_dir / f"3d_surface_{param1}_{param2}_alt_view.png", dpi=300)
+        plt.close()
+        
+        # Create a 2D contour plot as well for better interpretability
+        plt.figure(figsize=(12, 10))
+        
+        # Create contour plot
+        contour = plt.contourf(xi, yi, zi, 15, cmap='viridis', alpha=0.7)
+        plt.colorbar(contour, label='Score')
+        
+        # Add data points
+        plt.scatter(x, y, c=z, cmap='plasma', s=100, edgecolor='black')
+        
+        # Add minimum point
+        try:
+            plt.scatter([min_x], [min_y], color='red', s=200, edgecolor='black', 
+                       marker='*', label='Minimum')
+            plt.annotate(f"Min: ({min_x:.2f}, {min_y:.2f})\nScore: {min_z:.4f}",
+                        xy=(min_x, min_y), xytext=(30, 30),
+                        textcoords='offset points', color='red',
+                        arrowprops=dict(arrowstyle='->', color='red'))
+        except:
+            pass
+        
+        plt.xlabel(param1_display, fontsize=14)
+        plt.ylabel(param2_display, fontsize=14)
+        plt.title(f'Contour Plot: {param1_display} vs {param2_display}', fontsize=16)
+        plt.grid(True, linestyle='--', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(output_dir / f"contour_{param1}_{param2}.png", dpi=300)
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error creating 3D surface plot: {e}")
+        # Create a simple error image
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, 
+                f"Error creating 3D surface plot:\n{str(e)}",
+                ha='center', va='center', fontsize=14, color='red')
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(output_dir / "3d_surface_error.png", dpi=300)
+        plt.close()
 
 def plot_convergence_analysis(results, output_dir):
     """Analyze and visualize convergence rates of different hyperparameter configurations."""
@@ -493,7 +794,11 @@ def plot_convergence_analysis(results, output_dir):
         key_values = {p: config.get(p, 'NA') for p in key_params if p in config}
         
         # Create a more concise key
-        key = ", ".join([f"{p.replace('_', ' ').title()}={v}" for p, v in key_values.items()])
+        key = ", ".join([
+            f"{p.replace('_', ' ').title()}={v:.1e}" if p == 'learning_rate' 
+            else f"{p.replace('_', ' ').title()}={v}" 
+            for p, v in key_values.items()
+        ])
         
         # Store convergence data with score for sorting
         convergence_data[key] = {
@@ -938,30 +1243,47 @@ def generate_architecture_impact_plot(trials_data, output_dir):
     plot_dir = output_dir / "plots"
     plot_dir.mkdir(parents=True, exist_ok=True)
     
+    # Check if we have enough data
+    if len(trials_data) < 5:
+        print("Not enough data for architecture impact analysis")
+        return
+    
     # Extract architectural features from trials
     features = {
-        'use_attention': [],
-        'use_residual': [],
-        'use_layer_norm': [],
-        'num_layers': []  # Inferred from lstm_units length
+        'num_layers': [],
+        'hidden_size': [],
+        'dropout': [],
+        'sequence_length': []
     }
     
     scores = []
     
     for trial in trials_data:
         # Get architecture features
-        params = trial['params']
+        params = trial.get('params', {})
         
-        features['use_attention'].append(params.get('use_attention', False))
-        features['use_residual'].append(params.get('use_residual', False))
-        features['use_layer_norm'].append(params.get('use_layer_norm', False))
+        # Skip trials without params or value
+        if not params or 'value' not in trial:
+            continue
+            
+        # Extract features
+        for feature in features.keys():
+            if feature in params:
+                try:
+                    features[feature].append(float(params[feature]))
+                except (ValueError, TypeError):
+                    # Skip non-numeric values
+                    features[feature].append(None)
+            else:
+                features[feature].append(None)
         
-        # Infer number of layers from lstm_units
-        lstm_units = params.get('lstm_units', [64, 32])
-        features['num_layers'].append(len(lstm_units))
-        
-        # Get score
-        scores.append(trial['score'])
+        # Get score (value)
+        scores.append(trial['value'])
+    
+    # Check if we have enough data after filtering
+    if len(scores) < 3:
+        print("Not enough valid data for architecture impact analysis")
+        return
     
     # Create figure with subplots
     fig, axs = plt.subplots(2, 2, figsize=(15, 10))
@@ -971,30 +1293,96 @@ def generate_architecture_impact_plot(trials_data, output_dir):
         row, col = i // 2, i % 2
         ax = axs[row, col]
         
-        # Convert to categorical for boxplot if needed
-        if feature in ['use_attention', 'use_residual', 'use_layer_norm']:
-            # Convert boolean to string for better labels
-            categories = ['No', 'Yes']
-            cat_values = ['Yes' if v else 'No' for v in values]
+        # Filter out None values
+        filtered_data = [(v, s) for v, s in zip(values, scores) if v is not None]
+        if not filtered_data:
+            ax.text(0.5, 0.5, f"No data for {feature}", 
+                   ha='center', va='center', transform=ax.transAxes)
+            continue
+            
+        feature_values, feature_scores = zip(*filtered_data)
+        
+        # For categorical features
+        if feature == 'num_layers':
+            # Convert to categorical for boxplot
+            categories = sorted(set(feature_values))
+            
+            # Create boxplot data
+            boxplot_data = []
+            for category in categories:
+                category_scores = [score for val, score in zip(feature_values, feature_scores) if val == category]
+                boxplot_data.append(category_scores)
+            
+            # Create boxplot
+            ax.boxplot(boxplot_data, labels=[str(int(c)) for c in categories])
+            ax.set_title(f'Impact of {feature.replace("_", " ").title()}')
+            ax.set_ylabel('Loss Value')
+            
+        # For continuous features
         else:
-            # For num_layers, use unique values
-            categories = sorted(set(values))
-            cat_values = values
+            # Create scatter plot
+            ax.scatter(feature_values, feature_scores, alpha=0.7)
+            
+            # Try to fit a trend line
+            try:
+                z = np.polyfit(feature_values, feature_scores, 1)
+                p = np.poly1d(z)
+                x_range = np.linspace(min(feature_values), max(feature_values), 100)
+                ax.plot(x_range, p(x_range), "r--", alpha=0.7)
+            except:
+                pass
+                
+            ax.set_title(f'Impact of {feature.replace("_", " ").title()}')
+            ax.set_xlabel(feature.replace("_", " ").title())
+            ax.set_ylabel('Loss Value')
+            
+            # Add grid for readability
+            ax.grid(True, linestyle='--', alpha=0.6)
+    
+    plt.suptitle('Architecture Feature Impact Analysis', fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.savefig(plot_dir / "architecture_impact.png", dpi=300)
+    
+    # Create interactive version with Plotly
+    fig = make_subplots(rows=2, cols=2, 
+                       subplot_titles=[f.replace("_", " ").title() for f in features.keys()])
+    
+    for i, (feature, values) in enumerate(features.items()):
+        row, col = i // 2 + 1, i % 2 + 1
         
-        # Create boxplot data
-        boxplot_data = []
-        for category in categories:
-            category_scores = [score for val, score in zip(cat_values, scores) if val == category]
-            boxplot_data.append(category_scores)
+        # Filter out None values
+        filtered_data = [(v, s) for v, s in zip(values, scores) if v is not None]
+        if not filtered_data:
+            continue
+            
+        feature_values, feature_scores = zip(*filtered_data)
         
-        # Create boxplot
-        ax.boxplot(boxplot_data, labels=categories)
-        ax.set_title(f'Impact of {feature.replace("_", " ").title()}')
-        ax.set_ylabel('Score')
-        
-    plt.tight_layout()
-    plt.savefig(plot_dir / "architecture_impact.png")
-    plt.close() 
+        # Add scatter plot
+        fig.add_trace(
+            go.Scatter(
+                x=feature_values, 
+                y=feature_scores,
+                mode='markers',
+                marker=dict(
+                    size=10,
+                    color=feature_values,
+                    colorscale='Viridis',
+                    showscale=True if i == 0 else False,
+                    colorbar=dict(title="Value") if i == 0 else None
+                ),
+                name=feature
+            ),
+            row=row, col=col
+        )
+    
+    fig.update_layout(
+        title_text="Architecture Feature Impact Analysis",
+        height=800,
+        showlegend=False
+    )
+    
+    fig.write_html(plot_dir / "architecture_impact.html")
+    plt.close()
 
 def plot_learning_rate_landscape(results: List[Dict], output_dir: Path):
     """Create a visualization of the learning rate landscape and its impact on training."""
@@ -1020,39 +1408,83 @@ def plot_learning_rate_landscape(results: List[Dict], output_dir: Path):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12), height_ratios=[1, 1.5])
     
     # Plot 1: Learning Rate vs Final Loss
-    df = pd.DataFrame(lr_data)
-    sns.scatterplot(data=df, x='lr', y='final_loss', size='convergence_speed', 
-                   sizes=(100, 400), alpha=0.6, ax=ax1)
+    lr_df = pd.DataFrame(lr_data)
+    
+    # Sort by learning rate for better visualization
+    lr_df = lr_df.sort_values('lr')
+    
+    # Plot with consistent styling
+    ax1.scatter(lr_df['lr'], lr_df['final_loss'], 
+               s=100, color='royalblue', alpha=0.7,
+               edgecolor='black', linewidth=1)
+    
     ax1.set_xscale('log')
     ax1.set_yscale('log')
     ax1.set_xlabel('Learning Rate', fontsize=12, fontweight='bold')
     ax1.set_ylabel('Final Validation Loss', fontsize=12, fontweight='bold')
-    ax1.set_title('Learning Rate Impact on Model Performance', fontsize=14, pad=20)
+    ax1.set_title('Learning Rate Impact on Model Performance', 
+                  fontsize=14, pad=20)
+    ax1.grid(True, alpha=0.3, linestyle='--')
+    
+    # Add minor grid lines
+    ax1.grid(True, which='minor', alpha=0.2, linestyle=':')
     
     # Plot 2: Loss Curves for Different Learning Rates
-    for data in lr_data:
+    colors = plt.cm.viridis(np.linspace(0, 1, len(lr_data)))
+    markers = ['o', 's', '^', 'd', 'v', 'p']
+    
+    for idx, data in enumerate(lr_data):
         epochs = range(1, len(data['loss_curve']) + 1)
-        ax2.plot(epochs, data['loss_curve'], 
-                label=f"LR: {data['lr']:.1e}", alpha=0.7)
+        ax2.plot(epochs, data['loss_curve'],
+                marker=markers[idx % len(markers)],
+                markersize=6,
+                markevery=max(1, len(epochs)//10),
+                color=colors[idx],
+                linewidth=2,
+                label=f'LR: {data["lr"]:.1e}')
     
     ax2.set_yscale('log')
     ax2.set_xlabel('Epoch', fontsize=12, fontweight='bold')
     ax2.set_ylabel('Validation Loss', fontsize=12, fontweight='bold')
-    ax2.set_title('Convergence Patterns by Learning Rate', fontsize=14, pad=20)
-    ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax2.grid(True, alpha=0.3)
+    ax2.set_title('Convergence Patterns by Learning Rate', 
+                  fontsize=14, pad=20)
+    ax2.grid(True, alpha=0.3, linestyle='--')
+    ax2.grid(True, which='minor', alpha=0.2, linestyle=':')
+    
+    # Create a custom legend with fewer columns and better placement
+    ax2.legend(fontsize=10, 
+              loc='upper center',
+              bbox_to_anchor=(0.5, -0.15),
+              ncol=3,
+              framealpha=0.95,
+              frameon=True,
+              fancybox=True,
+              shadow=True)
     
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.2)  # Make room for legend
     plt.savefig(output_dir / 'learning_rate_landscape.png', dpi=300, bbox_inches='tight')
-    plt.close() 
+    plt.close()
 
 def plot_network_architecture_performance(results: List[Dict], output_dir: Path):
     """Visualize performance across different network architectures."""
     # Extract architecture data
     arch_data = []
     for result in results:
-        if ('config' in result and 'score' in result and 
-            not np.isinf(result.get('score', float('inf')))):
+        # Try different data formats
+        if 'params' in result and 'value' in result:
+            params = result['params']
+            score = result['value']
+            
+            # Extract architecture parameters
+            arch_data.append({
+                'n_layers': params.get('num_layers', 1),
+                'hidden_size': params.get('hidden_size', 0),
+                'total_params': params.get('hidden_size', 0) * params.get('num_layers', 1),
+                'layer_sizes': f"{params.get('hidden_size', 0)} x {params.get('num_layers', 1)}",
+                'score': score
+            })
+        elif 'config' in result and 'score' in result:
             config = result['config']
             if 'lstm_units' in config:
                 arch_data.append({
@@ -1063,6 +1495,16 @@ def plot_network_architecture_performance(results: List[Dict], output_dir: Path)
                 })
     
     if not arch_data:
+        print("No architecture data available")
+        # Create a placeholder image
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, 
+                "No architecture data available",
+                ha='center', va='center', fontsize=14)
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(output_dir / "network_architecture_performance.png", dpi=300)
+        plt.close()
         return
         
     df = pd.DataFrame(arch_data)
@@ -1097,9 +1539,52 @@ def plot_network_architecture_performance(results: List[Dict], output_dir: Path)
                     bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
                     arrowprops=dict(arrowstyle='->'))
     
-    plt.tight_layout()
+    plt.suptitle('Network Architecture Performance Analysis', fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(output_dir / 'network_architecture_performance.png', dpi=300)
-    plt.close() 
+    plt.close()
+    
+    # Create interactive version with Plotly
+    fig = make_subplots(rows=1, cols=2, 
+                       subplot_titles=['Performance by Network Depth', 
+                                      'Performance by Network Size'])
+    
+    # Add boxplot for network depth
+    for layer in sorted(df['n_layers'].unique()):
+        layer_scores = df[df['n_layers'] == layer]['score']
+        fig.add_trace(
+            go.Box(y=layer_scores, name=f"{layer} Layers"),
+            row=1, col=1
+        )
+    
+    # Add scatter plot for network size
+    fig.add_trace(
+        go.Scatter(
+            x=df['total_params'],
+            y=df['score'],
+            mode='markers',
+            marker=dict(
+                size=12,
+                color=df['n_layers'],
+                colorscale='Viridis',
+                showscale=True,
+                colorbar=dict(title="Number of Layers")
+            ),
+            text=df['layer_sizes'],
+            hovertemplate="<b>Architecture:</b> %{text}<br>" +
+                         "<b>Total Units:</b> %{x}<br>" +
+                         "<b>Score:</b> %{y:.4f}<extra></extra>"
+        ),
+        row=1, col=2
+    )
+    
+    fig.update_layout(
+        title_text="Network Architecture Performance Analysis",
+        height=600,
+        showlegend=False
+    )
+    
+    fig.write_html(output_dir / "network_architecture_performance.html")
 
 def plot_training_dynamics(results: List[Dict], output_dir: Path):
     """Visualize training dynamics and stability across different configurations."""
@@ -1124,6 +1609,16 @@ def plot_training_dynamics(results: List[Dict], output_dir: Path):
                 })
     
     if not dynamics_data:
+        print("No training dynamics data available")
+        # Create a placeholder image
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, 
+                "No training dynamics data available",
+                ha='center', va='center', fontsize=14)
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(output_dir / "training_dynamics.png", dpi=300)
+        plt.close()
         return
         
     df = pd.DataFrame(dynamics_data)
@@ -1150,26 +1645,95 @@ def plot_training_dynamics(results: List[Dict], output_dir: Path):
     
     # Plot 3: Heatmap of Training Stability
     ax3 = fig.add_subplot(gs[1, :])
-    pivot_data = df.pivot_table(
-        values='loss_volatility', 
-        index=pd.qcut(df['batch_size'], 4), 
-        columns=pd.qcut(df['sequence_length'], 4),
-        aggfunc='mean'
-    )
-    sns.heatmap(pivot_data, annot=True, fmt='.3f', cmap='viridis', ax=ax3)
-    ax3.set_xlabel('Sequence Length (Quartiles)', fontsize=12, fontweight='bold')
-    ax3.set_ylabel('Batch Size (Quartiles)', fontsize=12, fontweight='bold')
-    ax3.set_title('Training Stability Heatmap', fontsize=14)
     
-    plt.tight_layout()
-    plt.savefig(output_dir / 'training_dynamics.png', dpi=300)
-    plt.close() 
+    try:
+        # Try to create pivot table with qcut, handling duplicate values
+        pivot_data = df.pivot_table(
+            values='loss_volatility', 
+            index=pd.qcut(df['batch_size'], min(4, len(df['batch_size'].unique())), duplicates='drop'), 
+            columns=pd.qcut(df['sequence_length'], min(4, len(df['sequence_length'].unique())), duplicates='drop'),
+            aggfunc='mean'
+        )
+        
+        # Create heatmap
+        sns.heatmap(pivot_data, annot=True, cmap='viridis', ax=ax3)
+        ax3.set_title('Training Stability Heatmap (Batch Size vs Sequence Length)', fontsize=14)
+    except Exception as e:
+        print(f"Error creating heatmap: {e}")
+        # Create a simpler alternative plot
+        ax3.text(0.5, 0.5, 
+                f"Could not create heatmap: {str(e)}",
+                ha='center', va='center', transform=ax3.transAxes)
+    
+    plt.suptitle('Training Dynamics Analysis', fontsize=16, y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.savefig(output_dir / "training_dynamics.png", dpi=300)
+    plt.close()
+    
+    # Create interactive version with Plotly
+    fig = make_subplots(rows=1, cols=2, 
+                       subplot_titles=['Training Stability by Batch Size', 
+                                      'Training Stability by Sequence Length'])
+    
+    # Add scatter plots
+    fig.add_trace(
+        go.Scatter(
+            x=df['batch_size'],
+            y=df['loss_volatility'],
+            mode='markers',
+            marker=dict(
+                size=df['final_loss'] * 100,  # Scale for visibility
+                color=df['final_loss'],
+                colorscale='Viridis',
+                showscale=True,
+                colorbar=dict(title="Final Loss")
+            ),
+            name='Batch Size'
+        ),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Scatter(
+            x=df['sequence_length'],
+            y=df['loss_volatility'],
+            mode='markers',
+            marker=dict(
+                size=df['final_loss'] * 100,  # Scale for visibility
+                color=df['final_loss'],
+                colorscale='Viridis',
+                showscale=False
+            ),
+            name='Sequence Length'
+        ),
+        row=1, col=2
+    )
+    
+    fig.update_layout(
+        title_text="Training Dynamics Analysis",
+        height=600,
+        showlegend=False
+    )
+    
+    fig.write_html(output_dir / "training_dynamics.html")
 
 def plot_training_time_analysis(results: List[Dict], output_dir: Path):
     """Analyze how different parameters affect training time."""
     time_data = []
     for result in results:
-        if 'config' in result and 'trial_time' in result:
+        # Try different data formats
+        if 'params' in result and 'metrics' in result and 'training_time' in result['metrics']:
+            params = result['params']
+            time_data.append({
+                'batch_size': params.get('batch_size', 0),
+                'sequence_length': params.get('sequence_length', 0),
+                'n_layers': params.get('num_layers', 1),
+                'hidden_size': params.get('hidden_size', 0),
+                'total_units': params.get('hidden_size', 0) * params.get('num_layers', 1),
+                'training_time': result['metrics']['training_time'],
+                'score': result.get('value', float('inf'))
+            })
+        elif 'config' in result and 'trial_time' in result:
             config = result['config']
             time_data.append({
                 'batch_size': config.get('batch_size', 0),
@@ -1179,8 +1743,29 @@ def plot_training_time_analysis(results: List[Dict], output_dir: Path):
                 'training_time': result['trial_time'],
                 'score': result.get('score', float('inf'))
             })
+        elif 'params' in result and 'duration' in result:
+            params = result['params']
+            time_data.append({
+                'batch_size': params.get('batch_size', 0),
+                'sequence_length': params.get('sequence_length', 0),
+                'n_layers': params.get('num_layers', 1),
+                'hidden_size': params.get('hidden_size', 0),
+                'total_units': params.get('hidden_size', 0) * params.get('num_layers', 1),
+                'training_time': result['duration'],
+                'score': result.get('value', float('inf'))
+            })
     
     if not time_data:
+        print("No training time data available")
+        # Create a placeholder image
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, 
+                "No training time data available",
+                ha='center', va='center', fontsize=14)
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(output_dir / "training_time_analysis.png", dpi=300)
+        plt.close()
         return
         
     df = pd.DataFrame(time_data)
@@ -1191,32 +1776,116 @@ def plot_training_time_analysis(results: List[Dict], output_dir: Path):
     
     # Plot 1: Model Size vs Training Time
     ax1 = fig.add_subplot(gs[0, 0])
-    scatter1 = ax1.scatter(df['total_units'], df['training_time'], 
-                          c=df['score'], cmap='viridis', 
-                          s=100, alpha=0.6)
-    ax1.set_xlabel('Total LSTM Units', fontsize=12)
-    ax1.set_ylabel('Training Time (s)', fontsize=12)
-    plt.colorbar(scatter1, ax=ax1, label='Score')
+    if 'total_units' in df.columns and df['total_units'].sum() > 0:
+        scatter1 = ax1.scatter(df['total_units'], df['training_time'], 
+                              c=df['score'], cmap='viridis', 
+                              s=100, alpha=0.6)
+        ax1.set_xlabel('Total Units', fontsize=12)
+        ax1.set_ylabel('Training Time (s)', fontsize=12)
+        plt.colorbar(scatter1, ax=ax1, label='Score')
+    else:
+        ax1.text(0.5, 0.5, "No model size data available", 
+                ha='center', va='center', transform=ax1.transAxes)
     
     # Plot 2: Sequence Length vs Training Time
     ax2 = fig.add_subplot(gs[0, 1])
-    scatter2 = ax2.scatter(df['sequence_length'], df['training_time'],
-                          c=df['batch_size'], cmap='plasma',
-                          s=100, alpha=0.6)
-    ax2.set_xlabel('Sequence Length', fontsize=12)
-    ax2.set_ylabel('Training Time (s)', fontsize=12)
-    plt.colorbar(scatter2, ax=ax2, label='Batch Size')
+    if 'sequence_length' in df.columns and df['sequence_length'].sum() > 0:
+        scatter2 = ax2.scatter(df['sequence_length'], df['training_time'],
+                              c=df['batch_size'], cmap='plasma',
+                              s=100, alpha=0.6)
+        ax2.set_xlabel('Sequence Length', fontsize=12)
+        ax2.set_ylabel('Training Time (s)', fontsize=12)
+        plt.colorbar(scatter2, ax=ax2, label='Batch Size')
+    else:
+        ax2.text(0.5, 0.5, "No sequence length data available", 
+                ha='center', va='center', transform=ax2.transAxes)
     
-    # Plot 3: Training Time Distribution
+    # Plot 3: Training Time Distribution by Layers
     ax3 = fig.add_subplot(gs[1, :])
-    sns.boxenplot(data=df, x='n_layers', y='training_time', ax=ax3)
-    ax3.set_xlabel('Number of LSTM Layers', fontsize=12)
-    ax3.set_ylabel('Training Time (s)', fontsize=12)
+    if 'n_layers' in df.columns and df['n_layers'].nunique() > 1:
+        sns.boxplot(data=df, x='n_layers', y='training_time', ax=ax3)
+        ax3.set_xlabel('Number of Layers', fontsize=12)
+        ax3.set_ylabel('Training Time (s)', fontsize=12)
+    else:
+        # Alternative: Batch Size vs Training Time
+        sns.boxplot(data=df, x='batch_size', y='training_time', ax=ax3)
+        ax3.set_xlabel('Batch Size', fontsize=12)
+        ax3.set_ylabel('Training Time (s)', fontsize=12)
     
-    plt.suptitle('Training Time Analysis', fontsize=14, y=1.02)
-    plt.tight_layout()
-    plt.savefig(output_dir / 'training_time_analysis.png', dpi=300, bbox_inches='tight')
-    plt.close() 
+    plt.suptitle('Training Time Analysis', fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig(output_dir / 'training_time_analysis.png', dpi=300)
+    plt.close()
+    
+    # Create interactive version with Plotly
+    fig = make_subplots(rows=2, cols=2, 
+                       subplot_titles=['Model Size vs Training Time', 
+                                      'Sequence Length vs Training Time',
+                                      'Training Time by Number of Layers',
+                                      'Training Time by Batch Size'])
+    
+    # Add scatter plot for model size
+    if 'total_units' in df.columns and df['total_units'].sum() > 0:
+        fig.add_trace(
+            go.Scatter(
+                x=df['total_units'],
+                y=df['training_time'],
+                mode='markers',
+                marker=dict(
+                    size=10,
+                    color=df['score'],
+                    colorscale='Viridis',
+                    showscale=True,
+                    colorbar=dict(title="Score")
+                ),
+                name='Model Size'
+            ),
+            row=1, col=1
+        )
+    
+    # Add scatter plot for sequence length
+    if 'sequence_length' in df.columns and df['sequence_length'].sum() > 0:
+        fig.add_trace(
+            go.Scatter(
+                x=df['sequence_length'],
+                y=df['training_time'],
+                mode='markers',
+                marker=dict(
+                    size=10,
+                    color=df['batch_size'],
+                    colorscale='Plasma',
+                    showscale=True,
+                    colorbar=dict(title="Batch Size")
+                ),
+                name='Sequence Length'
+            ),
+            row=1, col=2
+        )
+    
+    # Add boxplot for number of layers
+    if 'n_layers' in df.columns and df['n_layers'].nunique() > 1:
+        for layer in sorted(df['n_layers'].unique()):
+            layer_times = df[df['n_layers'] == layer]['training_time']
+            fig.add_trace(
+                go.Box(y=layer_times, name=f"{layer} Layers"),
+                row=2, col=1
+            )
+    
+    # Add boxplot for batch size
+    for batch in sorted(df['batch_size'].unique()):
+        batch_times = df[df['batch_size'] == batch]['training_time']
+        fig.add_trace(
+            go.Box(y=batch_times, name=f"Batch {batch}"),
+            row=2, col=2
+        )
+    
+    fig.update_layout(
+        title_text="Training Time Analysis",
+        height=800,
+        showlegend=False
+    )
+    
+    fig.write_html(output_dir / "training_time_analysis.html")
 
 def plot_parameter_evolution(results: List[Dict], output_dir: Path):
     """Visualize how parameter choices evolved during the tuning process."""
@@ -1273,37 +1942,63 @@ def plot_parameter_evolution(results: List[Dict], output_dir: Path):
     plt.close() 
 
 def plot_parallel_coordinates_clustered(results: List[Dict], output_dir: Path):
-    """Create a parallel coordinates plot with clustering of similar configurations."""
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.cluster import KMeans
+    """Create a parallel coordinates plot with clustering to visualize parameter relationships."""
+    # Extract parameter data
+    param_data = []
+    for result in results:
+        if 'params' in result and 'value' in result:
+            params = result['params']
+            row = {}
+            
+            # Extract numerical parameters
+            for param in ['sequence_length', 'hidden_size', 'num_layers', 'dropout', 
+                         'learning_rate', 'batch_size']:
+                if param in params:
+                    try:
+                        row[param] = float(params[param])
+                    except (ValueError, TypeError):
+                        continue
+            
+            # Add performance metric
+            row['score'] = result['value']
+            
+            # Only add if we have enough parameters
+            if len(row) >= 3:  # At least 2 parameters + score
+                param_data.append(row)
     
-    # Extract successful trials
-    valid_results = [r for r in results if not np.isinf(r.get('score', float('inf')))]
-    if len(valid_results) < 5:  # Need enough data for meaningful clustering
+    if not param_data or len(param_data) < 3:
+        print("Not enough data for parallel coordinates plot")
+        # Create a placeholder image
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, 
+                "Not enough data for parallel coordinates plot",
+                ha='center', va='center', fontsize=14)
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(output_dir / "parallel_coordinates_clustered.png", dpi=300)
+        plt.close()
         return
-        
-    # Prepare data
-    data = []
-    for result in valid_results:
-        if 'config' in result:
-            row = {k: v for k, v in result['config'].items() 
-                  if not isinstance(v, list)}
-            row['score'] = result['score']
-            data.append(row)
     
-    df = pd.DataFrame(data)
+    # Convert to DataFrame
+    df = pd.DataFrame(param_data)
     
-    # Normalize the data
-    scaler = StandardScaler()
+    # Normalize data for better visualization
+    scaler = MinMaxScaler()
     df_scaled = pd.DataFrame(
         scaler.fit_transform(df),
         columns=df.columns
     )
     
     # Perform clustering
-    n_clusters = min(3, len(df) // 2)  # Adjust number of clusters based on data size
+    from sklearn.cluster import KMeans
+    
+    # Determine optimal number of clusters (2-5)
+    n_clusters = min(5, len(df) // 2)
+    n_clusters = max(2, n_clusters)  # At least 2 clusters
+    
+    # Perform clustering
     kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    clusters = kmeans.fit_predict(df_scaled)
+    clusters = kmeans.fit_predict(df_scaled.drop('score', axis=1))
     
     # Create parallel coordinates plot with clusters
     fig = go.Figure(data=[
@@ -1325,4 +2020,686 @@ def plot_parallel_coordinates_clustered(results: List[Dict], output_dir: Path):
         paper_bgcolor='white'
     )
     
-    fig.write_html(output_dir / 'parallel_coordinates_clustered.html') 
+    # Save both HTML and PNG versions
+    fig.write_html(output_dir / 'parallel_coordinates_clustered.html')
+    
+    # Create a static version with matplotlib for PNG output
+    plt.figure(figsize=(12, 8))
+    
+    # Create a parallel coordinates plot using pandas plotting
+    pd.plotting.parallel_coordinates(
+        df.assign(cluster=clusters), 
+        'cluster',
+        colormap='viridis',
+        alpha=0.7
+    )
+    
+    plt.title('Clustered Parameter Configurations', fontsize=14)
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    
+    # Save the PNG version
+    plt.savefig(output_dir / 'parallel_coordinates_clustered.png', dpi=300)
+    plt.close()
+
+def plot_test_vs_validation_performance(results: List[Dict], output_dir: Path):
+    """
+    Create a scatter plot comparing validation loss vs test RMSE to identify models
+    that generalize well to unseen data.
+    
+    Args:
+        results: List of trial results
+        output_dir: Output directory
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    from matplotlib.colors import Normalize
+    from matplotlib.cm import ScalarMappable
+    
+    # Create plot directory
+    plot_dir = output_dir / "plots"
+    plot_dir.mkdir(exist_ok=True)
+    
+    # Extract validation loss and test RMSE
+    val_losses = []
+    test_rmses = []
+    sequence_lengths = []
+    hidden_sizes = []
+    trial_ids = []
+    
+    for result in results:
+        if 'value' in result and result.get('test_metrics_avg', {}).get('test_rmse') is not None:
+            val_losses.append(result['value'])
+            test_rmses.append(result['test_metrics_avg']['test_rmse'])
+            sequence_lengths.append(result['params'].get('sequence_length', 0))
+            hidden_sizes.append(result['params'].get('hidden_size', 0))
+            trial_ids.append(result.get('trial_id', 0))
+    
+    if not val_losses or not test_rmses:
+        print("No validation loss or test RMSE data available for comparison plot")
+        return
+    
+    # Create figure
+    plt.figure(figsize=(12, 8))
+    
+    # Create scatter plot with color based on sequence length
+    norm = Normalize(vmin=min(sequence_lengths), vmax=max(sequence_lengths))
+    scatter = plt.scatter(val_losses, test_rmses, c=sequence_lengths, cmap='viridis', 
+                         alpha=0.7, s=100, norm=norm)
+    
+    # Add colorbar
+    cbar = plt.colorbar(scatter)
+    cbar.set_label('Sequence Length')
+    
+    # Add trial IDs as annotations
+    for i, trial_id in enumerate(trial_ids):
+        plt.annotate(f"Trial {trial_id}", 
+                    (val_losses[i], test_rmses[i]),
+                    xytext=(5, 5),
+                    textcoords='offset points',
+                    fontsize=8)
+    
+    # Find the best models
+    best_val_idx = np.argmin(val_losses)
+    best_test_idx = np.argmin(test_rmses)
+    
+    # Highlight the best models
+    plt.scatter(val_losses[best_val_idx], test_rmses[best_val_idx], 
+               s=200, facecolors='none', edgecolors='red', linewidth=2,
+               label=f'Best Validation (Trial {trial_ids[best_val_idx]})')
+    
+    plt.scatter(val_losses[best_test_idx], test_rmses[best_test_idx], 
+               s=200, facecolors='none', edgecolors='blue', linewidth=2,
+               label=f'Best Test RMSE (Trial {trial_ids[best_test_idx]})')
+    
+    # Add labels and title
+    plt.xlabel('Validation Loss')
+    plt.ylabel('Test RMSE')
+    plt.title('Validation Loss vs Test RMSE: Identifying Models that Generalize Well')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    # Save figure
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'validation_vs_test_performance.png', dpi=300)
+    plt.close()
+    
+    # Create a second plot showing the relationship with hidden size
+    plt.figure(figsize=(12, 8))
+    
+    # Create scatter plot with color based on hidden size
+    norm = Normalize(vmin=min(hidden_sizes), vmax=max(hidden_sizes))
+    scatter = plt.scatter(val_losses, test_rmses, c=hidden_sizes, cmap='plasma', 
+                         alpha=0.7, s=100, norm=norm)
+    
+    # Add colorbar
+    cbar = plt.colorbar(scatter)
+    cbar.set_label('Hidden Size')
+    
+    # Add trial IDs as annotations
+    for i, trial_id in enumerate(trial_ids):
+        plt.annotate(f"Trial {trial_id}", 
+                    (val_losses[i], test_rmses[i]),
+                    xytext=(5, 5),
+                    textcoords='offset points',
+                    fontsize=8)
+    
+    # Highlight the best models
+    plt.scatter(val_losses[best_val_idx], test_rmses[best_val_idx], 
+               s=200, facecolors='none', edgecolors='red', linewidth=2,
+               label=f'Best Validation (Trial {trial_ids[best_val_idx]})')
+    
+    plt.scatter(val_losses[best_test_idx], test_rmses[best_test_idx], 
+               s=200, facecolors='none', edgecolors='blue', linewidth=2,
+               label=f'Best Test RMSE (Trial {trial_ids[best_test_idx]})')
+    
+    # Add labels and title
+    plt.xlabel('Validation Loss')
+    plt.ylabel('Test RMSE')
+    plt.title('Validation Loss vs Test RMSE: Effect of Hidden Size')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    # Save figure
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'validation_vs_test_performance_hidden_size.png', dpi=300)
+    plt.close()
+    
+    # Create a table of the top 10 models by test RMSE
+    top_indices = np.argsort(test_rmses)[:10]
+    
+    top_data = {
+        'Trial ID': [trial_ids[i] for i in top_indices],
+        'Test RMSE': [test_rmses[i] for i in top_indices],
+        'Validation Loss': [val_losses[i] for i in top_indices],
+        'Sequence Length': [sequence_lengths[i] for i in top_indices],
+        'Hidden Size': [hidden_sizes[i] for i in top_indices]
+    }
+    
+    top_df = pd.DataFrame(top_data)
+    
+    # Save to CSV
+    top_df.to_csv(plot_dir / 'top_models_by_test_rmse.csv', index=False)
+    
+    # Print top models
+    print("\nTop 10 Models by Test RMSE:")
+    print(top_df)
+    
+    return top_df
+
+
+def plot_sudden_change_performance(results: List[Dict], output_dir: Path):
+    """
+    Create visualizations to analyze how well models handle sudden changes in the data.
+    
+    Args:
+        results: List of trial results
+        output_dir: Output directory
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    
+    # Create plot directory
+    plot_dir = output_dir / "plots"
+    plot_dir.mkdir(exist_ok=True)
+    
+    # Extract metrics
+    data = []
+    
+    for result in results:
+        test_metrics = result.get('test_metrics_avg', {})
+        if test_metrics.get('sudden_change_mse') is not None:
+            data.append({
+                'trial_id': result.get('trial_id', 0),
+                'sequence_length': result['params'].get('sequence_length', 0),
+                'hidden_size': result['params'].get('hidden_size', 0),
+                'num_layers': result['params'].get('num_layers', 0),
+                'learning_rate': result['params'].get('learning_rate', 0),
+                'test_rmse': test_metrics.get('test_rmse', float('inf')),
+                'sudden_change_rmse': np.sqrt(test_metrics.get('sudden_change_mse', float('inf'))),
+                'test_mae': test_metrics.get('test_mae', float('inf')),
+                'sudden_change_mae': test_metrics.get('sudden_change_mae', float('inf'))
+            })
+    
+    if not data:
+        print("No sudden change performance data available")
+        return
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(data)
+    
+    # Calculate the ratio of sudden change error to overall error
+    df['rmse_ratio'] = df['sudden_change_rmse'] / df['test_rmse']
+    df['mae_ratio'] = df['sudden_change_mae'] / df['test_mae']
+    
+    # Create figure for RMSE comparison
+    plt.figure(figsize=(12, 8))
+    
+    # Sort by test RMSE
+    df_sorted = df.sort_values('test_rmse')
+    
+    # Plot bars for overall RMSE and sudden change RMSE
+    x = np.arange(len(df_sorted))
+    width = 0.35
+    
+    plt.bar(x - width/2, df_sorted['test_rmse'], width, label='Overall RMSE')
+    plt.bar(x + width/2, df_sorted['sudden_change_rmse'], width, label='Sudden Change RMSE')
+    
+    # Add trial IDs as x-tick labels
+    plt.xticks(x, [f"Trial {tid}" for tid in df_sorted['trial_id']], rotation=45)
+    
+    # Add labels and title
+    plt.xlabel('Trial')
+    plt.ylabel('RMSE')
+    plt.title('Overall RMSE vs Sudden Change RMSE by Trial')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Save figure
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'overall_vs_sudden_change_rmse.png', dpi=300)
+    plt.close()
+    
+    # Create figure for ratio analysis
+    plt.figure(figsize=(12, 8))
+    
+    # Sort by RMSE ratio
+    df_sorted = df.sort_values('rmse_ratio')
+    
+    # Plot bars for RMSE ratio
+    plt.bar(np.arange(len(df_sorted)), df_sorted['rmse_ratio'], color='skyblue')
+    
+    # Add horizontal line at ratio = 1
+    plt.axhline(y=1, color='red', linestyle='--', alpha=0.7, 
+               label='Equal Performance (Ratio = 1)')
+    
+    # Add trial IDs as x-tick labels
+    plt.xticks(np.arange(len(df_sorted)), 
+              [f"Trial {tid}" for tid in df_sorted['trial_id']], 
+              rotation=45)
+    
+    # Add labels and title
+    plt.xlabel('Trial')
+    plt.ylabel('Sudden Change RMSE / Overall RMSE')
+    plt.title('Ratio of Sudden Change RMSE to Overall RMSE by Trial')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Save figure
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'sudden_change_rmse_ratio.png', dpi=300)
+    plt.close()
+    
+    # Create scatter plot of sequence length vs RMSE ratio
+    plt.figure(figsize=(12, 8))
+    
+    plt.scatter(df['sequence_length'], df['rmse_ratio'], 
+               c=df['hidden_size'], cmap='viridis', 
+               alpha=0.7, s=100)
+    
+    # Add colorbar
+    cbar = plt.colorbar()
+    cbar.set_label('Hidden Size')
+    
+    # Add trial IDs as annotations
+    for i, row in df.iterrows():
+        plt.annotate(f"Trial {row['trial_id']}", 
+                    (row['sequence_length'], row['rmse_ratio']),
+                    xytext=(5, 5),
+                    textcoords='offset points',
+                    fontsize=8)
+    
+    # Add labels and title
+    plt.xlabel('Sequence Length')
+    plt.ylabel('Sudden Change RMSE / Overall RMSE')
+    plt.title('Effect of Sequence Length on Handling Sudden Changes')
+    plt.grid(True, alpha=0.3)
+    
+    # Save figure
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'sequence_length_vs_sudden_change_ratio.png', dpi=300)
+    plt.close()
+    
+    # Create a table of the top 10 models by sudden change handling
+    top_indices = np.argsort(df['rmse_ratio'].values)[:10]
+    
+    top_data = {
+        'Trial ID': df.iloc[top_indices]['trial_id'].values,
+        'Sudden Change Ratio': df.iloc[top_indices]['rmse_ratio'].values,
+        'Overall RMSE': df.iloc[top_indices]['test_rmse'].values,
+        'Sudden Change RMSE': df.iloc[top_indices]['sudden_change_rmse'].values,
+        'Sequence Length': df.iloc[top_indices]['sequence_length'].values,
+        'Hidden Size': df.iloc[top_indices]['hidden_size'].values,
+        'Num Layers': df.iloc[top_indices]['num_layers'].values
+    }
+    
+    top_df = pd.DataFrame(top_data)
+    
+    # Save to CSV
+    top_df.to_csv(plot_dir / 'top_models_by_sudden_change_handling.csv', index=False)
+    
+    # Print top models
+    print("\nTop 10 Models by Sudden Change Handling:")
+    print(top_df)
+    
+    return top_df
+
+
+def plot_test_predictions_comparison(results: List[Dict], output_dir: Path, num_models: int = 3):
+    """
+    Create a plot comparing the test predictions of the top models.
+    
+    Args:
+        results: List of trial results
+        output_dir: Output directory
+        num_models: Number of top models to compare
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    
+    # Create plot directory
+    plot_dir = output_dir / "plots"
+    plot_dir.mkdir(exist_ok=True)
+    
+    # Extract test RMSE and predictions
+    models_with_predictions = []
+    
+    for result in results:
+        test_metrics = result.get('test_metrics_avg', {})
+        if test_metrics.get('test_rmse') is not None:
+            # Get the first window result with predictions
+            for window_result in result.get('window_results', []):
+                if window_result.get('test_predictions') is not None:
+                    models_with_predictions.append({
+                        'trial_id': result.get('trial_id', 0),
+                        'test_rmse': test_metrics.get('test_rmse', float('inf')),
+                        'sequence_length': result['params'].get('sequence_length', 0),
+                        'hidden_size': result['params'].get('hidden_size', 0),
+                        'num_layers': result['params'].get('num_layers', 0),
+                        'predictions': window_result.get('test_predictions'),
+                        'window_idx': window_result.get('window_idx', 0)
+                    })
+                    break
+    
+    if not models_with_predictions:
+        print("No models with test predictions available")
+        return
+    
+    # Sort by test RMSE
+    models_with_predictions.sort(key=lambda x: x['test_rmse'])
+    
+    # Select top N models
+    top_models = models_with_predictions[:num_models]
+    
+    # We need actual test data to compare against
+    # This would typically come from the dataset, but for now we'll just use what we have
+    # In a real implementation, you would load the actual test data here
+    
+    # Create figure
+    plt.figure(figsize=(15, 10))
+    
+    # Plot predictions for each model
+    for i, model in enumerate(top_models):
+        predictions = model['predictions']
+        if isinstance(predictions, list):
+            predictions = np.array(predictions)
+        
+        # Plot a subset of predictions for clarity (e.g., 200 points)
+        subset_size = min(200, len(predictions))
+        x = np.arange(subset_size)
+        
+        plt.plot(x, predictions[:subset_size], 
+                label=f"Trial {model['trial_id']} (RMSE: {model['test_rmse']:.6f}, SL: {model['sequence_length']})")
+    
+    # Add labels and title
+    plt.xlabel('Time Step')
+    plt.ylabel('Predicted Value')
+    plt.title('Comparison of Test Predictions from Top Models')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Save figure
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'top_models_predictions_comparison.png', dpi=300)
+    plt.close()
+    
+    # Create a table of the top models
+    top_data = {
+        'Trial ID': [model['trial_id'] for model in top_models],
+        'Test RMSE': [model['test_rmse'] for model in top_models],
+        'Sequence Length': [model['sequence_length'] for model in top_models],
+        'Hidden Size': [model['hidden_size'] for model in top_models],
+        'Num Layers': [model['num_layers'] for model in top_models],
+        'Window': [model['window_idx'] for model in top_models]
+    }
+    
+    top_df = pd.DataFrame(top_data)
+    
+    # Save to CSV
+    top_df.to_csv(plot_dir / 'top_models_with_predictions.csv', index=False)
+    
+    # Print top models
+    print("\nTop Models with Predictions:")
+    print(top_df)
+    
+    return top_df
+
+if __name__ == "__main__":
+    """
+    Test the hyperparameter diagnostics functions with sample data.
+    
+    This allows running this file directly to verify that all visualization
+    functions are working properly.
+    
+    Usage:
+        python -m diagnostics.hyperparameter_diagnostics
+    """
+    import os
+    import random
+    from pathlib import Path
+    
+    print("Testing hyperparameter diagnostics functions...")
+    
+    # Create a test output directory
+    output_dir = Path("./test_diagnostics_output")
+    output_dir.mkdir(exist_ok=True)
+    print(f"Output will be saved to: {output_dir}")
+    
+    # Generate sample hyperparameter tuning results
+    num_trials = 50  # Increased for better visualizations
+    sample_results = []
+    
+    # Parameters to vary
+    param_ranges = {
+        'sequence_length': [24, 48, 72, 96, 120],
+        'hidden_size': [32, 64, 128, 256],
+        'num_layers': [1, 2, 3],
+        'dropout': [0.0, 0.1, 0.2, 0.3, 0.4],
+        'learning_rate': [0.001, 0.005, 0.01],
+        'batch_size': [16, 32, 64, 128],
+        'epochs': [50, 100, 150]
+    }
+    
+    # Generate sample results
+    for i in range(num_trials):
+        # Sample parameters
+        config = {}
+        for param, values in param_ranges.items():
+            config[param] = random.choice(values)
+        
+        # Generate a score (lower is better)
+        # Make it somewhat correlated with parameters to create realistic patterns
+        score = 0.5
+        score += 0.1 * (config['num_layers'] - 2) ** 2  # Optimal at 2 layers
+        score += 0.001 * (config['hidden_size'] - 128) ** 2 / 128  # Optimal at 128
+        score += 0.2 * (config['dropout'] - 0.2) ** 2  # Optimal at 0.2
+        score += 0.1 * (config['learning_rate'] - 0.005) ** 2 / 0.005  # Optimal at 0.005
+        
+        # Add some randomness
+        score += random.uniform(-0.1, 0.1)
+        score = max(0.1, score)  # Ensure positive score
+        
+        # Create a result dictionary
+        result = {
+            'trial_id': i,
+            'config': config,
+            'score': score,
+            'metrics': {
+                'training_time': random.uniform(10, 100),
+                'val_improvement': random.uniform(0.1, 0.5),
+                'val_stability': random.uniform(0.01, 0.1)
+            },
+            'history': {
+                'train_loss': [random.uniform(0.5, 1.0) * (0.9 ** j) for j in range(10)],
+                'val_loss': [random.uniform(0.6, 1.2) * (0.9 ** j) for j in range(10)]
+            }
+        }
+        
+        sample_results.append(result)
+    
+    # Sort by score
+    sample_results.sort(key=lambda x: x['score'])
+    
+    # Get best config
+    best_config = sample_results[0]['config'].copy()
+    best_config['feature_cols'] = ['vst_raw']
+    
+    # Generate hyperparameter report
+    print("\nGenerating hyperparameter report...")
+    generate_hyperparameter_report(
+        results=sample_results,
+        best_config=best_config,
+        output_dir=output_dir,
+        evaluation_metric='score'
+    )
+    
+    def ensure_png_output(func_name, output_dir):
+        """Check if a PNG file was created for the function, create a placeholder if not."""
+        # Generate possible file names based on function name
+        possible_names = [
+            f"{func_name}.png",
+            f"{func_name.replace('plot_', '')}.png",
+            f"{func_name.replace('plot_', '').replace('_', '')}.png",
+            f"{func_name.replace('plot_', '').replace('_', '-')}.png",
+            f"hyperparameter_{func_name.replace('plot_', '')}.png",
+            f"{func_name.replace('plot_', '')}_analysis.png",
+            f"{func_name.split('_')[0]}.png"
+        ]
+        
+        # Special cases for known functions
+        if func_name == "plot_hyperparameter_pairwise_interactions":
+            possible_names.append("hyperparameter_pairwise.png")
+        elif func_name == "analyze_hyperparameter_importance":
+            possible_names.append("hyperparameter_importance.png")
+        elif func_name == "create_3d_surface_plots":
+            possible_names.extend(["3d_surface_insufficient.png", "3d_surface_hidden_size_batch_size.png"])
+        elif func_name == "plot_convergence_analysis":
+            possible_names.extend(["convergence_analysis.png", "convergence_speed.png"])
+        elif func_name == "plot_learning_curve_clusters":
+            possible_names.append("learning_curve_clusters.png")
+        elif func_name == "plot_parameter_sensitivity":
+            possible_names.append("parameter_sensitivity.png")
+        elif func_name == "plot_top_n_distributions":
+            possible_names.append("top_parameter_distributions.png")
+        elif func_name == "generate_architecture_impact_plot":
+            possible_names.append("architecture_impact.png")
+        elif func_name == "plot_learning_rate_landscape":
+            possible_names.append("learning_rate_landscape.png")
+        elif func_name == "plot_network_architecture_performance":
+            possible_names.append("network_architecture_performance.png")
+        elif func_name == "plot_training_dynamics":
+            possible_names.append("training_dynamics.png")
+        elif func_name == "plot_training_time_analysis":
+            possible_names.append("training_time_analysis.png")
+        elif func_name == "plot_parameter_evolution":
+            possible_names.append("parameter_evolution.png")
+        elif func_name == "plot_parallel_coordinates_clustered":
+            possible_names.append("parallel_coordinates_clustered.png")
+        
+        # Debug: print all possible names we're checking
+        print(f"  Checking for PNG files for {func_name}:")
+        
+        # Check both in main directory and plots subdirectory
+        found = False
+        found_file = None
+        
+        for name in possible_names:
+            print(f"    ✗ {name} not found", end="")
+            
+            # Check in main directory
+            main_path = output_dir / name
+            if main_path.exists():
+                found = True
+                found_file = main_path
+                print("\r    ✓ Found", name, "in main directory")
+                break
+                
+            # Check in plots subdirectory
+            plots_path = output_dir / "plots" / name
+            if plots_path.exists():
+                found = True
+                found_file = plots_path
+                print("\r    ✓ Found", name, "in plots directory")
+                break
+                
+            print()  # Complete the line
+        
+        if found:
+            print(f"  Using existing PNG: {found_file}")
+            return
+            
+        # If no PNG was found, create a placeholder
+        print(f"  Creating placeholder PNG for {func_name}")
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, 
+                f"No output generated for {func_name}\n"
+                f"This is a placeholder image.",
+                ha='center', va='center', fontsize=14)
+        plt.axis('off')
+        plt.tight_layout()
+        
+        # Save with a distinctive name
+        placeholder_path = output_dir / f"{func_name}_placeholder.png"
+        plt.savefig(placeholder_path, dpi=300)
+        plt.close()
+    
+    print("\nTesting individual plotting functions...")
+    
+    functions_to_test = [
+        plot_hyperparameter_pairwise_interactions,
+        analyze_hyperparameter_importance,
+        create_3d_surface_plots,
+        plot_convergence_analysis,
+        plot_learning_curve_clusters,
+        plot_parameter_sensitivity,
+        plot_top_n_distributions,
+        generate_architecture_impact_plot,
+        plot_learning_rate_landscape,
+        plot_network_architecture_performance,
+        plot_training_dynamics,
+        plot_training_time_analysis,
+        plot_parameter_evolution,
+        plot_parallel_coordinates_clustered
+    ]
+    
+    for func in functions_to_test:
+        try:
+            print(f"Testing {func.__name__}...")
+            if func.__name__ == "plot_learning_curve_clusters":
+                func(sample_results, output_dir, n_clusters=3)
+            elif func.__name__ == "plot_top_n_distributions":
+                func(sample_results, output_dir, top_n=5)
+            else:
+                func(sample_results, output_dir)
+            print(f"✓ {func.__name__} completed successfully")
+            
+            # Ensure PNG output
+            ensure_png_output(func.__name__, output_dir)
+            
+        except Exception as e:
+            print(f"✗ Error in {func.__name__}: {str(e)}")
+            
+            # Create error PNG
+            plt.figure(figsize=(10, 6))
+            plt.text(0.5, 0.5, 
+                    f"Error in {func.__name__}\n"
+                    f"Error: {str(e)}",
+                    ha='center', va='center', fontsize=14, color='red')
+            plt.axis('off')
+            plt.tight_layout()
+            plt.savefig(output_dir / f"{func.__name__}_error.png", dpi=300)
+            plt.close()
+    
+    print("\nTesting plot_best_model_results...")
+    try:
+        # Create sample data for plot_best_model_results
+        station_name = "test_station"
+        original_data = pd.DataFrame({
+            'vst_raw': np.sin(np.linspace(0, 10, 100)) + np.random.normal(0, 0.1, 100)
+        }, index=pd.date_range(start='2020-01-01', periods=100, freq='D'))
+        
+        modified_data = original_data.copy()
+        modified_data['vst_raw'] += np.random.normal(0, 0.2, 100)
+        
+        results = {
+            'forecast': np.sin(np.linspace(0, 10, 100)) + np.random.normal(0, 0.15, 100),
+            'truth': original_data['vst_raw'].values
+        }
+        
+        plot_best_model_results(
+            station_name=station_name,
+            results=results,
+            original_data=original_data,
+            modified_data=modified_data,
+            output_dir=output_dir,
+            trial_number=0
+        )
+        print("✓ plot_best_model_results completed successfully")
+    except Exception as e:
+        print(f"✗ Error in plot_best_model_results: {str(e)}")
+    
+    print("\nAll tests completed. Check the output directory for results.")
+    print(f"Output directory: {os.path.abspath(output_dir)}")
