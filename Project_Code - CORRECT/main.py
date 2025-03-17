@@ -87,7 +87,7 @@ def run_pipeline(
     #########################################################
     #    Step 1: Load and preprocess all station data       #
     #########################################################
-    station_id = '21006846'
+    station_id = '21006845'
     print(f"Loading and preprocessing station data for station {station_id}...")
    
     # Load Preprocessed data

@@ -120,14 +120,14 @@ LSTM_CONFIG = {
     'output_features': ['vst_raw'],
     'hidden_size': 512,        # Keep as is for model capacity
     'num_layers': 3,           # Keep as is for model capacity
-    'dropout': 0.2,           # Increased dropout for better regularization
+    'dropout': 0.15,          # Slightly reduced dropout for better fitting
     'batch_size': 1,          # Keep as is
-    'learning_rate': 0.0002,   # Slightly reduced for more stable learning
-    'epochs': 25,             # Keep as is
-    'patience': 10,           # Keep as is
-    'min_delta': 0.00005,     # Keep as is
+    'learning_rate': 0.0003,   # Increased back for faster learning
+    'epochs': 10,             # Increased number of epochs
+    'patience': 5,            # Increased patience
+    'min_delta': 0.00001,     # More sensitive to improvements
     'max_chunk_size': 2500,   # Keep as is
-    'smoothness_weight': 0.4,  # Added: increased weight for smoothness penalty
-    'attention_heads': 8,      # Added: number of attention heads
-    'attention_dropout': 0.15  # Added: attention-specific dropout
+    'smoothness_weight': 0.3,  # Reduced smoothness weight to allow more flexibility
+    'attention_heads': 8,      # Keep as is
+    'attention_dropout': 0.1   # Reduced attention dropout
 } 

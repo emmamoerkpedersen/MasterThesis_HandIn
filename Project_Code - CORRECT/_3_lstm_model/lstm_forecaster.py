@@ -23,6 +23,68 @@ Remove cuda code from main.py and lstm_forecaster.py
 class SimpleLSTMModel(nn.Module):
     """
     Simple LSTM model for time series forecasting.
+    
+    Activation Functions:
+    -------------------
+    The model uses Leaky ReLU activations in its feed-forward layers. Here's why:
+
+    1. ReLU (Rectified Linear Unit):
+        - Function: f(x) = max(0, x)
+        - Properties:
+            * Simple and computationally efficient
+            * Helps solve vanishing gradient problem
+            * Induces sparsity in the network
+        - Limitation:
+            * "Dying ReLU" problem: neurons can get stuck in negative range,
+              always outputting zero and never activating
+
+    2. Leaky ReLU:
+        - Function: f(x) = x if x > 0 else αx  (where α is a small constant, typically 0.01)
+        - Properties:
+            * All benefits of ReLU
+            * Prevents "dying ReLU" problem by allowing small negative gradients
+            * More robust training behavior
+        - In our model:
+            * Used with α=0.1 (slightly larger than default to allow better gradient flow)
+            * Applied after linear layers in output projection
+            * Helps maintain healthy gradients throughout the network
+
+    Visual Representation:
+                   ↗ x         (x > 0)
+    Leaky ReLU: y =
+                   ↘ 0.1x     (x ≤ 0)
+
+    Mathematical Properties:
+    ----------------------
+    1. Derivative:
+        - ReLU:      f'(x) = 1 if x > 0, else 0
+        - LeakyReLU: f'(x) = 1 if x > 0, else α
+
+    2. Range:
+        - ReLU:      [0, ∞)
+        - LeakyReLU: (-∞, ∞)
+
+    Why We Use Leaky ReLU:
+    ---------------------
+    1. Training Stability:
+        - Non-zero gradient for negative values helps maintain active neurons
+        - Reduces risk of vanishing gradients
+        - More stable learning in deep networks
+
+    2. Time Series Specific:
+        - Better handles negative variations in the data
+        - More suitable for regression tasks like water level prediction
+        - Allows network to model both positive and negative trends
+
+    3. Performance:
+        - Nearly as computationally efficient as ReLU
+        - Better gradient flow throughout the network
+        - Often leads to faster convergence
+
+    References:
+    ----------
+    1. Maas et al. "Rectifier Nonlinearities Improve Neural Network Acoustic Models" (2013)
+    2. He et al. "Delving Deep into Rectifiers" (2015)
     """
     
     def __init__(self, input_size, hidden_size, output_size, num_layers, dropout):
@@ -100,7 +162,78 @@ class SimpleLSTMModel(nn.Module):
         print(f"Model using device: {self.device}")
     
     def _init_weights(self):
-        """Initialize weights for better convergence."""
+        """Initialize neural network weights using specialized initialization strategies.
+        
+        This method implements carefully chosen weight initialization techniques that are critical
+        for proper neural network training, especially for deep architectures like LSTMs. Proper
+        weight initialization helps:
+        1. Prevent vanishing/exploding gradients
+        2. Maintain consistent variance throughout the network
+        3. Enable faster convergence during training
+        4. Improve model stability
+        
+        Implementation Details:
+        ---------------------
+        The method uses three different initialization strategies based on the layer type:
+        
+        1. LSTM Layers (Recurrent Weights):
+            - Uses Orthogonal Initialization
+            - Why? Orthogonal matrices preserve gradient magnitudes during backpropagation,
+              which is crucial for training deep RNNs/LSTMs
+            - For multi-dimensional weights: nn.init.orthogonal_
+            - For 1D weights: Normal distribution with std=0.1
+            
+        2. Linear Layers (Feed-forward Weights):
+            - Uses Kaiming (He) Initialization
+            - Why? Designed specifically for layers using ReLU-like activations
+            - Maintains variance of activations throughout the network
+            - Formula: std = sqrt(2/n_in) for 'leaky_relu'
+            - For 1D weights: Normal distribution with std=0.1
+            
+        3. Bias Terms:
+            - Initialized to zero
+            - Why? Biases can learn appropriate values during training,
+              and zero initialization is typically sufficient
+        
+        Mathematical Background:
+        ----------------------
+        1. Orthogonal Initialization:
+            - Creates weight matrices W where W^T * W = I
+            - Eigenvalues have magnitude 1, preserving gradient norms
+            - Particularly effective for deep networks and RNNs
+        
+        2. Kaiming/He Initialization:
+            - std = sqrt(2/(1 + negative_slope^2) * n_in)
+            - Derived from maintaining variance of activations
+            - Accounts for non-linear activation functions
+        
+        Parameters:
+        ----------
+        self : SimpleLSTMModel
+            The model instance containing the weights to initialize
+        
+        Notes:
+        -----
+        - Different initialization strategies are crucial because each layer type
+          (LSTM vs Linear) has different mathematical properties and requirements
+        - The initialization values are carefully chosen based on theoretical analysis
+          and empirical studies in deep learning literature
+        - Poor initialization can lead to:
+            * Vanishing/exploding gradients
+            * Dead neurons (especially with ReLU)
+            * Slow convergence
+            * Poor final performance
+        
+        References:
+        ----------
+        1. Orthogonal Initialization:
+           Saxe et al. "Exact solutions to the nonlinear dynamics of learning in deep
+           linear neural networks" (2014)
+        
+        2. Kaiming/He Initialization:
+           He et al. "Delving Deep into Rectifiers: Surpassing Human-Level Performance
+           on ImageNet Classification" (2015)
+        """
         for name, param in self.named_parameters():
             if 'weight' in name:
                 if 'lstm' in name:
@@ -196,7 +329,48 @@ class train_LSTM:
         print(f"  Features: {len(self.feature_names)} input features")
 
     def smooth_mse_loss(self, y_pred, y_true):
-        """Enhanced loss function with increased focus on smoothness."""
+        """
+        Enhanced loss function for water level prediction that combines multiple objectives.
+        
+        This loss function is specifically designed for water level prediction tasks with 
+        the following components:
+        
+        1. Base MSE Loss:
+            - Standard mean squared error between predictions and true values
+            - Weight: 0.3 (30% of total loss)
+        
+        2. Peak Detection and Weighting:
+            - Identifies peaks as points > 1.5 standard deviations above mean
+            - Applies 5x weight to peak points
+            - Adds additional weight (2x) to all above-average values
+            - Weight: 0.3 (30% of total loss)
+        
+        3. Gradient Matching:
+            - Ensures predicted rates of change match actual rates
+            - Computed as first-order differences between consecutive points
+            - Weight: 0.15 (15% of total loss)
+        
+        4. Acceleration Matching:
+            - Matches second-order gradients (rate of rate of change)
+            - Helps capture trend changes and inflection points
+            - Weight: 0.1 (10% of total loss)
+        
+        5. Smoothness Regularization:
+            - Penalizes rapid changes in predictions
+            - Combines first and second-order smoothness terms
+            - Weight: 0.15 * smoothness_weight (15% of total loss)
+        
+        Args:
+            y_pred (torch.Tensor): Predicted values, shape [batch_size, sequence_length, 1]
+            y_true (torch.Tensor): True values, shape [batch_size, sequence_length, 1]
+        
+        Returns:
+            torch.Tensor: Combined loss value
+        
+        Note:
+            - For sequences shorter than 24 points, only MSE and basic peak loss are used
+            - For single-point predictions, uses 70% MSE and 30% peak loss
+        """
         # Standard MSE loss
         mse_loss = torch.nn.functional.mse_loss(y_pred, y_true)
         
@@ -205,13 +379,17 @@ class train_LSTM:
             rolling_mean = torch.mean(y_true.squeeze(), dim=0)
             rolling_std = torch.std(y_true.squeeze(), dim=0)
             
-            # Identify peaks (points > 2 standard deviations from mean)
-            peaks = (y_true.squeeze() > (rolling_mean + 2 * rolling_std)).float()
+            # Identify peaks (points > 1.5 standard deviations from mean - more sensitive)
+            peaks = (y_true.squeeze() > (rolling_mean + 1.5 * rolling_std)).float()
             
-            # Create weights (3x importance for peaks - reduced from 5x)
-            weights = 1.0 + 2.0 * peaks
+            # Create weights (5x importance for peaks - increased from 3x)
+            weights = 1.0 + 4.0 * peaks
             
-            # Weighted MSE loss for peaks
+            # Additional weight for high values
+            high_values = (y_true > rolling_mean).float()
+            weights = weights + 2.0 * high_values.squeeze()
+            
+            # Weighted MSE loss for peaks and high values
             squared_errors = (y_pred - y_true) ** 2
             peak_loss = torch.mean(weights * squared_errors.squeeze())
         else:
@@ -237,19 +415,13 @@ class train_LSTM:
             
             # Combine all losses with adjusted weights
             total_loss = (
-                0.25 * mse_loss +          # Base MSE (reduced)
-                0.15 * peak_loss +         # Peak accuracy (reduced)
-                0.20 * gradient_loss +     # Rate of change
-                0.15 * acceleration_loss + # Acceleration matching (new)
-                0.25 * self.smoothness_weight * smoothness_loss  # Increased smoothness penalty
+                0.3 * mse_loss +          # Base MSE (increased)
+                0.3 * peak_loss +         # Peak accuracy (increased)
+                0.15 * gradient_loss +    # Rate of change (reduced)
+                0.1 * acceleration_loss + # Acceleration matching (reduced)
+                0.15 * self.smoothness_weight * smoothness_loss  # Reduced smoothness penalty
             )
             
-            # Log components for debugging
-            if torch.isnan(total_loss).any():
-                print(f"WARNING: NaN in loss calculation!")
-                print(f"MSE: {mse_loss.item()}, Peak: {peak_loss.item()}, Gradient: {gradient_loss.item()}, Smoothness: {smoothness_loss.item()}")
-                return mse_loss  # Fallback to standard MSE if NaN detected
-                
             return total_loss
         else:
             # If sequence length is 1, just return combined MSE and peak loss
@@ -453,14 +625,14 @@ class train_LSTM:
                         'max': float(feature_values.max())
                     }
                 
-                # Use min-max scaling for target with padding
+                # Use min-max scaling for target with increased padding for higher values
                 target_min = float(target_data.min())
                 target_max = float(target_data.max())
                 target_range = target_max - target_min
-                # Add 50% padding to capture future extremes
+                # Add asymmetric padding: more padding for upper bound to better capture high values
                 self.target_scaler = {
-                    'min': target_min - 0.5 * target_range,
-                    'max': target_max + 0.5 * target_range
+                    'min': target_min - 0.2 * target_range,  # 20% padding below
+                    'max': target_max + 0.8 * target_range   # 80% padding above
                 }
                 print(f"Target scaling range: [{self.target_scaler['min']:.2f}, {self.target_scaler['max']:.2f}]")
                 self.is_fitted = True
@@ -936,46 +1108,51 @@ class train_LSTM:
         predictions_series = predictions_series.clip(min_allowed, max_allowed)
         print(f"  Clipped predictions to range: [{min_allowed:.2f}, {max_allowed:.2f}]")
         
-        # 2. Enhanced outlier detection and correction
-        # Use larger windows for more stable statistics
-        rolling_median = predictions_series.rolling(window=48, center=True).median()  # Increased from 24
-        rolling_std = predictions_series.rolling(window=96, center=True).std()  # Increased from 48
+        # 2. Apply initial exponential smoothing
+        # Use larger alpha for more smoothing (smaller alpha = more smoothing)
+        smoothed = predictions_series.ewm(alpha=0.15, adjust=False).mean()
+        
+        # 3. Detect and handle outliers using rolling statistics
+        window_size = 96  # 24 hours (assuming 15-min intervals)
+        rolling_median = smoothed.rolling(window=window_size, center=True).median()
+        rolling_std = smoothed.rolling(window=window_size, center=True).std()
         
         # Fill NaN values at the edges
         rolling_median = rolling_median.fillna(method='ffill').fillna(method='bfill')
         rolling_std = rolling_std.fillna(method='ffill').fillna(method='bfill')
         
         # More conservative outlier threshold
-        outlier_threshold = 3.0  # Reduced from 4.0
-        outliers = (predictions_series < (rolling_median - outlier_threshold * rolling_std)) | \
-                  (predictions_series > (rolling_median + outlier_threshold * rolling_std))
+        outlier_threshold = 2.5  # Further reduced from 3.0
+        outliers = (smoothed < (rolling_median - outlier_threshold * rolling_std)) | \
+                  (smoothed > (rolling_median + outlier_threshold * rolling_std))
         
         # Replace outliers with the median value
         if outliers.sum() > 0:
             print(f"  Detected and fixed {outliers.sum()} outliers")
-            predictions_series[outliers] = rolling_median[outliers]
+            smoothed[outliers] = rolling_median[outliers]
         
-        # 3. Apply adaptive smoothing based on local volatility
-        volatility = predictions_series.diff().abs().rolling(window=24).mean() / predictions_series.rolling(window=24).mean()
+        # 4. Apply final adaptive smoothing
+        # Calculate local volatility
+        volatility = smoothed.diff().abs().rolling(window=48).mean() / smoothed.rolling(window=48).mean()
         
-        # Apply stronger smoothing to high-volatility regions
-        smoothed = pd.Series(index=predictions_series.index, dtype=float)
+        # Initialize final smoothed series
+        final_smoothed = pd.Series(index=smoothed.index, dtype=float)
         
-        # Different smoothing windows based on volatility
-        high_vol_mask = volatility > 0.05
-        med_vol_mask = (volatility <= 0.05) & (volatility > 0.02)
-        low_vol_mask = volatility <= 0.02
+        # Apply different smoothing based on volatility
+        high_vol_mask = volatility > 0.03  # Reduced threshold
+        med_vol_mask = (volatility <= 0.03) & (volatility > 0.01)
+        low_vol_mask = volatility <= 0.01
         
-        # Apply different smoothing windows based on volatility
-        smoothed[high_vol_mask] = predictions_series[high_vol_mask].rolling(window=7, center=True).mean()
-        smoothed[med_vol_mask] = predictions_series[med_vol_mask].rolling(window=5, center=True).mean()
-        smoothed[low_vol_mask] = predictions_series[low_vol_mask].rolling(window=3, center=True).mean()
+        # Apply EWM with different alphas based on volatility
+        final_smoothed[high_vol_mask] = smoothed[high_vol_mask].ewm(alpha=0.2).mean()
+        final_smoothed[med_vol_mask] = smoothed[med_vol_mask].ewm(alpha=0.15).mean()
+        final_smoothed[low_vol_mask] = smoothed[low_vol_mask].ewm(alpha=0.1).mean()
         
         # Fill any remaining NaN values
-        smoothed = smoothed.fillna(method='ffill').fillna(method='bfill')
+        final_smoothed = final_smoothed.fillna(method='ffill').fillna(method='bfill')
         
-        print("  Applied adaptive smoothing based on local volatility")
-        return smoothed
+        print("  Applied adaptive exponential smoothing")
+        return final_smoothed
 
 def create_full_plot(test_data, test_predictions, station_id):
     """Create an interactive plot comparing actual and predicted values."""
