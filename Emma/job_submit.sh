@@ -26,5 +26,5 @@ module load pandas/2.1.1
 module load matplotlib/3.7.2
 
 
-python3 "Error_Finding_drift.py"
+python3 "test_HPC.py"
 
