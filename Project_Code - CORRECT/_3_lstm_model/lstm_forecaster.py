@@ -463,7 +463,6 @@ class train_LSTM:
             # Print brief information about the data
             print(f"\nPreparing {'training' if is_training else 'prediction'} data...")
             
-            #TODO: REMOVE THIS IF THE DATA IS ALREADY A SERIES.
             # Convert DataFrames to Series if needed
             for feature in list(station_data.keys()):
                 if isinstance(station_data[feature], pd.DataFrame):
@@ -481,25 +480,15 @@ class train_LSTM:
             # Identify base features vs derived features
             base_features = self.config['feature_cols'].copy()
             
-            # Define derived feature types - REMOVED hourly and minute features
+            # Define time features only - removed all target-derived features
             time_features = [
                 'month_sin', 'month_cos',
                 'day_sin', 'day_cos', 
                 'weekday_sin', 'weekday_cos'
             ]
             
-            lagged_features = [
-                f'{target_feature}_lag_96', 
-                f'{target_feature}_lag_672',
-                f'{target_feature}_rolling_mean_96', 
-                f'{target_feature}_rolling_std_96',
-                f'{target_feature}_diff_96',
-                f'{target_feature}_diff_4',
-                f'{target_feature}_diff_pct_96',
-                f'{target_feature}_ewm_alpha_30',
-                f'{target_feature}_ewm_alpha_70'
-            ]
-            derived_features = time_features + lagged_features
+            # Remove all lagged features as they were derived from target
+            derived_features = time_features  # Now only contains time features
             
             # Filter out derived features from base features
             actual_base_features = [f for f in base_features if f not in derived_features]
@@ -510,7 +499,6 @@ class train_LSTM:
                     all_data[feature] = station_data[feature]
                 else:
                     print(f"Warning: Base feature {feature} not found in data. Using zeros.")
-                    # Create a Series of zeros with the same index as the target
                     if target_feature in station_data and isinstance(station_data[target_feature], pd.Series):
                         all_data[feature] = pd.Series(0.0, index=station_data[target_feature].index)
             
@@ -524,7 +512,7 @@ class train_LSTM:
             # Resample to 15-minute frequency
             all_data = all_data.resample('15T').mean().interpolate(method='time').ffill().bfill()
             
-            # Add time features - REMOVED hourly and minute features
+            # Add time features
             print("Adding time-based features (month, day, weekday only)...")
             # Month of year (cyclical)
             all_data['month_sin'] = np.sin(2 * np.pi * all_data.index.month / 12)
@@ -536,47 +524,20 @@ class train_LSTM:
             all_data['weekday_sin'] = np.sin(2 * np.pi * all_data.index.weekday / 7)
             all_data['weekday_cos'] = np.cos(2 * np.pi * all_data.index.weekday / 7)
             
-            # Add enhanced lagged features for the target
-            if target_feature in all_data.columns:
-                print("Adding lagged and statistical features...")
-                # Basic lag features
-                all_data[f'{target_feature}_lag_96'] = all_data[target_feature].shift(96)  # 1 day (24 hours * 4)
-                all_data[f'{target_feature}_lag_672'] = all_data[target_feature].shift(672)  # 1 week (168 hours * 4)
+            # Only update feature_cols during training
+            if is_training:
+                # Define optimized feature set - ensure no duplicates
+                optimized_features = actual_base_features.copy()  # Start with actual base features
                 
-                # Rolling statistics
-                all_data[f'{target_feature}_rolling_mean_96'] = all_data[target_feature].rolling(96).mean()
-                all_data[f'{target_feature}_rolling_std_96'] = all_data[target_feature].rolling(96).std()
+                # Add time features if not already present
+                for feature in time_features:
+                    if feature not in optimized_features:
+                        optimized_features.append(feature)
                 
-                # Differencing features (rate of change)
-                all_data[f'{target_feature}_diff_96'] = all_data[target_feature].diff(96)  # Change over 1 day
-                all_data[f'{target_feature}_diff_4'] = all_data[target_feature].diff(4)    # Change over 1 hour
+                # Update feature_cols to include optimized features
+                self.config['feature_cols'] = optimized_features
                 
-                # Percentage change features
-                all_data[f'{target_feature}_diff_pct_96'] = all_data[target_feature].pct_change(96)
-                
-                # Exponential weighted means (different smoothing factors)
-                all_data[f'{target_feature}_ewm_alpha_30'] = all_data[target_feature].ewm(alpha=0.3).mean()
-                all_data[f'{target_feature}_ewm_alpha_70'] = all_data[target_feature].ewm(alpha=0.7).mean()
-                
-                # Only update feature_cols during training
-                if is_training:
-                    # Define optimized feature set - ensure no duplicates
-                    optimized_features = actual_base_features.copy()  # Start with actual base features
-                    
-                    # Add time features if not already present
-                    for feature in time_features:
-                        if feature not in optimized_features:
-                            optimized_features.append(feature)
-                    
-                    # Add lagged features if not already present
-                    for feature in lagged_features:
-                        if feature not in optimized_features:
-                            optimized_features.append(feature)
-                    
-                    # Update feature_cols to include optimized features
-                    self.config['feature_cols'] = optimized_features
-                    
-                    print(f"Using optimized feature set: {self.config['feature_cols']}")
+                print(f"Using optimized feature set: {self.config['feature_cols']}")
             
             # Drop NaN values that might have been introduced by lagged features
             all_data = all_data.dropna()
@@ -591,108 +552,64 @@ class train_LSTM:
             
             print(f"Processed {len(features)} data points with {len(features.columns)} features")
             
-            #TODO: TEST WITH SIMPLAR SCALING?
-            # Initialize or update scalers during training
+            # Initialize or update scalers during training with simple min-max scaling
             if is_training and not self.is_fitted:
                 self.scalers = {}
                 for col in features.columns:
-                    # Handle both Series and DataFrame columns
                     if isinstance(features[col], pd.Series):
                         feature_values = features[col]
                     else:
-                        # If it's a DataFrame, take the first column
-                        print(f"Warning: Feature {col} is a DataFrame during scaler initialization. Using first column.")
                         feature_values = features[col].iloc[:, 0]
                     
-                    # Use robust scaling for each feature
-                    q1 = feature_values.quantile(0.05)  # 5th percentile
-                    q3 = feature_values.quantile(0.95)  # 95th percentile
-                    iqr = q3 - q1
-                    median = feature_values.median()
+                    # Simple min-max scaling with small padding
+                    feature_min = float(feature_values.min())
+                    feature_max = float(feature_values.max())
+                    padding = 0.1 * (feature_max - feature_min)  # 10% padding
+                    
                     self.scalers[col] = {
-                        'median': float(median),
-                        'iqr': float(iqr) if iqr != 0 else 1.0,
-                        'min': float(feature_values.min()),
-                        'max': float(feature_values.max())
+                        'min': feature_min - padding,
+                        'max': feature_max + padding
                     }
                 
-                # Use min-max scaling for target with increased padding for higher values
+                # Min-max scaling for target with asymmetric padding
                 target_min = float(target_data.min())
                 target_max = float(target_data.max())
                 target_range = target_max - target_min
                 
-                # Get padding values from config
-                lower_padding = self.config.get('target_scaling', {}).get('lower_padding', 0.2)
-                upper_padding = self.config.get('target_scaling', {}).get('upper_padding', 1.5)
-                
-                # Apply asymmetric padding
+                # More padding above than below for water levels
                 self.target_scaler = {
-                    'min': target_min - lower_padding * target_range,
-                    'max': target_max + upper_padding * target_range
+                    'min': target_min - 0.1 * target_range,  # 10% padding below
+                    'max': target_max + 0.2 * target_range   # 20% padding above
                 }
                 print(f"Target scaling range: [{self.target_scaler['min']:.2f}, {self.target_scaler['max']:.2f}]")
                 self.is_fitted = True
 
             elif not self.is_fitted:
-                # If we're not in training mode but scalers aren't initialized, create default scalers
+                # Default scalers if not in training mode
                 print("Warning: Scalers not initialized. Creating default scalers.")
-                self.scalers = {}
-                for col in features.columns:
-                    self.scalers[col] = {
-                        'median': 0.0,
-                        'iqr': 1.0,
-                        'min': -1.0,
-                        'max': 1.0
-                    }
-                
-                # Create a default target scaler with a very wide range
-                self.target_scaler = {
-                    'min': 0.0,
-                    'max': 2000.0  # Increased from 1000.0 to handle higher water levels
-                }
+                self.scalers = {col: {'min': 0.0, 'max': 1.0} for col in features.columns}
+                self.target_scaler = {'min': 0.0, 'max': 2000.0}  # Default range for water levels
                 self.is_fitted = True
             
-            # Scale features
+            # Scale features using min-max scaling
             scaled_features = np.zeros((len(features), len(features.columns)))
             for i, col in enumerate(features.columns):
-                if col in self.scalers:
-                    # Use the appropriate scaling method for each feature
-                    median = self.scalers[col]['median']
-                    iqr = self.scalers[col]['iqr']
-                    
-                    # Handle both Series and DataFrame columns
-                    if isinstance(features[col], pd.Series):
-                        feature_values = features[col].values
-                    else:
-                        # If it's a DataFrame, take the first column
-                        print(f"Warning: Feature {col} is a DataFrame. Using first column.")
-                        feature_values = features[col].iloc[:, 0].values
-                    
-                    scaled_features[:, i] = (feature_values - median) / iqr
+                if isinstance(features[col], pd.Series):
+                    feature_values = features[col].values
                 else:
-                    print(f"Warning: No scaler found for {col}. Using standard scaling.")
-                    # Fallback to standard scaling
-                    if isinstance(features[col], pd.Series):
-                        feature_values = features[col].values
-                        mean_val = features[col].mean()
-                        std_val = features[col].std()
-                    else:
-                        # If it's a DataFrame, take the first column
-                        print(f"Warning: Feature {col} is a DataFrame. Using first column for standard scaling.")
-                        feature_values = features[col].iloc[:, 0].values
-                        mean_val = features[col].iloc[:, 0].mean()
-                        std_val = features[col].iloc[:, 0].std()
-                    
-                    if std_val == 0 or pd.isna(std_val):
-                        std_val = 1.0
-                    scaled_features[:, i] = (feature_values - mean_val) / std_val
+                    feature_values = features[col].iloc[:, 0].values
+                
+                # Apply min-max scaling
+                feature_min = self.scalers[col]['min']
+                feature_max = self.scalers[col]['max']
+                scaled_features[:, i] = (feature_values - feature_min) / (feature_max - feature_min)
             
             # Scale target
             target_min = self.target_scaler['min']
             target_max = self.target_scaler['max']
             scaled_target_data = (target_data.values - target_min) / (target_max - target_min)
             
-            # Create single sequence and convert to tensors
+            # Create tensors
             X = scaled_features.reshape(1, -1, scaled_features.shape[1])
             y = scaled_target_data.reshape(1, -1, 1)
             

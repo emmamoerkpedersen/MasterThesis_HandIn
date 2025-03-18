@@ -25,7 +25,7 @@ from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison,
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
-from _1_preprocessing.split import split_data_rolling
+from _1_preprocessing.split import split_data_with_combined_windows
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from _3_lstm_model.lstm_forecaster import train_LSTM, SimpleLSTMModel, create_full_plot
 from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
@@ -121,76 +121,29 @@ def run_pipeline(
             plot_additional_data(preprocessed_data, Path(output_path))
     
     #########################################################
-    #    Step 2: Split data into rolling windows           #
+    #    Step 2: Split data into train/val/test sets        #
     #########################################################
     
     print("\nSplitting data into train/validation/test sets...")
-    split_datasets = split_data_rolling(preprocessed_data)
+    split_datasets = split_data_with_combined_windows(
+        preprocessed_data,
+        val_years=1,
+        test_years=2
+    )
     
-    # Combine all windows into single training and validation sets
-    print("\nCombining all windows into single training and validation sets...")
-    combined_train = {station_id: {}}
-    combined_val = {station_id: {}}
+    # Use the split data directly
+    train_data = split_datasets['train']
+    val_data = split_datasets['validation']
+    test_data = split_datasets['test']
     
-    # Initialize with empty DataFrames for each feature
-    for feature in model_config['feature_cols'] + model_config.get('output_features', ['vst_raw']):
-        combined_train[station_id][feature] = pd.DataFrame()
-        combined_val[station_id][feature] = pd.DataFrame()
-    
-    # Debug: Print number of windows
-    num_windows = len(split_datasets['windows'])
-    print(f"\nNumber of windows to combine: {num_windows}")
-    
-    # First combine all training data
-    for window_idx, window_data in split_datasets['windows'].items():
-        print(f"\nProcessing window {window_idx}:")
-        for feature in model_config['feature_cols'] + model_config.get('output_features', ['vst_raw']):
-            # Debug: Print data sizes before combination
-            train_series = window_data['train'][station_id][feature]
-            print(f"  Window {window_idx} - {feature}:")
-            print(f"    Training: {len(train_series)} points ({train_series.index.min()} to {train_series.index.max()})")
-            
-            # Concatenate training data
-            combined_train[station_id][feature] = pd.concat([
-                combined_train[station_id][feature],
-                pd.DataFrame(train_series)
-            ])
-    
-    # Use only the validation data from the last window
-    last_window_idx = num_windows - 1
-    last_window = split_datasets['windows'][last_window_idx]
-    print(f"\nUsing validation data from window {last_window_idx}:")
-    
-    for feature in model_config['feature_cols'] + model_config.get('output_features', ['vst_raw']):
-        val_series = last_window['validation'][station_id][feature]
-        print(f"  {feature}:")
-        print(f"    Validation: {len(val_series)} points ({val_series.index.min()} to {val_series.index.max()})")
-        combined_val[station_id][feature] = pd.DataFrame(val_series)
-    
-    # Convert back to Series and sort
-    for feature in model_config['feature_cols'] + model_config.get('output_features', ['vst_raw']):
-        # Convert to Series and sort
-        combined_train[station_id][feature] = combined_train[station_id][feature].iloc[:, 0].sort_index()
-        combined_val[station_id][feature] = combined_val[station_id][feature].iloc[:, 0].sort_index()
-        
-        # Remove duplicates and interpolate missing values
-        combined_train[station_id][feature] = combined_train[station_id][feature].loc[~combined_train[station_id][feature].index.duplicated(keep='first')]
-        combined_val[station_id][feature] = combined_val[station_id][feature].loc[~combined_val[station_id][feature].index.duplicated(keep='first')]
-        
-        # Upsample input features to match target resolution
-        target_resolution = '15T'  # 15 minutes
-        combined_train[station_id][feature] = combined_train[station_id][feature].resample(target_resolution).interpolate(method='time').ffill().bfill()
-        combined_val[station_id][feature] = combined_val[station_id][feature].resample(target_resolution).interpolate(method='time').ffill().bfill()
-    
-    print("\nCombined data sizes and ranges:")
-    for feature in model_config['feature_cols'] + model_config.get('output_features', ['vst_raw']):
-        train_data = combined_train[station_id][feature]
-        val_data = combined_val[station_id][feature]
-        print(f"\n{feature}:")
-        print(f"  Training: {len(train_data)} points")
-        print(f"    Range: {train_data.index.min()} to {train_data.index.max()}")
-        print(f"  Validation: {len(val_data)} points")
-        print(f"    Range: {val_data.index.min()} to {val_data.index.max()}")
+    print("\nData split summary:")
+    for split_name, split_data in [('Training', train_data), ('Validation', val_data), ('Test', test_data)]:
+        for station_id in split_data:
+            for feature in split_data[station_id]:
+                data = split_data[station_id][feature]
+                print(f"{split_name} - {station_id} - {feature}:")
+                print(f"  Points: {len(data)}")
+                print(f"  Range: {data.index.min()} to {data.index.max()}")
     
     #########################################################
     #    Step 3: Generate synthetic errors                  #
@@ -295,7 +248,7 @@ def run_pipeline(
     temp_trainer = train_LSTM(temp_model, model_config)
     
     # Prepare data to get the actual number of features after adding lagged features
-    X_train, _ = temp_trainer.prepare_data(combined_train, is_training=True)
+    X_train, _ = temp_trainer.prepare_data(train_data, is_training=True)
     actual_input_size = X_train.shape[2]  # Get the actual number of features
     
     print(f"Actual input size after adding lagged features: {actual_input_size}")
@@ -315,8 +268,8 @@ def run_pipeline(
     # Train model on combined data
     print("\nTraining model on combined data...")
     history = trainer.train(
-        train_data=combined_train,
-        val_data=combined_val,
+        train_data=train_data,
+        val_data=val_data,
         epochs=model_config['epochs'],
         batch_size=model_config['batch_size'],
         patience=model_config['patience']
@@ -327,10 +280,7 @@ def run_pipeline(
     
     # Make predictions on test set
     print("\nMaking predictions on test set...")
-    test_predictions = trainer.predict(split_datasets['test'])
-    
-    # Get the test data for the station
-    test_data = split_datasets['test'][station_id]
+    test_predictions = trainer.predict(test_data)
     
     # Create and show the plot with correct data
     create_full_plot(test_data, test_predictions, station_id)
