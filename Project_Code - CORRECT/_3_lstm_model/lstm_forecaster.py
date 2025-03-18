@@ -15,10 +15,20 @@ import torch.nn.functional as F
 '''
 Remove clear_gpu_memory and MemoryEfficientDataset
 
-Try and run code without the cos and sin features
-Add rate of change features and other features to ensure that the model captures peaks
-Data leakage?
-Remove cuda code from main.py and lstm_forecaster.py
+Try and see which parts of the code are actually necessary.
+- Do we need attention?
+- Do we need residual connections?
+- Do we need custom loss function? Or can we use just base MSE?
+- Do we need input normalization?
+- Can we simplify the output projection?
+- Adam VS lr_scheduler
+
+Refactoring:
+- Move prepare_data to a lstm_preprocessing.py file.
+- Move smooth_mse_loss to a objective function file, where we can specify different objective
+  functions to use when running the LSTM.
+
+USE PROPER TQDM BAR.
 '''
 
 class SimpleLSTMModel(nn.Module):
@@ -87,7 +97,7 @@ class SimpleLSTMModel(nn.Module):
     1. Maas et al. "Rectifier Nonlinearities Improve Neural Network Acoustic Models" (2013)
     2. He et al. "Delving Deep into Rectifiers" (2015)
     """
-    
+
     def __init__(self, input_size, hidden_size, output_size, num_layers, dropout):
         """
         Initialize the LSTM model.
@@ -175,7 +185,7 @@ class SimpleLSTMModel(nn.Module):
         
         #TODO: TEST WITH AND WITHOUT INITILIZATION OF WEIGHTS.
         # Initialize weights
-        #self._init_weights()
+        self._init_weights()
         
         # Move model to device and print status
         self.to(self.device)
