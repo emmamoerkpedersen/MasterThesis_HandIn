@@ -333,7 +333,7 @@ class train_LSTM:
         Enhanced loss function for water level prediction that combines multiple objectives.
         
         This loss function is specifically designed for water level prediction tasks with 
-        the following components:
+        the following components::
         
         1. Base MSE Loss:
             - Standard mean squared error between predictions and true values

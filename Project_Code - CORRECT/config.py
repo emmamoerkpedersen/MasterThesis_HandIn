@@ -123,7 +123,7 @@ LSTM_CONFIG = {
     'dropout': 0.15,          # Slightly reduced dropout for better fitting
     'batch_size': 1,          # Keep as is
     'learning_rate': 0.0003,   # Increased back for faster learning
-    'epochs': 10,             # Increased number of epochs
+    'epochs': 20,             # Increased number of epochs
     'patience': 5,            # Increased patience
     'min_delta': 0.00001,     # More sensitive to improvements
     'max_chunk_size': 2500,   # Keep as is
