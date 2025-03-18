@@ -10,6 +10,7 @@ import webbrowser
 import os
 import time
 from sklearn.preprocessing import MinMaxScaler
+import torch.nn.functional as F
 
 '''
 Remove clear_gpu_memory and MemoryEfficientDataset
@@ -135,6 +136,7 @@ class SimpleLSTMModel(nn.Module):
             nn.Dropout(dropout) for _ in range(num_layers)
         ])
         
+        #TODO : RUN CODE WITH AND WITHOUT ATTENTION. WHEN REMOVING ATTENTION, REMEMBER TO UPDATE FORWARD FUNCTION.
         # Attention mechanism
         self.attention = nn.MultiheadAttention(
             embed_dim=hidden_size,
@@ -142,8 +144,26 @@ class SimpleLSTMModel(nn.Module):
             dropout=dropout,
             batch_first=True
         )
-        
-        # Output projection with multiple layers
+
+        # TODO: TEST WHICH OUTPUT PROJECTION IS BEST. SIMPLER THE BETTER.
+        '''
+        #Simplest output projection
+        self.output_projection = nn.Sequential(
+            nn.Linear(hidden_size, output_size)
+        )
+        #Output projection with LeakyReLU activation
+        self.output_projection = nn.Sequential(
+            nn.Linear(hidden_size, output_size),
+            nn.LeakyReLU(0.1)
+        )
+        #Moderate output projection
+        self.output_projection = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.LeakyReLU(0.1),
+            nn.Linear(hidden_size // 2, output_size)
+        )
+        '''
+        #Output projection with LeakyReLU activation and dropout
         self.output_projection = nn.Sequential(
             nn.Linear(hidden_size, hidden_size),
             nn.LeakyReLU(0.1),
@@ -154,6 +174,7 @@ class SimpleLSTMModel(nn.Module):
             nn.Linear(hidden_size // 2, output_size)
         )
         
+        #TODO: TEST WITH AND WITHOUT INITILIZATION OF WEIGHTS.
         # Initialize weights
         self._init_weights()
         
@@ -216,7 +237,7 @@ class SimpleLSTMModel(nn.Module):
         -----
         - Different initialization strategies are crucial because each layer type
           (LSTM vs Linear) has different mathematical properties and requirements
-        - The initialization values are carefully chosen based on theoretical analysis
+        - The initialization values are chosen based on theoretical analysis
           and empirical studies in deep learning literature
         - Poor initialization can lead to:
             * Vanishing/exploding gradients
@@ -299,6 +320,7 @@ class train_LSTM:
             lr=config.get('learning_rate', 0.001)
         )
         
+        # TODO: TEST WITH AND WITHOUT LEARNING RATE SCHEDULER.
         # Add learning rate scheduler with warmup
         self.warmup_steps = 100  # Number of warmup steps
         self.scheduler = self.get_lr_scheduler(
@@ -330,102 +352,58 @@ class train_LSTM:
 
     def smooth_mse_loss(self, y_pred, y_true):
         """
-        Enhanced loss function for water level prediction that combines multiple objectives.
-        
-        This loss function is specifically designed for water level prediction tasks with 
-        the following components::
-        
-        1. Base MSE Loss:
-            - Standard mean squared error between predictions and true values
-            - Weight: 0.3 (30% of total loss)
-        
-        2. Peak Detection and Weighting:
-            - Identifies peaks as points > 1.5 standard deviations above mean
-            - Applies 5x weight to peak points
-            - Adds additional weight (2x) to all above-average values
-            - Weight: 0.3 (30% of total loss)
-        
-        3. Gradient Matching:
-            - Ensures predicted rates of change match actual rates
-            - Computed as first-order differences between consecutive points
-            - Weight: 0.15 (15% of total loss)
-        
-        4. Acceleration Matching:
-            - Matches second-order gradients (rate of rate of change)
-            - Helps capture trend changes and inflection points
-            - Weight: 0.1 (10% of total loss)
-        
-        5. Smoothness Regularization:
-            - Penalizes rapid changes in predictions
-            - Combines first and second-order smoothness terms
-            - Weight: 0.15 * smoothness_weight (15% of total loss)
-        
-        Args:
-            y_pred (torch.Tensor): Predicted values, shape [batch_size, sequence_length, 1]
-            y_true (torch.Tensor): True values, shape [batch_size, sequence_length, 1]
-        
-        Returns:
-            torch.Tensor: Combined loss value
-        
-        Note:
-            - For sequences shorter than 24 points, only MSE and basic peak loss are used
-            - For single-point predictions, uses 70% MSE and 30% peak loss
+        Custom loss function that combines MSE with peak detection and smoothness.
         """
-        # Standard MSE loss
-        mse_loss = torch.nn.functional.mse_loss(y_pred, y_true)
+        # Get loss weights from config
+        loss_weights = self.config.get('loss_weights', {
+            'mse': 0.3,
+            'peak': 0.4,
+            'gradient': 0.15,
+            'smoothness': 0.15
+        })
+        
+        # Base MSE loss
+        mse_loss = F.mse_loss(y_pred, y_true)
+        
+        # Peak detection and weighting
+        peak_std = self.config.get('peak_detection_std', 1.5)
+        peak_weight = self.config.get('peak_weight', 5.0)
+        high_value_weight = self.config.get('high_value_weight', 2.0)
+        
+        # Calculate mean of true values for high value weighting
+        y_true_mean = torch.mean(y_true, dim=1, keepdim=True)
+        high_value_mask = y_true > y_true_mean
         
         # Calculate rolling statistics for peak detection
-        if y_true.shape[1] > 24:  # Only if we have enough points
-            rolling_mean = torch.mean(y_true.squeeze(), dim=0)
-            rolling_std = torch.std(y_true.squeeze(), dim=0)
-            
-            # Identify peaks (points > 1.5 standard deviations from mean - more sensitive)
-            peaks = (y_true.squeeze() > (rolling_mean + 1.5 * rolling_std)).float()
-            
-            # Create weights (5x importance for peaks - increased from 3x)
-            weights = 1.0 + 4.0 * peaks
-            
-            # Additional weight for high values
-            high_values = (y_true > rolling_mean).float()
-            weights = weights + 2.0 * high_values.squeeze()
-            
-            # Weighted MSE loss for peaks and high values
-            squared_errors = (y_pred - y_true) ** 2
-            peak_loss = torch.mean(weights * squared_errors.squeeze())
-        else:
-            peak_loss = mse_loss
+        # Use a simpler approach that maintains tensor size
+        diff_from_mean = y_true - y_true_mean
+        abs_diff = torch.abs(diff_from_mean)
+        threshold = peak_std * torch.std(y_true, dim=1, keepdim=True)
+        peaks = abs_diff > threshold
         
-        # Enhanced gradient matching and smoothness components
-        if y_pred.shape[1] > 1:
-            # First-order gradient matching (rate of change)
-            pred_grads = y_pred[:, 1:] - y_pred[:, :-1]
-            true_grads = y_true[:, 1:] - y_true[:, :-1]
-            gradient_loss = torch.nn.functional.mse_loss(pred_grads, true_grads)
-            
-            # Second-order gradient (acceleration) for additional smoothness
-            pred_grads2 = pred_grads[:, 1:] - pred_grads[:, :-1]
-            true_grads2 = true_grads[:, 1:] - true_grads[:, :-1]
-            acceleration_loss = torch.nn.functional.mse_loss(pred_grads2, true_grads2)
-            
-            # Enhanced smoothness penalty
-            smoothness_loss = (
-                torch.mean(torch.square(pred_grads)) +  # First-order smoothness
-                2.0 * torch.mean(torch.square(pred_grads2))  # Second-order smoothness
-            )
-            
-            # Combine all losses with adjusted weights
-            total_loss = (
-                0.3 * mse_loss +          # Base MSE (increased)
-                0.3 * peak_loss +         # Peak accuracy (increased)
-                0.15 * gradient_loss +    # Rate of change (reduced)
-                0.1 * acceleration_loss + # Acceleration matching (reduced)
-                0.15 * self.smoothness_weight * smoothness_loss  # Reduced smoothness penalty
-            )
-            
-            return total_loss
-        else:
-            # If sequence length is 1, just return combined MSE and peak loss
-            return 0.7 * mse_loss + 0.3 * peak_loss
+        # Apply weights to peaks and high values
+        weighted_peaks = torch.where(peaks, peak_weight * torch.ones_like(y_true), torch.ones_like(y_true))
+        weighted_peaks = torch.where(high_value_mask, weighted_peaks * high_value_weight, weighted_peaks)
+        peak_loss = torch.mean(weighted_peaks * torch.square(y_pred - y_true))
+        
+        # Gradient matching
+        dy_pred = y_pred[:, 1:] - y_pred[:, :-1]
+        dy_true = y_true[:, 1:] - y_true[:, :-1]
+        gradient_loss = F.mse_loss(dy_pred, dy_true)
+        
+        # Smoothness penalty
+        smoothness_weight = self.config.get('smoothness_weight', 0.2)
+        smoothness_loss = torch.mean(torch.square(dy_pred))
+        
+        # Combine all components
+        total_loss = (
+            loss_weights['mse'] * mse_loss +
+            loss_weights['peak'] * peak_loss +
+            loss_weights['gradient'] * gradient_loss +
+            loss_weights['smoothness'] * smoothness_weight * smoothness_loss
+        )
+        
+        return total_loss
 
     def get_lr_scheduler(self, optimizer, warmup_steps=100, max_lr=0.001, patience=5):
         """Create a learning rate scheduler with warmup."""
@@ -629,10 +607,15 @@ class train_LSTM:
                 target_min = float(target_data.min())
                 target_max = float(target_data.max())
                 target_range = target_max - target_min
-                # Add asymmetric padding: more padding for upper bound to better capture high values
+                
+                # Get padding values from config
+                lower_padding = self.config.get('target_scaling', {}).get('lower_padding', 0.2)
+                upper_padding = self.config.get('target_scaling', {}).get('upper_padding', 1.5)
+                
+                # Apply asymmetric padding
                 self.target_scaler = {
-                    'min': target_min - 0.2 * target_range,  # 20% padding below
-                    'max': target_max + 0.8 * target_range   # 80% padding above
+                    'min': target_min - lower_padding * target_range,
+                    'max': target_max + upper_padding * target_range
                 }
                 print(f"Target scaling range: [{self.target_scaler['min']:.2f}, {self.target_scaler['max']:.2f}]")
                 self.is_fitted = True
