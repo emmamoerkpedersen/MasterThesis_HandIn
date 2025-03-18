@@ -122,8 +122,8 @@ LSTM_CONFIG = {
     'num_layers': 3,           # Keep as is for model capacity
     'dropout': 0.15,          # Slightly reduced dropout for better fitting
     'batch_size': 1,          # Keep as is
-    'learning_rate': 0.0003,   # Increased for faster learning
-    'epochs': 30,             # Increased number of epochs
+    'learning_rate': 0.0005,   # Increased for faster learning
+    'epochs': 10,             # Increased number of epochs
     'patience': 5,            # Decreased to be more selective
     'min_delta': 0.00001,     # More sensitive to improvements
     'max_chunk_size': 2500,   # Keep as is

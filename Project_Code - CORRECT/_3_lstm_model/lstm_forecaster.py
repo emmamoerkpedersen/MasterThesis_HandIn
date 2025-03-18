@@ -121,7 +121,7 @@ class SimpleLSTMModel(nn.Module):
             nn.LSTM(
                 input_size=hidden_size,
                 hidden_size=hidden_size,
-                num_layers=1,
+                num_layers=num_layers,
                 batch_first=True
             ) for _ in range(num_layers)
         ])
@@ -136,14 +136,13 @@ class SimpleLSTMModel(nn.Module):
             nn.Dropout(dropout) for _ in range(num_layers)
         ])
         
-        #TODO : RUN CODE WITH AND WITHOUT ATTENTION. WHEN REMOVING ATTENTION, REMEMBER TO UPDATE FORWARD FUNCTION.
-        # Attention mechanism
-        self.attention = nn.MultiheadAttention(
-            embed_dim=hidden_size,
-            num_heads=8,
-            dropout=dropout,
-            batch_first=True
-        )
+        # Attention mechanism - COMMENTED OUT
+        # self.attention = nn.MultiheadAttention(
+        #     embed_dim=hidden_size,
+        #     num_heads=8,
+        #     dropout=dropout,
+        #     batch_first=True
+        # )
 
         # TODO: TEST WHICH OUTPUT PROJECTION IS BEST. SIMPLER THE BETTER.
         '''
@@ -176,7 +175,7 @@ class SimpleLSTMModel(nn.Module):
         
         #TODO: TEST WITH AND WITHOUT INITILIZATION OF WEIGHTS.
         # Initialize weights
-        self._init_weights()
+        #self._init_weights()
         
         # Move model to device and print status
         self.to(self.device)
@@ -276,6 +275,7 @@ class SimpleLSTMModel(nn.Module):
     def forward(self, x):
         batch_size, seq_len, features = x.size()
         
+        #TODO: TEST WITH AND WITHOUT INPUT NORMALIZATION.
         # Input normalization
         x = self.input_norm(x)
         
@@ -294,11 +294,11 @@ class SimpleLSTMModel(nn.Module):
             h = self.layer_norms[i](h)
             h = self.dropouts[i](h)
         
-        # Self-attention mechanism
-        attn_out, _ = self.attention(h, h, h)
+        # Self-attention mechanism - COMMENTED OUT
+        # attn_out, _ = self.attention(h, h, h)
         
-        # Residual connection after attention
-        h = h + attn_out
+        # Residual connection after attention - COMMENTED OUT
+        # h = h + attn_out
         
         # Final output projection
         output = self.output_projection(h)
@@ -330,6 +330,7 @@ class train_LSTM:
             patience=5
         )
         
+        #TODO: TEST WITH AND WITHOUT CUSTOM MSE LOSS.
         # Use custom loss function with smoothness penalty
         self.smoothness_weight = config.get('smoothness_weight', 0.1)
         self.criterion = self.smooth_mse_loss
@@ -452,6 +453,7 @@ class train_LSTM:
             # Print brief information about the data
             print(f"\nPreparing {'training' if is_training else 'prediction'} data...")
             
+            #TODO: REMOVE THIS IF THE DATA IS ALREADY A SERIES.
             # Convert DataFrames to Series if needed
             for feature in list(station_data.keys()):
                 if isinstance(station_data[feature], pd.DataFrame):
@@ -579,6 +581,7 @@ class train_LSTM:
             
             print(f"Processed {len(features)} data points with {len(features.columns)} features")
             
+            #TODO: TEST WITH SIMPLAR SCALING?
             # Initialize or update scalers during training
             if is_training and not self.is_fitted:
                 self.scalers = {}
@@ -619,6 +622,7 @@ class train_LSTM:
                 }
                 print(f"Target scaling range: [{self.target_scaler['min']:.2f}, {self.target_scaler['max']:.2f}]")
                 self.is_fitted = True
+
             elif not self.is_fitted:
                 # If we're not in training mode but scalers aren't initialized, create default scalers
                 print("Warning: Scalers not initialized. Creating default scalers.")
@@ -1003,10 +1007,6 @@ class train_LSTM:
         # Use the modified data for prediction
         X, _ = self.prepare_data(test_data, is_training=False)
         
-        if X.shape[0] == 0:
-            print("No data to predict on!")
-            return np.array([])
-        
         # Check if sequence is too long and needs chunking
         max_chunk_size = 5000
         need_chunking = X.shape[1] > max_chunk_size
@@ -1066,7 +1066,8 @@ class train_LSTM:
                 print(f"Predictions range from {predictions_series.index.min()} to {predictions_series.index.max()}")
                 
                 # Apply post-processing to improve predictions
-                predictions_series = self._apply_postprocessing(predictions_series, target_series)
+                predictions_series = predictions_series
+                #predictions_series = self._apply_postprocessing(predictions_series, target_series)
                 return predictions_series
             else:
                 print(f"Warning: Cannot align predictions with data_index. Using target data index.")
