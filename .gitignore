@@ -11,7 +11,7 @@ QGIS/**
 *.png
 *.jpg
 *.jpeg
-
+*.pth
 # Ignore compiled Python bytecode files
 *.pyc
 # Ignore Python cache directories
