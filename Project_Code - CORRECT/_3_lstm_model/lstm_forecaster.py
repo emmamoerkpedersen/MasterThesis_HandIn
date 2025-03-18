@@ -27,6 +27,8 @@ Refactoring:
 - Move prepare_data to a lstm_preprocessing.py file.
 - Move smooth_mse_loss to a objective function file, where we can specify different objective
   functions to use when running the LSTM.
+
+USE PROPER TQDM BAR.
 '''
 
 class SimpleLSTMModel(nn.Module):
@@ -183,7 +185,7 @@ class SimpleLSTMModel(nn.Module):
         
         #TODO: TEST WITH AND WITHOUT INITILIZATION OF WEIGHTS.
         # Initialize weights
-        #self._init_weights()
+        self._init_weights()
         
         # Move model to device and print status
         self.to(self.device)

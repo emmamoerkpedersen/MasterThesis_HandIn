@@ -119,7 +119,7 @@ LSTM_CONFIG = {
     'feature_cols': ['temperature', 'rainfall'],
     'output_features': ['vst_raw'],
     'hidden_size': 256,        # Keep as is for model capacity
-    'num_layers': 3,           # Keep as is for model capacity
+    'num_layers': 1,           # Keep as is for model capacity
     'dropout': 0.15,          # Slightly reduced dropout for better fitting
     'batch_size': 1,          # Keep as is
     'learning_rate': 0.0005,   # Increased for faster learning
