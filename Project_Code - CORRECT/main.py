@@ -162,14 +162,14 @@ def run_pipeline(
         for station, station_data in split_datasets['test'].items():
             try:
                 print(f"Generating synthetic errors for {station} (Test)...")
-                test_data = station_data['vst_raw']
+                test_data_synthetic = station_data['vst_raw']
                 
-                if test_data is None or test_data.empty:
+                if test_data_synthetic is None or test_data_synthetic.empty:
                     print(f"No test data available for station {station}")
                     continue
                 
                 # Generate synthetic errors
-                modified_data, ground_truth = error_generator.inject_all_errors(test_data)
+                modified_data, ground_truth = error_generator.inject_all_errors(test_data_synthetic)
                 
                 # Store results
                 station_key = f"{station}_test"
@@ -277,9 +277,8 @@ def run_pipeline(
     
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
-    
     # Make predictions on test set
-    print("\nMaking predictions on test set...")
+    print("\nMaking predictions on test set without synthetic errors...")
     test_predictions = trainer.predict(test_data)
     
     # Create and show the plot with correct data
@@ -318,7 +317,7 @@ if __name__ == "__main__":
             detection_diagnostics=False,
             run_hyperparameter_optimization=False,  # Set to True if you want to optimize
             hyperparameter_trials=10,
-            hyperparameter_diagnostics=True,
+            hyperparameter_diagnostics=False,
             memory_efficient=True
         )
 

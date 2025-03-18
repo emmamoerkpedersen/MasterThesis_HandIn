@@ -915,12 +915,12 @@ class train_LSTM:
         target_feature = self.config.get('output_features', ['vst_raw'])[0]
         
         # Create a copy of the data to avoid modifying the original
-        test_data = {station_id: {}}
+        test_data_prediction = {station_id: {}}
         for feature in data[station_id]:
-            test_data[station_id][feature] = data[station_id][feature].copy()
+            test_data_prediction[station_id][feature] = data[station_id][feature].copy()
         
         # Ensure target_series is a Series
-        target_series = test_data[station_id][target_feature]
+        target_series = test_data_prediction[station_id][target_feature]
         if isinstance(target_series, pd.DataFrame):
             if target_feature in target_series.columns:
                 target_series = target_series[target_feature]
@@ -929,10 +929,10 @@ class train_LSTM:
             else:
                 print(f"Warning: Cannot convert {target_feature} DataFrame to Series. Using first column.")
                 target_series = target_series.iloc[:, 0]
-            test_data[station_id][target_feature] = target_series
+            test_data_prediction[station_id][target_feature] = target_series
         
         # Use the modified data for prediction
-        X, _ = self.prepare_data(test_data, is_training=False)
+        X, _ = self.prepare_data(test_data_prediction, is_training=False)
         
         # Check if sequence is too long and needs chunking
         max_chunk_size = 5000
@@ -1009,7 +1009,7 @@ class train_LSTM:
         
         return predictions_flat
         
-    def _apply_postprocessing(self, predictions_series, target_data):
+    #def _apply_postprocessing(self, predictions_series, target_data):
         """Enhanced post-processing with stronger smoothing."""
         print("\nApplying enhanced post-processing for smoother predictions...")
         
@@ -1068,7 +1068,7 @@ class train_LSTM:
 def create_full_plot(test_data, test_predictions, station_id):
     """Create an interactive plot comparing actual and predicted values."""
     # Extract the target data
-    test_actual = test_data['vst_raw']
+    test_actual = test_data[station_id]['vst_raw']
     
     # Convert DataFrame to Series if needed
     if isinstance(test_actual, pd.DataFrame):
