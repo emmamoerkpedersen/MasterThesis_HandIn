@@ -19,11 +19,11 @@
 #BSUB -e "Error.%J.err"
 
 module load python3/3.10.11
-module load cuda/11.8
+module load cuda/11.8.0
 module load cudnn/8.6.0
-module load numpy/1.24.3
-module load pandas/2.1.1
-module load matplotlib/3.7.2
+module load numpy/1.26.0
+module load pandas/2.2.3
+module load matplotlib/3.10.1 
 
 
 python3 "test_HPC.py"

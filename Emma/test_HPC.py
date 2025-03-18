@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 
 
-original_data = pd.read_pickle("data_utils/Sample data/original_data.pkl")
-print(f'This is sum of original data: {original_data["21006845"]["rainfall"].sum()}')
+original_data = np.random.randint(0, 100, size=(1000, 1000))
+print(f'This is sum of original data: {original_data.sum()}')
 
-plt.plot(original_data["21006845"]["rainfall"].index, original_data["21006845"]["rainfall"].values)
+plt.plot(original_data)
 plt.show()
