@@ -60,7 +60,7 @@ def split_data_with_combined_windows(preprocessed_data: dict,
             # Resample and fill based on feature type
             for split_name, split_data in splits.items():
                 resampled = split_data.resample('15min')
-                if feature in ['vst_raw', 'rainfall']:
+                if feature in ['rainfall']:
                     # First resample, then replace NaN with -1
                     result[split_name][station_id][feature] = resampled.asfreq().fillna(-1)
                 else:  # temperature

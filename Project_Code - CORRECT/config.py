@@ -120,11 +120,11 @@ LSTM_CONFIG = {
     'output_features': ['vst_raw'],
     'sequence_length': 100,
     'hidden_size': 64,        # Keep as is for model capacity
-    'num_layers': 1,           # Keep as is for model capacity
+    'num_layers': 2,           # Keep as is for model capacity
     'dropout': 0.15,          # Slightly reduced dropout for better fitting
-    'batch_size': 10,          # Keep as is
-    'learning_rate': 0.01,   # Increased for faster learning
-    'epochs': 10,             # Increased number of epochs
+    'batch_size': 5,          # Keep as is
+    'learning_rate': 0.001,   # Increased for faster learning
+    'epochs': 15,             # Increased number of epochs
     'patience': 5,            # Decreased to be more selective
     'min_delta': 0.00001,     # More sensitive to improvements
     'max_chunk_size': 2500,   # Keep as is
