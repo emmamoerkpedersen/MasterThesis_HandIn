@@ -34,81 +34,8 @@ USE PROPER TQDM BAR.
 class SimpleLSTMModel(nn.Module):
     """
     Simple LSTM model for time series forecasting.
-    
-    Activation Functions:
-    -------------------
-    The model uses Leaky ReLU activations in its feed-forward layers. Here's why:
-
-    1. ReLU (Rectified Linear Unit):
-        - Function: f(x) = max(0, x)
-        - Properties:
-            * Simple and computationally efficient
-            * Helps solve vanishing gradient problem
-            * Induces sparsity in the network
-        - Limitation:
-            * "Dying ReLU" problem: neurons can get stuck in negative range,
-              always outputting zero and never activating
-
-    2. Leaky ReLU:
-        - Function: f(x) = x if x > 0 else αx  (where α is a small constant, typically 0.01)
-        - Properties:
-            * All benefits of ReLU
-            * Prevents "dying ReLU" problem by allowing small negative gradients
-            * More robust training behavior
-        - In our model:
-            * Used with α=0.1 (slightly larger than default to allow better gradient flow)
-            * Applied after linear layers in output projection
-            * Helps maintain healthy gradients throughout the network
-
-    Visual Representation:
-                   ↗ x         (x > 0)
-    Leaky ReLU: y =
-                   ↘ 0.1x     (x ≤ 0)
-
-    Mathematical Properties:
-    ----------------------
-    1. Derivative:
-        - ReLU:      f'(x) = 1 if x > 0, else 0
-        - LeakyReLU: f'(x) = 1 if x > 0, else α
-
-    2. Range:
-        - ReLU:      [0, ∞)
-        - LeakyReLU: (-∞, ∞)
-
-    Why We Use Leaky ReLU:
-    ---------------------
-    1. Training Stability:
-        - Non-zero gradient for negative values helps maintain active neurons
-        - Reduces risk of vanishing gradients
-        - More stable learning in deep networks
-
-    2. Time Series Specific:
-        - Better handles negative variations in the data
-        - More suitable for regression tasks like water level prediction
-        - Allows network to model both positive and negative trends
-
-    3. Performance:
-        - Nearly as computationally efficient as ReLU
-        - Better gradient flow throughout the network
-        - Often leads to faster convergence
-
-    References:
-    ----------
-    1. Maas et al. "Rectifier Nonlinearities Improve Neural Network Acoustic Models" (2013)
-    2. He et al. "Delving Deep into Rectifiers" (2015)
     """
-
     def __init__(self, input_size, hidden_size, output_size, num_layers, dropout):
-        """
-        Initialize the LSTM model.
-        
-        Args:
-            input_size: Number of input features
-            hidden_size: Number of hidden units
-            output_size: Number of output features
-            num_layers: Number of LSTM layers
-            dropout: Dropout rate
-        """
         super(SimpleLSTMModel, self).__init__()
         
         self.input_size = input_size
@@ -120,200 +47,36 @@ class SimpleLSTMModel(nn.Module):
         # Check for CUDA availability
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        # Input normalization layer
-        self.input_norm = nn.LayerNorm(input_size)
-        
-        # Input projection to match hidden size for residual connections
-        self.input_projection = nn.Linear(input_size, hidden_size)
-        
-        # LSTM layers with residual connections
-        self.lstm_layers = nn.ModuleList([
-            nn.LSTM(
-                input_size=hidden_size,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                batch_first=True
-            ) for _ in range(num_layers)
-        ])
-        
-        # Layer normalization after each LSTM
-        self.layer_norms = nn.ModuleList([
-            nn.LayerNorm(hidden_size) for _ in range(num_layers)
-        ])
-        
-        # Dropout layers
-        self.dropouts = nn.ModuleList([
-            nn.Dropout(dropout) for _ in range(num_layers)
-        ])
-        
-        # Attention mechanism - COMMENTED OUT
-        # self.attention = nn.MultiheadAttention(
-        #     embed_dim=hidden_size,
-        #     num_heads=8,
-        #     dropout=dropout,
-        #     batch_first=True
-        # )
-
-        # TODO: TEST WHICH OUTPUT PROJECTION IS BEST. SIMPLER THE BETTER.
-        '''
-        #Simplest output projection
-        self.output_projection = nn.Sequential(
-            nn.Linear(hidden_size, output_size)
-        )
-        #Output projection with LeakyReLU activation
-        self.output_projection = nn.Sequential(
-            nn.Linear(hidden_size, output_size),
-            nn.LeakyReLU(0.1)
-        )
-        #Moderate output projection
-        self.output_projection = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.LeakyReLU(0.1),
-            nn.Linear(hidden_size // 2, output_size)
-        )
-        '''
-        #Output projection with LeakyReLU activation and dropout
-        self.output_projection = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.LeakyReLU(0.1),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.LeakyReLU(0.1),
-            nn.Dropout(dropout/2),
-            nn.Linear(hidden_size // 2, output_size)
+        # LSTM layer with dropout
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0
         )
         
-        #TODO: TEST WITH AND WITHOUT INITILIZATION OF WEIGHTS.
-        # Initialize weights
-        self._init_weights()
+        # Dropout layer
+        self.dropout = nn.Dropout(dropout)
         
-        # Move model to device and print status
+        # Fully connected layer
+        self.fc = nn.Linear(hidden_size, output_size)
+        
+        # Move model to device
         self.to(self.device)
         print(f"Model using device: {self.device}")
     
-    def _init_weights(self):
-        """Initialize neural network weights using specialized initialization strategies.
-        
-        This method implements carefully chosen weight initialization techniques that are critical
-        for proper neural network training, especially for deep architectures like LSTMs. Proper
-        weight initialization helps:
-        1. Prevent vanishing/exploding gradients
-        2. Maintain consistent variance throughout the network
-        3. Enable faster convergence during training
-        4. Improve model stability
-        
-        Implementation Details:
-        ---------------------
-        The method uses three different initialization strategies based on the layer type:
-        
-        1. LSTM Layers (Recurrent Weights):
-            - Uses Orthogonal Initialization
-            - Why? Orthogonal matrices preserve gradient magnitudes during backpropagation,
-              which is crucial for training deep RNNs/LSTMs
-            - For multi-dimensional weights: nn.init.orthogonal_
-            - For 1D weights: Normal distribution with std=0.1
-            
-        2. Linear Layers (Feed-forward Weights):
-            - Uses Kaiming (He) Initialization
-            - Why? Designed specifically for layers using ReLU-like activations
-            - Maintains variance of activations throughout the network
-            - Formula: std = sqrt(2/n_in) for 'leaky_relu'
-            - For 1D weights: Normal distribution with std=0.1
-            
-        3. Bias Terms:
-            - Initialized to zero
-            - Why? Biases can learn appropriate values during training,
-              and zero initialization is typically sufficient
-        
-        Mathematical Background:
-        ----------------------
-        1. Orthogonal Initialization:
-            - Creates weight matrices W where W^T * W = I
-            - Eigenvalues have magnitude 1, preserving gradient norms
-            - Particularly effective for deep networks and RNNs
-        
-        2. Kaiming/He Initialization:
-            - std = sqrt(2/(1 + negative_slope^2) * n_in)
-            - Derived from maintaining variance of activations
-            - Accounts for non-linear activation functions
-        
-        Parameters:
-        ----------
-        self : SimpleLSTMModel
-            The model instance containing the weights to initialize
-        
-        Notes:
-        -----
-        - Different initialization strategies are crucial because each layer type
-          (LSTM vs Linear) has different mathematical properties and requirements
-        - The initialization values are chosen based on theoretical analysis
-          and empirical studies in deep learning literature
-        - Poor initialization can lead to:
-            * Vanishing/exploding gradients
-            * Dead neurons (especially with ReLU)
-            * Slow convergence
-            * Poor final performance
-        
-        References:
-        ----------
-        1. Orthogonal Initialization:
-           Saxe et al. "Exact solutions to the nonlinear dynamics of learning in deep
-           linear neural networks" (2014)
-        
-        2. Kaiming/He Initialization:
-           He et al. "Delving Deep into Rectifiers: Surpassing Human-Level Performance
-           on ImageNet Classification" (2015)
-        """
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                if 'lstm' in name:
-                    # Orthogonal initialization for LSTM weights
-                    if param.dim() > 1:
-                        nn.init.orthogonal_(param)
-                    else:
-                        nn.init.normal_(param, mean=0.0, std=0.1)
-                else:
-                    # Kaiming initialization for linear layers
-                    if param.dim() > 1:
-                        nn.init.kaiming_normal_(param, nonlinearity='leaky_relu')
-                    else:
-                        # For 1D tensors, use normal initialization
-                        nn.init.normal_(param, mean=0.0, std=0.1)
-            elif 'bias' in name:
-                nn.init.constant_(param, 0.0)
-    
     def forward(self, x):
-        batch_size, seq_len, features = x.size()
+        # LSTM forward pass
+        out, (hn, cn) = self.lstm(x)
         
-        #TODO: TEST WITH AND WITHOUT INPUT NORMALIZATION.
-        # Input normalization
-        x = self.input_norm(x)
+        # Take output from all timesteps
+        out = self.dropout(out)
         
-        # Project input to hidden size
-        h = self.input_projection(x)
+        # Pass through fully connected layer
+        predictions = self.fc(out)
         
-        # Process through LSTM layers with residual connections
-        for i in range(self.num_layers):
-            # LSTM layer
-            lstm_out, _ = self.lstm_layers[i](h)
-            
-            # Residual connection
-            h = h + lstm_out
-            
-            # Layer normalization and dropout
-            h = self.layer_norms[i](h)
-            h = self.dropouts[i](h)
-        
-        # Self-attention mechanism - COMMENTED OUT
-        # attn_out, _ = self.attention(h, h, h)
-        
-        # Residual connection after attention - COMMENTED OUT
-        # h = h + attn_out
-        
-        # Final output projection
-        output = self.output_projection(h)
-        
-        return output
+        return predictions
 
 class train_LSTM:
     def __init__(self, model, config):
@@ -324,26 +87,14 @@ class train_LSTM:
         # Get device from model
         self.device = model.device
         
-        # Initialize optimizer
+        # Use simple MSE loss
+        self.criterion = nn.MSELoss()
+        
+        # Initialize optimizer (only Adam)
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), 
             lr=config.get('learning_rate', 0.001)
         )
-        
-        # TODO: TEST WITH AND WITHOUT LEARNING RATE SCHEDULER.
-        # Add learning rate scheduler with warmup
-        self.warmup_steps = 100  # Number of warmup steps
-        self.scheduler = self.get_lr_scheduler(
-            self.optimizer,
-            warmup_steps=self.warmup_steps,
-            max_lr=config.get('learning_rate', 0.001),
-            patience=5
-        )
-        
-        #TODO: TEST WITH AND WITHOUT CUSTOM MSE LOSS.
-        # Use custom loss function with smoothness penalty
-        self.smoothness_weight = config.get('smoothness_weight', 0.1)
-        self.criterion = self.smooth_mse_loss
         
         # Initialize scalers
         self.scalers = {}
@@ -358,94 +109,93 @@ class train_LSTM:
         print(f"  Model: {type(model).__name__}")
         print(f"  Parameters: {sum(p.numel() for p in model.parameters())}")
         print(f"  Learning rate: {config.get('learning_rate', 0.001)}")
-        print(f"  Smoothness weight: {self.smoothness_weight}")
         print(f"  Features: {len(self.feature_names)} input features")
 
-    def smooth_mse_loss(self, y_pred, y_true):
-        """
-        Custom loss function that combines MSE with peak detection and smoothness.
-        """
-        # Get loss weights from config
-        loss_weights = self.config.get('loss_weights', {
-            'mse': 0.3,
-            'peak': 0.4,
-            'gradient': 0.15,
-            'smoothness': 0.15
-        })
+    # def smooth_mse_loss(self, y_pred, y_true):
+    #     """
+    #     Custom loss function that combines MSE with peak detection and smoothness.
+    #     """
+    #     # Get loss weights from config
+    #     loss_weights = self.config.get('loss_weights', {
+    #         'mse': 0.3,
+    #         'peak': 0.4,
+    #         'gradient': 0.15,
+    #         'smoothness': 0.15
+    #     })
         
-        # Base MSE loss
-        mse_loss = F.mse_loss(y_pred, y_true)
+    #     # Base MSE loss
+    #     mse_loss = F.mse_loss(y_pred, y_true)
         
-        # Peak detection and weighting
-        peak_std = self.config.get('peak_detection_std', 1.5)
-        peak_weight = self.config.get('peak_weight', 5.0)
-        high_value_weight = self.config.get('high_value_weight', 2.0)
+    #     # Peak detection and weighting
+    #     peak_std = self.config.get('peak_detection_std', 1.5)
+    #     peak_weight = self.config.get('peak_weight', 5.0)
+    #     high_value_weight = self.config.get('high_value_weight', 2.0)
         
-        # Calculate mean of true values for high value weighting
-        y_true_mean = torch.mean(y_true, dim=1, keepdim=True)
-        high_value_mask = y_true > y_true_mean
+    #     # Calculate mean of true values for high value weighting
+    #     y_true_mean = torch.mean(y_true, dim=1, keepdim=True)
+    #     high_value_mask = y_true > y_true_mean
         
-        # Calculate rolling statistics for peak detection
-        # Use a simpler approach that maintains tensor size
-        diff_from_mean = y_true - y_true_mean
-        abs_diff = torch.abs(diff_from_mean)
-        threshold = peak_std * torch.std(y_true, dim=1, keepdim=True)
-        peaks = abs_diff > threshold
+    #     # Calculate rolling statistics for peak detection
+    #     # Use a simpler approach that maintains tensor size
+    #     diff_from_mean = y_true - y_true_mean
+    #     abs_diff = torch.abs(diff_from_mean)
+    #     threshold = peak_std * torch.std(y_true, dim=1, keepdim=True)
+    #     peaks = abs_diff > threshold
         
-        # Apply weights to peaks and high values
-        weighted_peaks = torch.where(peaks, peak_weight * torch.ones_like(y_true), torch.ones_like(y_true))
-        weighted_peaks = torch.where(high_value_mask, weighted_peaks * high_value_weight, weighted_peaks)
-        peak_loss = torch.mean(weighted_peaks * torch.square(y_pred - y_true))
+    #     # Apply weights to peaks and high values
+    #     weighted_peaks = torch.where(peaks, peak_weight * torch.ones_like(y_true), torch.ones_like(y_true))
+    #     weighted_peaks = torch.where(high_value_mask, weighted_peaks * high_value_weight, weighted_peaks)
+    #     peak_loss = torch.mean(weighted_peaks * torch.square(y_pred - y_true))
         
-        # Gradient matching
-        dy_pred = y_pred[:, 1:] - y_pred[:, :-1]
-        dy_true = y_true[:, 1:] - y_true[:, :-1]
-        gradient_loss = F.mse_loss(dy_pred, dy_true)
+    #     # Gradient matching
+    #     dy_pred = y_pred[:, 1:] - y_pred[:, :-1]
+    #     dy_true = y_true[:, 1:] - y_true[:, :-1]
+    #     gradient_loss = F.mse_loss(dy_pred, dy_true)
         
-        # Smoothness penalty
-        smoothness_weight = self.config.get('smoothness_weight', 0.2)
-        smoothness_loss = torch.mean(torch.square(dy_pred))
+    #     # Smoothness penalty
+    #     smoothness_weight = self.config.get('smoothness_weight', 0.2)
+    #     smoothness_loss = torch.mean(torch.square(dy_pred))
         
-        # Combine all components
-        total_loss = (
-            loss_weights['mse'] * mse_loss +
-            loss_weights['peak'] * peak_loss +
-            loss_weights['gradient'] * gradient_loss +
-            loss_weights['smoothness'] * smoothness_weight * smoothness_loss
-        )
+    #     # Combine all components
+    #     total_loss = (
+    #         loss_weights['mse'] * mse_loss +
+    #         loss_weights['peak'] * peak_loss +
+    #         loss_weights['gradient'] * gradient_loss +
+    #         loss_weights['smoothness'] * smoothness_weight * smoothness_loss
+    #     )
         
-        return total_loss
+    #     return total_loss
 
-    def get_lr_scheduler(self, optimizer, warmup_steps=100, max_lr=0.001, patience=5):
-        """Create a learning rate scheduler with warmup."""
-        # Define a custom learning rate lambda function
-        def lr_lambda(step):
-            if step < warmup_steps:
-                # Linear warmup from 0.1 * max_lr to max_lr
-                return 0.1 + 0.9 * float(step) / float(max(1, warmup_steps))
-            else:
-                # After warmup, use a constant learning rate
-                return 1.0
+    # def get_lr_scheduler(self, optimizer, warmup_steps=100, max_lr=0.001, patience=5):
+    #     """Create a learning rate scheduler with warmup."""
+    #     # Define a custom learning rate lambda function
+    #     def lr_lambda(step):
+    #         if step < warmup_steps:
+    #             # Linear warmup from 0.1 * max_lr to max_lr
+    #             return 0.1 + 0.9 * float(step) / float(max(1, warmup_steps))
+    #         else:
+    #             # After warmup, use a constant learning rate
+    #             return 1.0
         
-        # Create a LambdaLR scheduler for warmup
-        warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    #     # Create a LambdaLR scheduler for warmup
+    #     warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
         
-        # Create a ReduceLROnPlateau scheduler for after warmup
-        plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode='min',
-            factor=0.5,
-            patience=patience,
-            verbose=True,
-            min_lr=1e-6
-        )
+    #     # Create a ReduceLROnPlateau scheduler for after warmup
+    #     plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #         optimizer,
+    #         mode='min',
+    #         factor=0.5,
+    #         patience=patience,
+    #         verbose=True,
+    #         min_lr=1e-6
+    #     )
         
-        # Return a dictionary with both schedulers
-        return {
-            'warmup': warmup_scheduler,
-            'plateau': plateau_scheduler,
-            'current_step': 0
-        }
+    #     # Return a dictionary with both schedulers
+    #     return {
+    #         'warmup': warmup_scheduler,
+    #         'plateau': plateau_scheduler,
+    #         'current_step': 0
+    #     }
 
     def prepare_data(self, data, is_training=True):
         """Prepare data for sequence-to-sequence prediction with minimal features."""
@@ -630,81 +380,36 @@ class train_LSTM:
             traceback.print_exc()
             return torch.FloatTensor([])
 
-    def _create_data_loaders(self, X, y, batch_size, max_chunk_size):
-        """Create data loaders, chunking if necessary."""
-        loaders = []
-        
-        # Get max_chunk_size from config or use default
-        max_chunk_size = self.config.get('max_chunk_size', max_chunk_size)
-        
+    def _create_data_loaders(self, X, y, batch_size):
+        """Create data loaders with batches."""
         # Move tensors to CPU for data loading
         X = X.cpu()
         y = y.cpu()
         
-        if X.shape[1] > max_chunk_size:
-            # Need chunking
-            seq_len = X.shape[1]
-            num_chunks = (seq_len + max_chunk_size - 1) // max_chunk_size
-            
-            for i in range(num_chunks):
-                start_idx = i * max_chunk_size
-                end_idx = min((i + 1) * max_chunk_size, seq_len)
-                
-                # Extract chunk
-                X_chunk = X[:, start_idx:end_idx, :].contiguous()
-                y_chunk = y[:, start_idx:end_idx, :].contiguous()
-                
-                # Create dataset and loader
-                dataset = TensorDataset(X_chunk, y_chunk)
-                loader = DataLoader(
-                    dataset, 
-                    batch_size=1,  # Keep batch_size=1 for sequence prediction
-                    shuffle=False,
-                    pin_memory=True if torch.cuda.is_available() else False
-                )
-                loaders.append(loader)
-                
-                # Clear some memory
-                del X_chunk, y_chunk
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-        else:
-            # No chunking needed
-            X = X.contiguous()
-            y = y.contiguous()
-            dataset = TensorDataset(X, y)
-            loader = DataLoader(
-                dataset,
-                batch_size=1,
-                shuffle=False,
-                pin_memory=True if torch.cuda.is_available() else False
-            )
-            loaders.append(loader)
+        # Make data contiguous in memory
+        X = X.contiguous()
+        y = y.contiguous()
         
-        return loaders
+        # Create dataset and loader
+        dataset = TensorDataset(X, y)
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,  # Shuffle during training
+            pin_memory=True if torch.cuda.is_available() else False
+        )
+        
+        return loader
 
-    def train(self, train_data, val_data, epochs=100, batch_size=1, patience=15):
-        """Train the model with sequence-to-sequence approach."""
+    def train(self, train_data, val_data, epochs, batch_size, patience):
+        """Train the model with batches."""
         # Prepare data
         X_train, y_train = self.prepare_data(train_data, is_training=True)
         X_val, y_val = self.prepare_data(val_data, is_training=False)
         
-        # Get chunk size from config
-        max_chunk_size = self.config.get('max_chunk_size', 2500)
-        need_chunking = X_train.shape[1] > max_chunk_size
-        
-        if need_chunking:
-            print(f"\nSequence length ({X_train.shape[1]}) exceeds maximum chunk size ({max_chunk_size})")
-            print(f"Will process data in chunks")
-            
-            # Calculate number of chunks
-            seq_len = X_train.shape[1]
-            num_chunks = (seq_len + max_chunk_size - 1) // max_chunk_size
-            print(f"Data will be processed in {num_chunks} chunks")
-        
         # Create train and validation data loaders
-        train_loaders = self._create_data_loaders(X_train, y_train, batch_size=1, max_chunk_size=max_chunk_size)
-        val_loaders = self._create_data_loaders(X_val, y_val, batch_size=1, max_chunk_size=max_chunk_size)
+        train_loader = self._create_data_loaders(X_train, y_train, batch_size=batch_size)
+        val_loader = self._create_data_loaders(X_val, y_val, batch_size=batch_size)
         
         # Clear some memory
         del X_train, y_train, X_val, y_val
@@ -723,9 +428,6 @@ class train_LSTM:
             'learning_rates': []
         }
         
-        # Reset scheduler step counter
-        self.scheduler['current_step'] = 0
-        
         print(f"\nTraining for {epochs} epochs with patience {patience}:")
         print(f"Learning rate: {self.optimizer.param_groups[0]['lr']:.6f}")
         print(f"Device: {self.device}")
@@ -740,77 +442,49 @@ class train_LSTM:
                 train_loss = 0
                 total_batches = 0
                 
-                # Process each chunk
-                for chunk_idx, train_loader in enumerate(train_loaders):
-                    chunk_loss = 0
-                    chunk_batches = 0
+                # Process each batch
+                for batch_idx, (data, targets) in enumerate(train_loader):
+                    # Print batch shapes
+                    print(f"Batch {batch_idx + 1} shapes - Input: {data.shape}, Target: {targets.shape}")
                     
-                    # Process each batch in the chunk
-                    for batch_idx, (data, targets) in enumerate(train_loader):
-                        try:
-                            # Move data to device
-                            data = data.to(self.device, non_blocking=True)
-                            targets = targets.to(self.device, non_blocking=True)
-                            
-                            self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
-                            
-                            # Forward pass with gradient computation
-                            outputs = self.model(data)
-                            
-                            # Ensure outputs and targets have the same shape
-                            if outputs.shape[1] != targets.shape[1]:
-                                min_length = min(outputs.shape[1], targets.shape[1])
-                                outputs = outputs[:, :min_length, :]
-                                targets = targets[:, :min_length, :]
-                            
-                            loss = self.criterion(outputs, targets)
-                            
-                            # Backward pass
-                            loss.backward()
-                            
-                            # Gradient clipping
-                            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                            
-                            self.optimizer.step()
-                            
-                            # Update the warmup scheduler after each batch
-                            if self.scheduler['current_step'] < self.warmup_steps:
-                                self.scheduler['warmup'].step()
-                                self.scheduler['current_step'] += 1
-                                
-                            chunk_loss += loss.item()
-                            chunk_batches += 1
-                            
-                            # Clear memory
-                            del data, targets, outputs, loss
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                                
-                        except RuntimeError as e:
-                            if "out of memory" in str(e):
-                                print(f"WARNING: Out of memory in batch. Skipping batch and clearing cache.")
-                                if torch.cuda.is_available():
-                                    torch.cuda.empty_cache()
-                                continue
-                            else:
-                                raise e
+                    # Move data to device
+                    data = data.to(self.device, non_blocking=True)
+                    targets = targets.to(self.device, non_blocking=True)
                     
-                    if chunk_batches > 0:
-                        avg_chunk_loss = chunk_loss / chunk_batches
-                        train_loss += avg_chunk_loss * chunk_batches
-                        total_batches += chunk_batches
-                        
-                        if need_chunking:
-                            print(f"  Chunk {chunk_idx+1}/{len(train_loaders)} - Loss: {avg_chunk_loss:.6f}")
+                    self.optimizer.zero_grad(set_to_none=True)
+                    
+                    # Forward pass
+                    outputs = self.model(data)
+                    
+                    # Ensure outputs and targets have the same shape
+                    if outputs.shape[1] != targets.shape[1]:
+                        min_length = min(outputs.shape[1], targets.shape[1])
+                        outputs = outputs[:, :min_length, :]
+                        targets = targets[:, :min_length, :]
+                    
+                    loss = self.criterion(outputs, targets)
+                    
+                    # Backward pass
+                    loss.backward()
+                    
+                    # Gradient clipping
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    
+                    self.optimizer.step()
+                    
+                    train_loss += loss.item()
+                    total_batches += 1
+                    
+                    # Clear memory
+                    del data, targets, outputs, loss
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                 
                 # Calculate average training loss
-                avg_train_loss = train_loss / max(1, total_batches)
+                avg_train_loss = train_loss / total_batches
                 
                 # Validate
-                val_loss = self._validate_epoch(val_loaders)
-                
-                # Update learning rate scheduler
-                self.scheduler['plateau'].step(val_loss)
+                val_loss = self._validate_epoch(val_loader)
                 
                 # Store history
                 history['train_loss'].append(avg_train_loss)
@@ -836,7 +510,7 @@ class train_LSTM:
                         print("Early stopping triggered!")
                         break
                 
-                # Clear some memory at the end of each epoch
+                # Clear memory at the end of each epoch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     
@@ -854,42 +528,33 @@ class train_LSTM:
             
         return history
 
-    def _validate_epoch(self, val_loaders):
-        """Validate the model on all validation chunks."""
+    def _validate_epoch(self, val_loader):
+        """Validate the model."""
         self.model.eval()
         val_loss = 0
-        total_val_batches = 0
+        total_batches = 0
         
         with torch.no_grad():
-            # Process each validation chunk
-            for chunk_idx, val_loader in enumerate(val_loaders):
-                chunk_val_loss = 0
-                chunk_val_batches = 0
+            for batch_idx, (data, targets) in enumerate(val_loader):
+                # Move data to device
+                data = data.to(self.device)
+                targets = targets.to(self.device)
                 
-                for batch_idx, (data, targets) in enumerate(val_loader):
-                    # Move data to device
-                    data = data.to(self.device)
-                    targets = targets.to(self.device)
-                    
-                    outputs = self.model(data)
-                    
-                    # Ensure outputs and targets have the same shape
-                    if outputs.shape[1] != targets.shape[1]:
-                        min_length = min(outputs.shape[1], targets.shape[1])
-                        outputs = outputs[:, :min_length, :]
-                        targets = targets[:, :min_length, :]
-                    
-                    loss = self.criterion(outputs, targets)
-                    
-                    chunk_val_loss += loss.item()
-                    chunk_val_batches += 1
+                outputs = self.model(data)
                 
-                if chunk_val_batches > 0:
-                    val_loss += chunk_val_loss
-                    total_val_batches += chunk_val_batches
+                # Ensure outputs and targets have the same shape
+                if outputs.shape[1] != targets.shape[1]:
+                    min_length = min(outputs.shape[1], targets.shape[1])
+                    outputs = outputs[:, :min_length, :]
+                    targets = targets[:, :min_length, :]
+                
+                loss = self.criterion(outputs, targets)
+                
+                val_loss += loss.item()
+                total_batches += 1
         
         # Calculate average validation loss
-        avg_val_loss = val_loss / max(1, total_val_batches)
+        avg_val_loss = val_loss / total_batches
         return avg_val_loss
 
     def predict(self, data):
@@ -910,7 +575,7 @@ class train_LSTM:
                     print(f"  {feature} (DataFrame): {len(feature_data)} points, range: {feature_data.index.min()} to {feature_data.index.max()}")
         print("="*80 + "\n")
         
-        # Check if we need to add lagged features to the test data
+        # Get station and target info
         station_id = list(data.keys())[0]
         target_feature = self.config.get('output_features', ['vst_raw'])[0]
         
@@ -931,44 +596,13 @@ class train_LSTM:
                 target_series = target_series.iloc[:, 0]
             test_data_prediction[station_id][target_feature] = target_series
         
-        # Use the modified data for prediction
+        # Prepare data for prediction
         X, _ = self.prepare_data(test_data_prediction, is_training=False)
         
-        # Check if sequence is too long and needs chunking
-        max_chunk_size = 5000
-        need_chunking = X.shape[1] > max_chunk_size
-        
-        if need_chunking:
-            print(f"Processing long sequence in chunks (length: {X.shape[1]})")
-            
-            # Calculate number of chunks
-            seq_len = X.shape[1]
-            num_chunks = (seq_len + max_chunk_size - 1) // max_chunk_size
-            
-            # Initialize array for predictions
-            all_predictions = np.zeros((X.shape[0], seq_len, 1))
-            
-            # Process each chunk
-            with torch.no_grad():
-                for i in range(num_chunks):
-                    start_idx = i * max_chunk_size
-                    end_idx = min((i + 1) * max_chunk_size, seq_len)
-                    
-                    # Extract and process chunk
-                    X_chunk = X[:, start_idx:end_idx, :]
-                    chunk_predictions = self.model(X_chunk)
-                    chunk_predictions = chunk_predictions.cpu().numpy()
-                    
-                    # Store predictions
-                    all_predictions[:, start_idx:end_idx, :] = chunk_predictions
-            
-            # Use combined predictions
-            predictions = all_predictions
-        else:
-            # Make predictions on the entire sequence at once
-            with torch.no_grad():
-                predictions = self.model(X.to(self.device))
-                predictions = predictions.cpu().numpy()
+        # Make predictions
+        with torch.no_grad():
+            predictions = self.model(X.to(self.device))
+            predictions = predictions.cpu().numpy()
         
         # Inverse transform predictions
         target_min = self.target_scaler['min']
@@ -986,19 +620,13 @@ class train_LSTM:
         
         # Create a Series with the correct index
         if len(predictions_flat) > 0:
-            # Use the stored index from prepare_data
             if hasattr(self, 'data_index') and len(self.data_index) == len(predictions_flat):
                 predictions_series = pd.Series(predictions_flat, index=self.data_index)
                 print(f"Created predictions series with {len(predictions_series)} points")
                 print(f"Predictions range from {predictions_series.index.min()} to {predictions_series.index.max()}")
-                
-                # Apply post-processing to improve predictions
-                predictions_series = predictions_series
-                #predictions_series = self._apply_postprocessing(predictions_series, target_series)
                 return predictions_series
             else:
                 print(f"Warning: Cannot align predictions with data_index. Using target data index.")
-                # Try to align with target data
                 if len(target_series) >= len(predictions_flat):
                     predictions_index = target_series.index[:len(predictions_flat)]
                     predictions_series = pd.Series(predictions_flat, index=predictions_index)
