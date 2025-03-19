@@ -1,4 +1,7 @@
-plotly>=5.7.0
-plotly-resampler>=0.9.1
-kaleido  # for static image export
-ipywidgets>=7.0.0  # needed for FigureWidgetResampler 
+torch==2.6.0+cpu
+pandas==2.2.3
+scikit-learn==1.6.1
+matplotlib==3.10.1
+optuna==4.2.1
+plotly==6.0.1
+seaborn==0.13.2
