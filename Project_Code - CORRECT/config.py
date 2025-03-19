@@ -118,12 +118,13 @@ LSTM_CONFIG = {
     'model_type': 'seq2seq_forecaster',
     'feature_cols': ['temperature', 'rainfall'],
     'output_features': ['vst_raw'],
-    'hidden_size': 164,        # Keep as is for model capacity
+    'sequence_length': 100,
+    'hidden_size': 64,        # Keep as is for model capacity
     'num_layers': 1,           # Keep as is for model capacity
     'dropout': 0.15,          # Slightly reduced dropout for better fitting
-    'batch_size': 5,          # Keep as is
+    'batch_size': 10,          # Keep as is
     'learning_rate': 0.01,   # Increased for faster learning
-    'epochs': 20,             # Increased number of epochs
+    'epochs': 10,             # Increased number of epochs
     'patience': 5,            # Decreased to be more selective
     'min_delta': 0.00001,     # More sensitive to improvements
     'max_chunk_size': 2500,   # Keep as is

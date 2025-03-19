@@ -27,7 +27,7 @@ from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
 from _1_preprocessing.split import split_data_with_combined_windows
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-from _3_lstm_model.lstm_forecaster import train_LSTM, SimpleLSTMModel, create_full_plot
+from _3_lstm_model.lstm_forecaster import train_LSTM, LSTMModel, create_full_plot
 from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 
@@ -43,7 +43,7 @@ def run_pipeline(
     detection_diagnostics: bool = False,
     run_hyperparameter_optimization: bool = False,
     hyperparameter_trials: int = 10,
-    hyperparameter_diagnostics: bool = True,
+    hyperparameter_diagnostics: bool = False,
     memory_efficient: bool = False,
     aggressive_memory_saving: bool = False
 ):
@@ -95,9 +95,17 @@ def run_pipeline(
     preprocessed_data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
     freezing_periods = pd.read_pickle(data_dir / "frost_periods.pkl")
     
-    # Generate dictionary keeping same structure but with the specified station_id
-    preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
-    
+    # # Generate dictionary keeping same structure but with the specified station_id
+    # preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
+    # # Generate dictionary keeping same structure but with the specified station_id and slice data
+    # if station_id in preprocessed_data:
+    #     # Slice each feature in the station data
+    #     sliced_station_data = {}
+    #     for feature, data in preprocessed_data[station_id].items():
+    #         sliced_station_data[feature] = data.iloc[0:105120]
+    #     preprocessed_data = {station_id: sliced_station_data}
+    # else:
+    #     preprocessed_data = {}
     # Skip preprocessing diagnostics if no data found for the station
     if not preprocessed_data:
         print(f"Warning: No data found for station {station_id} in preprocessed data")
@@ -127,8 +135,8 @@ def run_pipeline(
     print("\nSplitting data into train/validation/test sets...")
     split_datasets = split_data_with_combined_windows(
         preprocessed_data,
-        val_years=1,
-        test_years=2
+        val_size=0.2,
+        test_size=0.2
     )
     
     # Use the split data directly
@@ -236,10 +244,11 @@ def run_pipeline(
     print("\nInitializing LSTM model...")
     
     # First create a temporary model with the original feature count
-    temp_model = SimpleLSTMModel(
+    temp_model = LSTMModel(
         input_size=len(model_config['feature_cols']),
+        sequence_length=model_config['sequence_length'],
         hidden_size=model_config['hidden_size'],
-        output_size=1,
+        output_size=len(model_config['output_features']),
         num_layers=model_config['num_layers'],
         dropout=model_config['dropout']
     )
@@ -254,10 +263,11 @@ def run_pipeline(
     print(f"Actual input size after adding lagged features: {actual_input_size}")
     
     # Now create the real model with the correct input size
-    model = SimpleLSTMModel(
+    model = LSTMModel(
         input_size=actual_input_size,
+        sequence_length=model_config['sequence_length'],
         hidden_size=model_config['hidden_size'],
-        output_size=1,
+        output_size=len(model_config['output_features']),
         num_layers=model_config['num_layers'],
         dropout=model_config['dropout']
     )
@@ -282,7 +292,7 @@ def run_pipeline(
     test_predictions = trainer.predict(test_data)
     
     # Create and show the plot with correct data
-    create_full_plot(test_data, test_predictions, station_id)
+    create_full_plot(test_data[station_id], test_predictions, station_id)
     
     return test_predictions, split_datasets
 

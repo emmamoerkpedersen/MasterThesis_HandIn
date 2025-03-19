@@ -19,7 +19,7 @@ import os
 from tqdm.auto import tqdm
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-from _3_lstm_model.lstm_forecaster import train_LSTM, SimpleLSTMModel
+from _3_lstm_model.lstm_forecaster import train_LSTM, LSTMModel
 from config import LSTM_CONFIG
 from diagnostics.hyperparameter_diagnostics import save_hyperparameter_results
 
