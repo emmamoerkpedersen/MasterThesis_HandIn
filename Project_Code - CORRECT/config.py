@@ -118,25 +118,15 @@ LSTM_CONFIG = {
     'model_type': 'seq2seq_forecaster',
     'feature_cols': ['temperature', 'rainfall'],
     'output_features': ['vst_raw'],
-    'sequence_length': 100,
-    'hidden_size': 64,        # Keep as is for model capacity
-    'num_layers': 2,           # Keep as is for model capacity
-    'dropout': 0.15,          # Slightly reduced dropout for better fitting
-    'batch_size': 5,          # Keep as is
-    'learning_rate': 0.001,   # Increased for faster learning
-    'epochs': 15,             # Increased number of epochs
-    'patience': 5,            # Decreased to be more selective
-    'min_delta': 0.00001,     # More sensitive to improvements
-    'max_chunk_size': 2500,   # Keep as is
-    'smoothness_weight': 0.2,  # Reduced to allow more flexibility
-    'attention_heads': 8,      # Keep as is
-    'attention_dropout': 0.1,  # Keep as is
-    
-    # New parameters for target scaling
-    'target_scaling': {
-        'lower_padding': 0.2,  # 20% padding below min
-        'upper_padding': 1.5   # 150% padding above max for better high value capture
-    },
+    'sequence_length': 1000,
+    'hidden_size': 64,        
+    'num_layers': 2,          
+    'dropout': 0.1,          
+    'batch_size': 5,          
+    'learning_rate': 0.001,   
+    'epochs': 5,             
+    'patience': 5,            
+
     
     # Enhanced loss function parameters
     'peak_detection_std': 1.5,  # More sensitive peak detection

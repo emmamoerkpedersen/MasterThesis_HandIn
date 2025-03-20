@@ -14,8 +14,7 @@ import pandas as pd
 import torch
 from pathlib import Path
 import sys
-import json
-import os
+from sklearn.model_selection import train_test_split
 
 # Disable cuDNN to avoid contiguity issues
 torch.backends.cudnn.enabled = False
@@ -94,23 +93,21 @@ def run_pipeline(
     data_dir = project_root / "data_utils" / "Sample data"
     preprocessed_data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
     freezing_periods = pd.read_pickle(data_dir / "frost_periods.pkl")
-    
-    # # Generate dictionary keeping same structure but with the specified station_id
-    # preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
-    # # Generate dictionary keeping same structure but with the specified station_id and slice data
-    # if station_id in preprocessed_data:
-    #     # Slice each feature in the station data
-    #     sliced_station_data = {}
-    #     for feature, data in preprocessed_data[station_id].items():
-    #         sliced_station_data[feature] = data.iloc[0:105120]
-    #     preprocessed_data = {station_id: sliced_station_data}
-    # else:
-    #     preprocessed_data = {}
-    # Skip preprocessing diagnostics if no data found for the station
-    if not preprocessed_data:
-        print(f"Warning: No data found for station {station_id} in preprocessed data")
-        preprocess_diagnostics = False
-    
+    # Generate dictionary keeping same structure but with the specified station_id
+    preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
+    df = pd.concat(preprocessed_data[station_id].values(), axis=1)
+    # Start_date is first rainfall not nan
+    start_date = df['rainfall'].first_valid_index()
+    # End_date is last vst_raw not nan
+    end_date = df['vst_raw'].last_valid_index()
+    # Cut dataframe and rename
+    preprocessed_data = df[(df.index >= start_date) & (df.index <= end_date)]
+    # Fill vst_raw Nan with bfill and ffill
+    preprocessed_data['vst_raw'] = preprocessed_data['vst_raw'].ffill().bfill()
+    preprocessed_data['temperature'] = preprocessed_data['temperature'].ffill().bfill()
+    preprocessed_data['rainfall'] = preprocessed_data['rainfall'].fillna(-1)
+    print(f"  - Filled vst_raw Nan with bfill and ffill")
+
     # Generate preprocessing diagnostics if enabled
     if preprocess_diagnostics:
         print("Generating preprocessing diagnostics...")
@@ -133,31 +130,35 @@ def run_pipeline(
     #########################################################
     
     print("\nSplitting data into train/validation/test sets...")
-    split_datasets = split_data_with_combined_windows(
-        preprocessed_data,
-        val_size=0.2,
-        test_size=0.2
-    )
+    feature_cols = LSTM_CONFIG.get('feature_cols', [])
+    target_feature = LSTM_CONFIG.get('output_features', ['vst_raw'])[0]
+    all_features = list(set(feature_cols + [target_feature]))
     
-    # Use the split data directly
-    train_data = split_datasets['train']
-    val_data = split_datasets['validation']
-    test_data = split_datasets['test']
+    #Filter preprocessed_data to only include the features and target feature
+    preprocessed_data = preprocessed_data[all_features]
+    # USing sklearn.model_selection to split data
+    # First split into train (60%) and temp (40% remaining)
+    train_data, temp = train_test_split(preprocessed_data, test_size=0.4, shuffle=False)
+
+    # Then split the temp data into validation (50% of temp = 20% of the whole data) and test (50% of temp = 20% of the whole data)
+    val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
     
     print("\nData split summary:")
-    for split_name, split_data in [('Training', train_data), ('Validation', val_data), ('Test', test_data)]:
-        for station_id in split_data:
-            for feature in split_data[station_id]:
-                data = split_data[station_id][feature]
-                print(f"{split_name} - {station_id} - {feature}:")
-                print(f"  Points: {len(data)}")
-                print(f"  Range: {data.index.min()} to {data.index.max()}")
+    print(f"Train data: {train_data.shape}")
+    for feature in train_data.columns:
+        min_val = train_data[feature].min()
+        max_val = train_data[feature].max()
+        print(f"{feature}: Min = {min_val}, Max = {max_val}")
+    print(f"Validation data: {val_data.shape}")
+    
+    print(f"Test data: {test_data.shape}")
+  
     
     #########################################################
     #    Step 3: Generate synthetic errors                  #
     #########################################################
     
-    print("\nStep 3: Generating synthetic errors...")
+    print("\nStep 3: Generating synthetic errors... Does not work for now, is not update for new code")
     
     # Dictionary to store results for each station/year
     stations_results = {}
@@ -165,38 +166,37 @@ def run_pipeline(
     error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
     
     # Process only test data
-    if 'test' in split_datasets:
-        print("\nProcessing test data...")
-        for station, station_data in split_datasets['test'].items():
-            try:
-                print(f"Generating synthetic errors for {station} (Test)...")
-                test_data_synthetic = station_data['vst_raw']
-                
-                if test_data_synthetic is None or test_data_synthetic.empty:
-                    print(f"No test data available for station {station}")
-                    continue
-                
-                # Generate synthetic errors
-                modified_data, ground_truth = error_generator.inject_all_errors(test_data_synthetic)
-                
-                # Store results
-                station_key = f"{station}_test"
-                stations_results[station_key] = {
-                    'modified_data': modified_data,
-                    'ground_truth': ground_truth,
-                    'error_periods': error_generator.error_periods
-                }
-                
-            except Exception as e:
-                print(f"Error processing station {station}: {str(e)}")
+    print("\nProcessing test data...")
+    for station, station_data in test_data.items():
+        try:
+            print(f"Generating synthetic errors for {station} (Test)...")
+            test_data_synthetic = station_data['vst_raw']
+            
+            if test_data_synthetic is None or test_data_synthetic.empty:
+                print(f"No test data available for station {station}")
                 continue
+            
+            # Generate synthetic errors
+            modified_data, ground_truth = error_generator.inject_all_errors(test_data_synthetic)
+            
+            # Store results
+            station_key = f"{station}_test"
+            stations_results[station_key] = {
+                'modified_data': modified_data,
+                'ground_truth': ground_truth,
+                'error_periods': error_generator.error_periods
+            }
+            
+        except Exception as e:
+            print(f"Error processing station {station}: {str(e)}")
+            continue
     
     # Generate synthetic error diagnostics if enabled
     if synthetic_diagnostics:
         from diagnostics.synthetic_diagnostics import run_all_synthetic_diagnostics
         
         synthetic_diagnostic_results = run_all_synthetic_diagnostics(
-            split_datasets=split_datasets,
+            split_datasets=test_data,
             stations_results=stations_results,
             output_dir=Path(output_path)
         )
@@ -292,9 +292,9 @@ def run_pipeline(
     test_predictions = trainer.predict(test_data)
     
     # Create and show the plot with correct data
-    create_full_plot(test_data[station_id], test_predictions, station_id)
+    create_full_plot(test_data, test_predictions, station_id)
     
-    return test_predictions, split_datasets
+    return test_predictions
 
 
 if __name__ == "__main__":

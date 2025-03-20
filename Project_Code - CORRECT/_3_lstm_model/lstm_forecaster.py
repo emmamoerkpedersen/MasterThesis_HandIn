@@ -40,6 +40,7 @@ class LSTMModel(nn.Module):
         # Fully connected layer to map hidden state to output
         self.fc = nn.Linear(hidden_size, output_size)
 
+
     def forward(self, x):
         """
         Forward pass of the model.
@@ -58,6 +59,7 @@ class LSTMModel(nn.Module):
         # Pass through fully connected layer
         predictions = self.fc(out)  # Shape: (batch_size, sequence_length, output_size)
        
+
   
        
         return predictions
@@ -92,32 +94,48 @@ class train_LSTM:
         Prepare data for training or validation.
         """
         # Get station data and features
-        station_id = list(data.keys())[0]
+        feature_cols = self.config['feature_cols']
         target_col = self.config['output_features'][0]
-        all_cols = self.config['feature_cols'] + [target_col]
         
-        # Create DataFrame
-        features = pd.concat([data[station_id][col] for col in all_cols], axis=1)
-        features.columns = all_cols
+        # Create features DataFrame
+        features = pd.concat([data[col] for col in feature_cols], axis=1)
+        features.columns = feature_cols
 
-        # Handle NaN values
-        features = features.fillna(method='ffill').fillna(method='bfill')
+        # Create target DataFrame
+        target = pd.DataFrame(data[target_col])
+        target.columns = [target_col]
 
         # Initialize scalers on first training pass
         if is_training and not self.is_fitted:
-            self.scalers = {col: MinMaxScaler() for col in all_cols}
-            for col in all_cols:
-                self.scalers[col].fit(features[[col]])
+            self.scalers = {
+                'features': {col: MinMaxScaler() for col in feature_cols},
+                'target': MinMaxScaler()
+            }
+            # Fit feature scalers
+            for col in feature_cols:
+                self.scalers['features'][col].fit(features[[col]])
+            # Fit target scaler
+            self.scalers['target'].fit(target)
             self.is_fitted = True
         
-        # Scale all features including target
+        # Scale features
         scaled_features = np.hstack([
-            self.scalers[col].transform(features[[col]]) 
-            for col in self.config['feature_cols']
+            self.scalers['features'][col].transform(features[[col]]) 
+            for col in feature_cols
         ])
         
-        # Scale target separately
-        scaled_target = self.scalers[target_col].transform(features[[target_col]])
+        # Scale target and ensure correct shape
+        scaled_target = self.scalers['target'].transform(target).flatten()
+        
+        print("\nDebug shapes before sequence creation:")
+        print(f"scaled_features shape: {scaled_features.shape}")
+        print(f"scaled_target shape: {scaled_target.shape}")
+        
+        # Verify no NaN values
+        if np.isnan(scaled_features).any():
+            print("Warning: NaN values in scaled_features")
+        if np.isnan(scaled_target).any():
+            print("Warning: NaN values in scaled_target")
         
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
@@ -131,11 +149,32 @@ class train_LSTM:
         sequence_length = self.config.get('sequence_length', 100)
         X, y = [], []
         
-        for i in range(len(features) - sequence_length):
-            X.append(features[i:(i + sequence_length)])
-            y.append(targets[i:(i + sequence_length)])
+        # Print input shapes
+        print(f"\nInput shapes to _create_sequences:")
+        print(f"features shape: {features.shape}")
+        print(f"targets shape: {targets.shape}")
         
-        return np.array(X), np.array(y).reshape(-1, sequence_length, 1)
+        # Ensure we don't exceed array bounds
+        max_start_idx = len(features) - sequence_length
+        
+        for i in range(max_start_idx):
+            feature_seq = features[i:(i + sequence_length)]
+            target_seq = targets[i:(i + sequence_length)]
+            
+            # Verify sequence lengths
+            if len(feature_seq) == sequence_length and len(target_seq) == sequence_length:
+                X.append(feature_seq)
+                y.append(target_seq)
+        
+        # Convert to numpy arrays with explicit shapes
+        X = np.array(X)
+        y = np.array(y)[..., np.newaxis]  # Add final dimension for target
+        
+        print(f"\nOutput shapes from _create_sequences:")
+        print(f"X shape: {X.shape}")
+        print(f"y shape: {y.shape}")
+        
+        return X, y
 
     def train_epoch(self, train_loader):
         """
@@ -151,28 +190,33 @@ class train_LSTM:
         total_loss = 0
         batch_predictions = []
         batch_targets = []
+
         
         for batch_X, batch_y in tqdm(train_loader, desc="Training", leave=False):
-            self.optimizer.zero_grad() # Zero the gradients
-            outputs = self.model(batch_X) # LSTM forward pass
-            loss = self.criterion(outputs, batch_y) # MSE loss
+            self.optimizer.zero_grad()
+            outputs = self.model(batch_X)
+            loss = self.criterion(outputs, batch_y)
             
             # Store predictions and targets
-            batch_predictions.extend(outputs.detach().cpu().numpy()) # Detach and convert to numpy
-            batch_targets.extend(batch_y.detach().cpu().numpy()) # Detach and convert to numpy
+            batch_predictions.extend(outputs.detach().cpu().numpy())
+            batch_targets.extend(batch_y.detach().cpu().numpy())
             
-            loss.backward() # Backward pass
-            self.optimizer.step() # Update weights
-            total_loss += loss.item() # Accumulate loss
+            # Backward pass
+            loss.backward()
+        
+            
+            # Update weights
+            self.optimizer.step()
+            total_loss += loss.item()
         
         # Print statistics about predictions
-        predictions = np.array(batch_predictions) # Convert to numpy
-        targets = np.array(batch_targets) # Convert to numpy
+        predictions = np.array(batch_predictions)
+        targets = np.array(batch_targets)
         print("\nTraining statistics:")
         print(f"Predictions - min: {predictions.min():.4f}, max: {predictions.max():.4f}")
         print(f"Targets - min: {targets.min():.4f}, max: {targets.max():.4f}")
         
-        return total_loss / len(train_loader) 
+        return total_loss / len(train_loader)
 
     def validate(self, val_loader):
         """
@@ -306,7 +350,7 @@ class train_LSTM:
             # Inverse transform predictions using target scaler
             target_col = self.config['output_features'][0]
             predictions_reshaped = predictions.reshape(-1, 1)
-            predictions_original = self.scalers[target_col].inverse_transform(predictions_reshaped)
+            predictions_original = self.scalers['target'].inverse_transform(predictions_reshaped)
             
             return predictions_original.reshape(predictions.shape)
 

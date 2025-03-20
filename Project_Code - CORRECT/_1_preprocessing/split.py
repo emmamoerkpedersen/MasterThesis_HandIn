@@ -40,7 +40,7 @@ def split_data_with_combined_windows(preprocessed_data: dict,
         val_start = dates[int(len(dates) * (1 - test_size - val_size))]
         test_start = dates[int(len(dates) * (1 - test_size))]
         
-        # Split and resample each feature
+        # Split 
         for feature in all_features:
             if feature not in station_data:
                 print(f"Warning: Feature '{feature}' not found for station {station_id}")
@@ -57,13 +57,19 @@ def split_data_with_combined_windows(preprocessed_data: dict,
                 'test': data[data.index >= test_start]
             }
             
-            # Resample and fill based on feature type
-            for split_name, split_data in splits.items():
-                resampled = split_data.resample('15min')
-                if feature in ['rainfall']:
-                    # First resample, then replace NaN with -1
-                    result[split_name][station_id][feature] = resampled.asfreq().fillna(-1)
-                else:  # temperature
-                    result[split_name][station_id][feature] = resampled.ffill().bfill()
+    
+    # Add debug print to check NaN values
+    print("\nData Statistics after splitting:")
+    for split_name in ['train', 'validation', 'test']:
+        print(f"\n{split_name.upper()} SET:")
+        for feature in all_features:
+            for station_id in result[split_name]:
+                data = result[split_name][station_id][feature]
+                nan_count = data.isna().sum()
+                total_points = len(data)
+                print(f"{feature}:")
+                print(f"  NaN values: {nan_count} ({(nan_count/total_points)*100:.2f}% of {total_points} points)")
+                print(f"  Unique values: {data.nunique()}")
+                print(f"  Range: [{data.min():.2f}, {data.max():.2f}]")
     
     return result

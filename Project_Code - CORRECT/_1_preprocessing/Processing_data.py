@@ -153,6 +153,44 @@ def detect_flatlines(vst_data, window=20):
     
     return filtered_data, n_flatlines
 
+
+
+def align_data(data):
+    aligned_data = {}
+
+    # Step 1: Find the global min and max timestamp
+    all_timestamps = []
+    for key in data:
+        for subkey, df in data[key].items():
+            all_timestamps.extend(df.index)
+
+    min_time = min(all_timestamps)
+    max_time = max(all_timestamps)
+
+    # Step 2: Create a common time index with 15-minute intervals
+    common_index = pd.date_range(start=min_time, end=max_time, freq='15min')
+
+    # Step 3: Align data to the common index
+    for key in data:
+        aligned_data[key] = {}
+        for i, (subkey, df) in enumerate(data[key].items()):
+            df = df.copy()
+
+            # Round timestamps **only** for the vst_raw, vst_edt, vinge data
+            if subkey == 'vst_raw' or subkey == 'vst_edt' or subkey == 'vinge':
+                df.index = df.index.round('15min')
+
+            # Remove duplicates after rounding (if any)
+            df = df[~df.index.duplicated(keep='first')]
+
+            # Reindex to match the common 15-minute intervals
+            df = df.reindex(common_index)  # Default fill value is NaN
+
+            aligned_data[key][subkey] = df
+
+    return aligned_data
+
+
 def preprocess_data():
     """
     Preprocess the data and save to pickle files.
@@ -180,9 +218,6 @@ def preprocess_data():
     
     # Process each station's data
     for station_name, station_data in All_station_data.items():
-        # Set start date to January 1, 2010
-        start_date = pd.to_datetime('2010-02-01').tz_localize('UTC')
-        
         # Process all datasets in the station_data dictionary
         for key, data in station_data.items():
             if data is not None:
@@ -194,29 +229,22 @@ def preprocess_data():
                 if data.index.tz is None:
                     data.index = data.index.tz_localize('UTC')
                 
-                # Filter data to start from 2010
-                station_data[key] = data[data.index >= start_date]
-                
                 # Make data timezone-naive for further processing
                 station_data[key].index = station_data[key].index.tz_localize(None)
         
         # Detect and remove spikes
         station_data['vst_raw'], n_spikes, (lower_bound, upper_bound) = detect_spikes(station_data['vst_raw'])
-        
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
-        
         # Detect freezing periods
         temp_data = station_data['temperature']
         frost_periods = detect_frost_periods(temp_data)
-        
         # Remove VST data during frost periods
         for start, end in frost_periods:
             station_data['vst_raw'] = station_data['vst_raw'][
                 ~((station_data['vst_raw'].index >= start) & 
                     (station_data['vst_raw'].index <= end))
             ]
-        
         print(f"\nProcessed {station_name}:")
         print(f"  - Removed data from {len(frost_periods)} frost periods")
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
@@ -225,20 +253,17 @@ def preprocess_data():
         
         # Resample temperature data if it exists
         if station_data['temperature'] is not None:
-            temperature = station_data['temperature']
-            station_data['temperature'] = temperature.resample('15min').ffill() / 4  # Hold mean temperature constant but divide by 4
-            print(f"  - Resampled temperature data to 15-minute intervals")
-        
-        # Keep rainfall data in its original form
+            station_data['temperature'] = station_data['temperature'].resample('15min').ffill().bfill()  # Hold mean temperature constant but divide by 4
+            print(f"  - Resampled temperature data to 15-minute intervals with ffill and bfill")
+
+        # Resample rainfall data to 15-minute intervals with fillna(-1)
         if station_data['rainfall'] is not None:
-            # Ensure rainfall index is datetime
-            if not isinstance(station_data['rainfall'].index, pd.DatetimeIndex):
-                station_data['rainfall'].index = pd.to_datetime(station_data['rainfall'].index)
-            print(f"  - Keeping rainfall data in original hourly intervals")
+            station_data['rainfall'] = station_data['rainfall'].resample('15min').asfreq().fillna(-1)
+            print(f"  - Resampled rainfall data to 15-minute intervals with fillna(-1)")
+
 
 
     # Save the preprocessed data
-    print("Saving processed data to pickle files...")
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
     save_data_Dict(frost_periods, filename=save_path / 'frost_periods.pkl')
     

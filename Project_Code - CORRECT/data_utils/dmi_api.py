@@ -167,7 +167,7 @@ def process_station_data(client: MetObsAPI, station_type: str):
                 data, location = client.get_precipitation_from_station(
                     str(station_id),
                     datetime(1990, 1, 1),
-                    datetime(2025, 1, 1),
+                    datetime(2025, 1, 8),
                     limit=299999
                 )
                 # Remove negative precipitation values
@@ -177,7 +177,7 @@ def process_station_data(client: MetObsAPI, station_type: str):
                 data, location = client.get_temperature_from_station(
                     str(station_id),
                     datetime(1990, 1, 1),
-                    datetime(2025, 1, 1),
+                    datetime(2025, 1, 8),
                     limit=299999
                 )
                 prefix = 'TempData'
