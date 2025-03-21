@@ -180,8 +180,10 @@ class train_LSTM:
         batch_targets = []
 
         
-        for batch_X, batch_y in tqdm(train_loader, desc="Training", leave=False):
-            
+        for i, (batch_X, batch_y) in enumerate(tqdm(train_loader, desc="Training", leave=False)):
+            print(f"\nTraining batch {i+1}:")
+            print(f"batch_X shape: {batch_X.shape}")  # Should be (batch_size, sequence_length, num_features)
+            print(f"batch_y shape: {batch_y.shape}")  # Should be (batch_size, sequence_length, 1)
             self.optimizer.zero_grad()
             outputs = self.model(batch_X)
             loss = self.criterion(outputs, batch_y)

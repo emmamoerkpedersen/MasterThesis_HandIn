@@ -300,7 +300,7 @@ if __name__ == "__main__":
     
     # Run pipeline with simplified configuration handling
     try:
-        test_predictions, split_datasets = run_pipeline(
+        test_predictions = run_pipeline(
             project_root=project_root,
             data_path=data_path, 
             output_path=output_path,

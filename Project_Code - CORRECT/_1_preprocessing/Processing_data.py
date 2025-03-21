@@ -274,63 +274,59 @@ def preprocess_data():
 if __name__ == "__main__":
     processed_data, original_data, frost_periods = preprocess_data()
 
+    # Create interactive plot using Plotly with three subplots
+    fig = make_subplots(rows=3, cols=1, 
+                        subplot_titles=('Temperature', 'Rainfall', 'VST Raw Data'),
+                        vertical_spacing=0.1)
 
+    # Add temperature trace to top subplot
+    fig.add_trace(
+        go.Scatter(
+            x=processed_data['21006847']['temperature'].index,
+            y=processed_data['21006847']['temperature']['temperature'],
+            name='Temperature',
+            line=dict(color='red')
+        ),
+        row=1, col=1
+    )
 
-# # For plotting the raw vs. the processed data + temperature
-# processed_data = preprocess_data()
-# original_data = load_all_station_data()
+    # Add rainfall trace to middle subplot
+    fig.add_trace(
+        go.Scatter(
+            x=processed_data['21006847']['rainfall'].index,
+            y=processed_data['21006847']['rainfall']['rainfall'],
+            name='Rainfall',
+            line=dict(color='blue')
+        ),
+        row=2, col=1
+    )
 
-# # Create interactive plot using Plotly with subplots
-# fig = make_subplots(rows=2, cols=1, 
-#                     subplot_titles=('Temperature', 'VST Raw Data Comparison'),
-#                     vertical_spacing=0.15)
+    # Add VST raw data trace to bottom subplot
+    fig.add_trace(
+        go.Scatter(
+            x=processed_data['21006847']['vst_raw'].index,
+            y=processed_data['21006847']['vst_raw']['vst_raw'],
+            name='VST Raw',
+            line=dict(color='green')
+        ),
+        row=3, col=1
+    )
 
-# # Add temperature trace to top subplot
-# fig.add_trace(
-#     go.Scatter(
-#         x=processed_data['21006847']['temperature'].index,
-#         y=processed_data['21006847']['temperature']['temperature'],
-#         name='Temperature',
-#         line=dict(color='red')
-#     ),
-#     row=1, col=1
-# )
+    # Update layout
+    fig.update_layout(
+        height=1200,
+        showlegend=True,
+        hovermode='x unified'
+    )
 
-# # Add raw data trace to bottom subplot
-# fig.add_trace(
-#     go.Scatter(
-#         x=original_data['21006847']['rainfall'].index,
-#         y=original_data['21006847']['rainfall']['rainfall'],
-#         name='Raw Data',
-#         line=dict(color='blue')
-#     ),
-#     row=2, col=1
-# )
+    # Link x-axes of all subplots
+    fig.update_xaxes(matches='x')
+    fig.update_xaxes(range=['2010-01-01', '2025-01-01'])
 
-# # Add processed data trace to bottom subplot
-# fig.add_trace(
-#     go.Scatter(
-#         x=processed_data['21006847']['rainfall'].index,
-#         y=processed_data['21006847']['rainfall']['rainfall'],
-#         name='Processed Data',
-#         line=dict(color='green')
-#     ),
-#     row=2, col=1
-# )
+    # Update y-axis labels
+    fig.update_yaxes(title_text="Temperature (°C)", row=1, col=1)
+    fig.update_yaxes(title_text="Rainfall (mm)", row=2, col=1)
+    fig.update_yaxes(title_text="VST Value", row=3, col=1)
 
-# # Update layout
-# fig.update_layout(
-#     height=800,  # Increase overall height to accommodate both plots
-#     showlegend=True,
-#     hovermode='x unified'
-# )
-
-# # Link x-axes of both subplots
-# fig.update_xaxes(matches='x')
-
-# # Update y-axis labels
-# fig.update_yaxes(title_text="Temperature (°C)", row=1, col=1)
-# fig.update_yaxes(title_text="VST Value", row=2, col=1)
-
-# # Open the plot in browser
-# plot(fig, filename='vst47_comparison.html')
+    # Open the plot in browser
+    plot(fig, filename='station_data_comparison.html')
