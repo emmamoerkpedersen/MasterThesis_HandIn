@@ -136,12 +136,19 @@ def run_pipeline(
     
     #Filter preprocessed_data to only include the features and target feature
     preprocessed_data = preprocessed_data[all_features]
+
+    preprocessed_data = preprocessed_data.iloc[-10000:]
+    train_data = preprocessed_data
+    val_data = preprocessed_data
+    test_data = preprocessed_data
+
+
     # USing sklearn.model_selection to split data
     # First split into train (60%) and temp (40% remaining)
-    train_data, temp = train_test_split(preprocessed_data, test_size=0.4, shuffle=False)
+    # train_data, temp = train_test_split(preprocessed_data, test_size=0.4, shuffle=False)
 
-    # Then split the temp data into validation (50% of temp = 20% of the whole data) and test (50% of temp = 20% of the whole data)
-    val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
+    # # Then split the temp data into validation (50% of temp = 20% of the whole data) and test (50% of temp = 20% of the whole data)
+    # val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
     
     print("\nData split summary:")
     print(f"Train data: {train_data.shape}")

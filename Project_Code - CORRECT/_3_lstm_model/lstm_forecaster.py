@@ -31,15 +31,14 @@ class LSTMModel(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=dropout if num_layers > 1 else 0
+            dropout=0
         )
 
-        # Dropout layer
-        self.dropout = nn.Dropout(dropout)
+        # Dropout layer - Outcommented for the overfitting
+        #self.dropout = nn.Dropout(dropout)
 
         # Fully connected layer to map hidden state to output
         self.fc = nn.Linear(hidden_size, output_size)
-
 
     def forward(self, x):
         """
@@ -51,16 +50,13 @@ class LSTMModel(nn.Module):
         Returns:
             Tensor of shape (batch_size, sequence_length, output_size)
         """
-     
+
         # LSTM forward pass
         out, _ = self.lstm(x)  # out: [batch_size, seq_len, hidden_size]
         
-        out = self.dropout(out)
+        #out = self.dropout(out)
         # Pass through fully connected layer
         predictions = self.fc(out)  # Shape: (batch_size, sequence_length, output_size)
-       
-
-  
        
         return predictions
 
@@ -144,35 +140,27 @@ class train_LSTM:
 
     def _create_sequences(self, features, targets):
         """
-        Create input/output sequences.
+        Create non-overlapping sequences for sequence-to-sequence prediction.
         """
-        sequence_length = self.config.get('sequence_length', 100)
+        sequence_length = self.config.get('sequence_length', 1000)
         X, y = [], []
         
-        # Print input shapes
-        print(f"\nInput shapes to _create_sequences:")
-        print(f"features shape: {features.shape}")
-        print(f"targets shape: {targets.shape}")
-        
-        # Ensure we don't exceed array bounds
-        max_start_idx = len(features) - sequence_length
-        
-        for i in range(max_start_idx):
-            feature_seq = features[i:(i + sequence_length)]
-            target_seq = targets[i:(i + sequence_length)]
-            
-            # Verify sequence lengths
-            if len(feature_seq) == sequence_length and len(target_seq) == sequence_length:
+        # Use non-overlapping windows
+        for i in range(0, len(features), sequence_length):
+            if i + sequence_length <= len(features):
+                feature_seq = features[i:(i + sequence_length)]
+                target_seq = targets[i:(i + sequence_length)]
                 X.append(feature_seq)
                 y.append(target_seq)
         
-        # Convert to numpy arrays with explicit shapes
-        X = np.array(X)
-        y = np.array(y)[..., np.newaxis]  # Add final dimension for target
+        X = np.array(X)  # Shape: (num_full_sequences, sequence_length, num_features)
+        y = np.array(y)[..., np.newaxis]  # Shape: (num_full_sequences, sequence_length, 1)
         
-        print(f"\nOutput shapes from _create_sequences:")
-        print(f"X shape: {X.shape}")
-        print(f"y shape: {y.shape}")
+        print(f"\nSequence creation summary:")
+        print(f"Input length: {len(features)}")
+        print(f"Sequence length: {sequence_length}")
+        print(f"Number of sequences: {len(X)}")
+        print(f"Total predicted points: {len(X) * sequence_length}")
         
         return X, y
 
@@ -193,6 +181,7 @@ class train_LSTM:
 
         
         for batch_X, batch_y in tqdm(train_loader, desc="Training", leave=False):
+            print(f"Batch shapes - X: {batch_X.shape}, y: {batch_y.shape}")
             self.optimizer.zero_grad()
             outputs = self.model(batch_X)
             loss = self.criterion(outputs, batch_y)
