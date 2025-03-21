@@ -113,29 +113,17 @@ PHYSICAL_LIMITS = {
     'max_rate_of_change': 50  # Maximum change per hour
 }
 
-# LSTM Configuration with improved hyperparameters
+# LSTM Configuration
 LSTM_CONFIG = {
     'model_type': 'seq2seq_forecaster',
     'feature_cols': ['temperature', 'rainfall'],
     'output_features': ['vst_raw'],
-    'sequence_length': 2000,
-    'hidden_size': 34,        
+    'sequence_length': 154108,
+    'hidden_size': 24,        
     'num_layers': 2,          
     'dropout': 0.15,          
-    'batch_size': 5,          
-    'learning_rate': 0.01,   
-    'epochs': 200,             
+    'batch_size': 1,          
+    'learning_rate': 0.001,   
+    'epochs': 20,             
     'patience': 1000,            
-
-    
-    # Enhanced loss function parameters
-    'peak_detection_std': 1.5,  # More sensitive peak detection
-    'peak_weight': 5.0,        # Increased importance of peaks
-    'high_value_weight': 2.0,  # Additional weight for above-mean values
-    'loss_weights': {
-        'mse': 0.3,           # Base MSE component
-        'peak': 0.4,          # Increased peak importance
-        'gradient': 0.15,     # Gradient matching component
-        'smoothness': 0.15    # Reduced smoothness constraint
-    }
 } 

@@ -1,3 +1,4 @@
+
 """
 Main script to run the error detection pipeline.
 
@@ -26,7 +27,7 @@ from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
 from _1_preprocessing.split import split_data_with_combined_windows
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-from _3_lstm_model.lstm_forecaster import train_LSTM, LSTMModel, create_full_plot
+from _3_lstm_model.lstm_forecaster import train_LSTM, LSTMModel, create_full_plot, plot_scaled_predictions, plot_convergence
 from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 
@@ -43,8 +44,7 @@ def run_pipeline(
     run_hyperparameter_optimization: bool = False,
     hyperparameter_trials: int = 10,
     hyperparameter_diagnostics: bool = False,
-    memory_efficient: bool = False,
-    aggressive_memory_saving: bool = False
+    
 ):
     """
     Run the complete error detection and imputation pipeline using yearly windows.
@@ -74,14 +74,7 @@ def run_pipeline(
     # Start with base configuration from config.py
     model_config = LSTM_CONFIG.copy()
     
-    # Adjust configuration based on memory constraints if needed
-    if aggressive_memory_saving:
-        print("AGGRESSIVE MEMORY SAVING MODE ACTIVE - Adjusting model configuration")
-        model_config['hidden_size'] = min(128, model_config['hidden_size'])
-        model_config['num_layers'] = min(2, model_config['num_layers'])
-        print(f"Adjusted configuration for memory efficiency:")
-        print(f"  - hidden_size: {model_config['hidden_size']}")
-        print(f"  - num_layers: {model_config['num_layers']}")
+
     
     #########################################################
     #    Step 1: Load and preprocess all station data       #
@@ -137,18 +130,17 @@ def run_pipeline(
     #Filter preprocessed_data to only include the features and target feature
     preprocessed_data = preprocessed_data[all_features]
 
-    preprocessed_data = preprocessed_data.iloc[-10000:]
-    train_data = preprocessed_data
-    val_data = preprocessed_data
-    test_data = preprocessed_data
-
+    #preprocessed_data = preprocessed_data.iloc[-8000:]
+    # train_data = preprocessed_data
+    # val_data = preprocessed_data
+    # test_data = preprocessed_data
 
     # USing sklearn.model_selection to split data
     # First split into train (60%) and temp (40% remaining)
-    # train_data, temp = train_test_split(preprocessed_data, test_size=0.4, shuffle=False)
+    train_data, temp = train_test_split(preprocessed_data, test_size=0.4, shuffle=False)
 
-    # # Then split the temp data into validation (50% of temp = 20% of the whole data) and test (50% of temp = 20% of the whole data)
-    # val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
+    # Then split the temp data into validation (50% of temp = 20% of the whole data) and test (50% of temp = 20% of the whole data)
+    val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
     
     print("\nData split summary:")
     print(f"Train data: {train_data.shape}")
@@ -250,28 +242,11 @@ def run_pipeline(
     # Initialize model
     print("\nInitializing LSTM model...")
     
-    # First create a temporary model with the original feature count
-    temp_model = LSTMModel(
-        input_size=len(model_config['feature_cols']),
-        sequence_length=model_config['sequence_length'],
-        hidden_size=model_config['hidden_size'],
-        output_size=len(model_config['output_features']),
-        num_layers=model_config['num_layers'],
-        dropout=model_config['dropout']
-    )
-    
-    # Initialize trainer with temporary model
-    temp_trainer = train_LSTM(temp_model, model_config)
-    
-    # Prepare data to get the actual number of features after adding lagged features
-    X_train, _ = temp_trainer.prepare_data(train_data, is_training=True)
-    actual_input_size = X_train.shape[2]  # Get the actual number of features
-    
-    print(f"Actual input size after adding lagged features: {actual_input_size}")
+
     
     # Now create the real model with the correct input size
     model = LSTMModel(
-        input_size=actual_input_size,
+        input_size=len(model_config['feature_cols']),
         sequence_length=model_config['sequence_length'],
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
@@ -294,13 +269,18 @@ def run_pipeline(
     
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
-    # Make predictions on test set
+    # Make predictions on test set without synthetic errors
     print("\nMaking predictions on test set without synthetic errors...")
-    test_predictions = trainer.predict(test_data)
-    
+    test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
+
+    #plot_scaled_predictions(predictions_scaled, target_scaled, station_id)
+
     # Create and show the plot with correct data
     create_full_plot(test_data, test_predictions, station_id)
     
+    # Plot convergence
+    plot_convergence(history, title=f"Training and Validation Loss - Station {station_id}")
+
     return test_predictions
 
 
@@ -316,11 +296,7 @@ if __name__ == "__main__":
     
     print("\nRunning LSTM model with configuration from config.py")
     
-    # Print the available data files
-    data_dir = project_root / "data_utils" / "Sample data"
-    print("\nAvailable data files:")
-    for file in data_dir.glob("*"):
-        print(f"  {file.name}")
+
     
     # Run pipeline with simplified configuration handling
     try:
@@ -335,7 +311,6 @@ if __name__ == "__main__":
             run_hyperparameter_optimization=False,  # Set to True if you want to optimize
             hyperparameter_trials=10,
             hyperparameter_diagnostics=False,
-            memory_efficient=True
         )
 
         print("\nModel run completed!")

@@ -181,7 +181,7 @@ class train_LSTM:
 
         
         for batch_X, batch_y in tqdm(train_loader, desc="Training", leave=False):
-            print(f"Batch shapes - X: {batch_X.shape}, y: {batch_y.shape}")
+            
             self.optimizer.zero_grad()
             outputs = self.model(batch_X)
             loss = self.criterion(outputs, batch_y)
@@ -201,9 +201,9 @@ class train_LSTM:
         # Print statistics about predictions
         predictions = np.array(batch_predictions)
         targets = np.array(batch_targets)
-        print("\nTraining statistics:")
-        print(f"Predictions - min: {predictions.min():.4f}, max: {predictions.max():.4f}")
-        print(f"Targets - min: {targets.min():.4f}, max: {targets.max():.4f}")
+        # print("\nTraining statistics:")
+        # print(f"Predictions - min: {predictions.min():.4f}, max: {predictions.max():.4f}")
+        # print(f"Targets - min: {targets.min():.4f}, max: {targets.max():.4f}")
         
         return total_loss / len(train_loader)
 
@@ -262,9 +262,7 @@ class train_LSTM:
         print(f"Device: {self.device}")
         print("\nStarting training...\n")
         
-        # Print data shapes
-        print(f"Training Data Shapes - X: {X_train.shape}, y: {y_train.shape}")
-        print(f"Validation Data Shapes - X: {X_val.shape}, y: {y_val.shape}\n")
+
 
         # Create data loaders WITHOUT shuffling
         train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
@@ -330,18 +328,21 @@ class train_LSTM:
         Make predictions on new data.
         """
         self.model.eval()
-        X, _ = self.prepare_data(data, is_training=False)
+        X, y = self.prepare_data(data, is_training=False)  # Changed _ to y to capture scaled targets
         
         with torch.no_grad():
             predictions = self.model(X)
             predictions = predictions.cpu().numpy()
+            y = y.cpu().numpy()  # Convert scaled targets to numpy
+            
+            # Now predictions and y contain the scaled predictions and targets
             
             # Inverse transform predictions using target scaler
             target_col = self.config['output_features'][0]
             predictions_reshaped = predictions.reshape(-1, 1)
             predictions_original = self.scalers['target'].inverse_transform(predictions_reshaped)
             
-            return predictions_original.reshape(predictions.shape)
+            return predictions_original.reshape(predictions.shape), predictions, y
 
 def create_full_plot(test_data, test_predictions, station_id):
     """
@@ -429,4 +430,102 @@ def create_full_plot(test_data, test_predictions, station_id):
     webbrowser.open('file://' + absolute_path)
 
 
+def plot_scaled_predictions(predictions, targets, title="Scaled Predictions vs Targets"):
+        """
+        Plot scaled predictions and targets before inverse transformation.
+        """
+        # Create figure
+        fig = go.Figure()
+        
+        # Flatten predictions and targets for plotting
+        flat_predictions = predictions.reshape(-1)
+        flat_targets = targets.reshape(-1)
+        
+        # Create x-axis points
+        x_points = np.arange(len(flat_predictions))
+        
+        # Add targets
+        fig.add_trace(
+            go.Scatter(
+                x=x_points,
+                y=flat_targets,
+                name="Scaled Targets",
+                line=dict(color='blue', width=1)
+            )
+        )
 
+        # Add predictions
+        fig.add_trace(
+            go.Scatter(
+                x=x_points,
+                y=flat_predictions,
+                name="Scaled Predictions",
+                line=dict(color='red', width=1)
+            )
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title=title,
+            xaxis_title='Timestep',
+            yaxis_title='Scaled Value',
+            width=1200,
+            height=600,
+            showlegend=True
+        )
+        
+        # Save and open in browser
+        html_path = 'scaled_predictions.html'
+        fig.write_html(html_path)
+        print(f"Opening scaled predictions plot in browser...")
+        webbrowser.open('file://' + os.path.abspath(html_path))
+
+def plot_convergence(history, title="Training and Validation Loss"):
+    """
+    Plot training and validation loss over epochs to visualize convergence.
+    
+    Args:
+        history: Dictionary containing 'train_loss' and 'val_loss' lists
+    """
+    # Create figure
+    fig = go.Figure()
+    
+    # Get epochs array
+    epochs = np.arange(1, len(history['train_loss']) + 1)
+    
+    # Add training loss
+    fig.add_trace(
+        go.Scatter(
+            x=epochs,
+            y=history['train_loss'],
+            name="Training Loss",
+            line=dict(color='blue', width=1)
+        )
+    )
+
+    # Add validation loss
+    fig.add_trace(
+        go.Scatter(
+            x=epochs,
+            y=history['val_loss'],
+            name="Validation Loss",
+            line=dict(color='red', width=1)
+        )
+    )
+    
+    # Update layout
+    fig.update_layout(
+        title=title,
+        xaxis_title='Epoch',
+        yaxis_title='Loss',
+        width=1200,
+        height=600,
+        showlegend=True,
+        yaxis_type="log"  # Use log scale for better visualization
+    )
+    
+    # Save and open in browser
+    html_path = 'convergence_plot.html'
+    fig.write_html(html_path)
+    print(f"Opening convergence plot in browser...")
+    webbrowser.open('file://' + os.path.abspath(html_path))

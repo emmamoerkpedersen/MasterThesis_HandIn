@@ -261,7 +261,9 @@ def preprocess_data():
             station_data['rainfall'] = station_data['rainfall'].resample('15min').asfreq().fillna(-1)
             print(f"  - Resampled rainfall data to 15-minute intervals with fillna(-1)")
 
-
+        # Fill vst_raw Nan with bfill and ffill
+        station_data['vst_raw'] = station_data['vst_raw'].bfill().ffill()
+        print(f"  - Filled vst_raw Nan with bfill and ffill")
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
