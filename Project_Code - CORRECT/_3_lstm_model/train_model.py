@@ -101,45 +101,45 @@ class DataPreprocessor:
         
         return scaled_features, scaled_target
 
-    # def _create_sequences(self, features, targets):
-    #     """
-    #     Create non-overlapping sequences for sequence-to-sequence prediction.
-    #     """
-    #     sequence_length = self.config.get('sequence_length', 1000)
-    #     X, y = [], []
-        
-    #     for i in range(0, len(features), sequence_length):
-    #         if i + sequence_length <= len(features):
-    #             feature_seq = features[i:(i + sequence_length)]
-    #             target_seq = targets[i:(i + sequence_length)]
-    #             X.append(feature_seq)
-    #             y.append(target_seq)
-        
-    #     X = np.array(X)  # Shape: (num_full_sequences, sequence_length, num_features)
-    #     y = np.array(y)[..., np.newaxis]  # Shape: (num_full_sequences, sequence_length, 1)
-        
-    #     return X, y
-
     def _create_sequences(self, features, targets):
         """
-        Create overlapping sequences for sequence-to-sequence prediction.
-        The window slides with a given stride.
+        Create non-overlapping sequences for sequence-to-sequence prediction.
         """
         sequence_length = self.config.get('sequence_length', 1000)
-        stride = self.config.get('stride', 20)  # Stride determines the step between each sequence
         X, y = [], []
-
-        # Loop through the dataset to create overlapping sequences
-        for i in range(0, len(features) - sequence_length + 1, stride):
-            feature_seq = features[i:(i + sequence_length)]
-            target_seq = targets[i:(i + sequence_length)]
-            X.append(feature_seq)
-            y.append(target_seq)
-
-        X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
-        y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
-
+        
+        for i in range(0, len(features), sequence_length):
+            if i + sequence_length <= len(features):
+                feature_seq = features[i:(i + sequence_length)]
+                target_seq = targets[i:(i + sequence_length)]
+                X.append(feature_seq)
+                y.append(target_seq)
+        
+        X = np.array(X)  # Shape: (num_full_sequences, sequence_length, num_features)
+        y = np.array(y)[..., np.newaxis]  # Shape: (num_full_sequences, sequence_length, 1)
+        
         return X, y
+
+    # def _create_sequences(self, features, targets):
+    #     """
+    #     Create overlapping sequences for sequence-to-sequence prediction.
+    #     The window slides with a given stride.
+    #     """
+    #     sequence_length = self.config.get('sequence_length', 1000)
+    #     stride = self.config.get('stride', 20)  # Stride determines the step between each sequence
+    #     X, y = [], []
+
+    #     # Loop through the dataset to create overlapping sequences
+    #     for i in range(0, len(features) - sequence_length + 1, stride):
+    #         feature_seq = features[i:(i + sequence_length)]
+    #         target_seq = targets[i:(i + sequence_length)]
+    #         X.append(feature_seq)
+    #         y.append(target_seq)
+
+    #     X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
+    #     y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
+
+    #     return X, y
 
 
 
@@ -250,57 +250,57 @@ class LSTM_Trainer:
 
         return history
 
-    # def predict(self, data):
-    #     """
-    #     Make predictions on new data.
-    #     """
-    #     self.model.eval()
-    #     X, y = self.preprocessor.prepare_data(data, is_training=False)
-
-    #     with torch.no_grad():
-    #         predictions = self.model(X).cpu().numpy()
-    #         y = y.cpu().numpy()
-
-    #         # Inverse transform predictions
-    #         predictions_original = self.preprocessor.scalers['target'].inverse_transform(predictions.reshape(-1, 1))
-    #         return predictions_original.reshape(predictions.shape), predictions, y
-
     def predict(self, data):
         """
-        Make predictions on new data with overlapping sequences.
+        Make predictions on new data.
         """
         self.model.eval()
-
-        # Prepare the data (this will return the raw data, not necessarily in overlapping sequences yet)
         X, y = self.preprocessor.prepare_data(data, is_training=False)
 
-        sequence_length = self.config.get('sequence_length', 1000)  # Get sequence length from config
-        stride = self.config.get('stride', 20)  # Get stride from config (distance between sequences)
-        
-        predictions_list = []  # List to store all the predictions
-        actual_values = []    # List to store actual target values (for comparison)
-        
         with torch.no_grad():
-            # Loop through the data to create overlapping sequences
-            for i in range(0, len(X) - sequence_length + 1, stride):
-                # Create an overlapping sequence
-                feature_seq = X[i:i + sequence_length]
-                target_seq = y[i:i + sequence_length]
+            predictions = self.model(X).cpu().numpy()
+            y = y.cpu().numpy()
 
-                # Predict the sequence for the current batch
-                prediction = self.model(feature_seq.unsqueeze(0))  # Add batch dimension (1, sequence_length, num_features)
+            # Inverse transform predictions
+            predictions_original = self.preprocessor.scalers['target'].inverse_transform(predictions.reshape(-1, 1))
+            return predictions_original.reshape(predictions.shape), predictions, y
+
+    # def predict(self, data):
+    #     """
+    #     Make predictions on new data with overlapping sequences.
+    #     """
+    #     self.model.eval()
+
+    #     # Prepare the data (this will return the raw data, not necessarily in overlapping sequences yet)
+    #     X, y = self.preprocessor.prepare_data(data, is_training=False)
+
+    #     sequence_length = self.config.get('sequence_length', 1000)  # Get sequence length from config
+    #     stride = self.config.get('stride', 20)  # Get stride from config (distance between sequences)
+        
+    #     predictions_list = []  # List to store all the predictions
+    #     actual_values = []    # List to store actual target values (for comparison)
+        
+    #     with torch.no_grad():
+    #         # Loop through the data to create overlapping sequences
+    #         for i in range(0, len(X) - sequence_length + 1, stride):
+    #             # Create an overlapping sequence
+    #             feature_seq = X[i:i + sequence_length]
+    #             target_seq = y[i:i + sequence_length]
+
+    #             # Predict the sequence for the current batch
+    #             prediction = self.model(feature_seq.unsqueeze(0))  # Add batch dimension (1, sequence_length, num_features)
                 
-                predictions_list.append(prediction.cpu().numpy().flatten())  # Store the predictions
-                actual_values.append(target_seq.cpu().numpy().flatten())  # Store actual values
+    #             predictions_list.append(prediction.cpu().numpy().flatten())  # Store the predictions
+    #             actual_values.append(target_seq.cpu().numpy().flatten())  # Store actual values
 
-            # Convert the list of predictions to a numpy array
-            predictions = np.array(predictions_list)  # Shape: (num_sequences, sequence_length)
-            actual_values = np.array(actual_values)  # Shape: (num_sequences, sequence_length)
+    #         # Convert the list of predictions to a numpy array
+    #         predictions = np.array(predictions_list)  # Shape: (num_sequences, sequence_length)
+    #         actual_values = np.array(actual_values)  # Shape: (num_sequences, sequence_length)
 
-            # Inverse transform the predictions back to the original scale
-            predictions_original = self.preprocessor.scalers['target'].inverse_transform(predictions.flatten().reshape(-1, 1))
+    #         # Inverse transform the predictions back to the original scale
+    #         predictions_original = self.preprocessor.scalers['target'].inverse_transform(predictions.flatten().reshape(-1, 1))
 
-            # Reshape the predictions to match the original shape
-            predictions_original = predictions_original.reshape(predictions.shape)
+    #         # Reshape the predictions to match the original shape
+    #         predictions_original = predictions_original.reshape(predictions.shape)
 
-        return predictions_original, predictions, actual_values
+    #     return predictions_original, predictions, actual_values

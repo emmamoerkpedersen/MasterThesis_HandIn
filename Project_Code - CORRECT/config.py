@@ -126,5 +126,4 @@ LSTM_CONFIG = {
     'learning_rate': 0.01,   
     'epochs': 5,             
     'patience': 30, 
-    'stride': 10000
 } 
