@@ -15,11 +15,7 @@ import pandas as pd
 import torch
 from pathlib import Path
 import sys
-from sklearn.model_selection import train_test_split
-
-# Disable cuDNN to avoid contiguity issues
-torch.backends.cudnn.enabled = False
-print("cuDNN disabled globally to avoid contiguity issues")
+import numpy as np
 
 from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, plot_additional_data, generate_preprocessing_report, plot_station_data_overview
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
@@ -49,33 +45,30 @@ def run_pipeline(
     """
     # Start with base configuration from config.py
     model_config = LSTM_CONFIG.copy()
-    
+    # Initialize the preprocessor
+    preprocessor = DataPreprocessor(model_config)
 
     
     #########################################################
     #    Step 1: Load and preprocess all station data       #
     #########################################################
     station_id = '21006846'
-    print(f"Loading and preprocessing station data for station {station_id}...")
-   
-    # Load Preprocessed data
-    data_dir = project_root / "data_utils" / "Sample data"
-    preprocessed_data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
-    freezing_periods = pd.read_pickle(data_dir / "frost_periods.pkl")
+    print(f"Loading, preprocessing and splitting station data for station {station_id}...")
+    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
+    
 
-    # Generate dictionary keeping same structure but with the specified station_id
-    preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
-    df = pd.concat(preprocessed_data[station_id].values(), axis=1)
-    # Start_date is first rainfall not nan
-    start_date = df['rainfall'].first_valid_index()
-    # End_date is last vst_raw not nan
-    end_date = df['vst_raw'].last_valid_index()
-    # Cut dataframe and rename
-    preprocessed_data = df[(df.index >= start_date) & (df.index <= end_date)]
-    # Fill vst_raw Nan with bfill and ffill
-    preprocessed_data['temperature'] = preprocessed_data['temperature'].ffill().bfill()
-    preprocessed_data['rainfall'] = preprocessed_data['rainfall'].fillna(-1)
-    print(f"  - Filled vst_raw Nan with bfill and ffill")
+    print("\nData split summary:")
+    print(f"Train data: {train_data.shape}")
+    for feature in train_data.columns:
+        min_val = train_data[feature].min()
+        max_val = train_data[feature].max()
+        print(f"{feature}: Min = {min_val}, Max = {max_val}")
+    print(f"Validation data: {val_data.shape}")
+    print(f'Percentage of NaN in train target data: {np.round((train_data["vst_raw"].isna().sum() / len(train_data["vst_raw"]))*100, 2)}%')
+    print(f'Percentage of NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
+    print(f'Percentage of NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
+    
+    print(f"Test data: {test_data.shape}")
 
     # Generate preprocessing diagnostics if enabled
     if preprocess_diagnostics:
@@ -93,41 +86,7 @@ def run_pipeline(
             print(f"Warning: No original data found for station {station_id}")
             # Still generate plots that don't require original data
             plot_additional_data(preprocessed_data, Path(output_path))
-    
-    #########################################################
-    #    Step 2: Split data into train/val/test sets        #
-    #########################################################
-    
-    print("\nSplitting data into train/validation/test sets...")
-    feature_cols = LSTM_CONFIG.get('feature_cols', [])
-    target_feature = LSTM_CONFIG.get('output_features', ['vst_raw'])[0]
-    all_features = list(set(feature_cols + [target_feature]))
-    
-    #Filter preprocessed_data to only include the features and target feature
-    preprocessed_data = preprocessed_data[all_features]
 
-    #preprocessed_data = preprocessed_data.iloc[-8000:]
-    # train_data = preprocessed_data
-    # val_data = preprocessed_data
-    # test_data = preprocessed_data
-
-    # USing sklearn.model_selection to split data
-    # First split into train (60%) and temp (40% remaining)
-    train_data, temp = train_test_split(preprocessed_data, test_size=0.4, shuffle=False)
-
-    # Then split the temp data into validation (50% of temp = 20% of the whole data) and test (50% of temp = 20% of the whole data)
-    val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
-    
-    print("\nData split summary:")
-    print(f"Train data: {train_data.shape}")
-    for feature in train_data.columns:
-        min_val = train_data[feature].min()
-        max_val = train_data[feature].max()
-        print(f"{feature}: Min = {min_val}, Max = {max_val}")
-    print(f"Validation data: {val_data.shape}")
-    
-    print(f"Test data: {test_data.shape}")
-  
     
     #########################################################
     #    Step 3: Generate synthetic errors                  #
@@ -228,8 +187,6 @@ def run_pipeline(
         dropout=model_config['dropout']
     )
 
-    # Initialize the preprocessor
-    preprocessor = DataPreprocessor(model_config)
 
     # Initialize the real trainer with the correct model
     trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)

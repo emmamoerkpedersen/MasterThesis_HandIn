@@ -255,6 +255,9 @@ def preprocess_data():
         if station_data['rainfall'] is not None:
             station_data['rainfall'] = station_data['rainfall'].resample('15min').asfreq().fillna(-1)
             print(f"  - Resampled rainfall data to 15-minute intervals with fillna(-1)")
+
+    All_station_data = align_data(All_station_data)
+
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
     save_data_Dict(frost_periods, filename=save_path / 'frost_periods.pkl')
@@ -263,7 +266,7 @@ def preprocess_data():
 
 if __name__ == "__main__":
     processed_data, original_data, frost_periods = preprocess_data()
-
+    station_id = '21006847'
     # Create interactive plot using Plotly with three subplots
     fig = make_subplots(rows=3, cols=1, 
                         subplot_titles=('Temperature', 'Rainfall', 'VST Raw Data'),
@@ -272,8 +275,8 @@ if __name__ == "__main__":
     # Add temperature trace to top subplot
     fig.add_trace(
         go.Scatter(
-            x=processed_data['21006847']['temperature'].index,
-            y=processed_data['21006847']['temperature']['temperature'],
+            x=original_data[station_id]['temperature'].index,
+            y=original_data[station_id]['temperature']['temperature'],
             name='Temperature',
             line=dict(color='red')
         ),
@@ -283,8 +286,8 @@ if __name__ == "__main__":
     # Add rainfall trace to middle subplot
     fig.add_trace(
         go.Scatter(
-            x=processed_data['21006847']['rainfall'].index,
-            y=processed_data['21006847']['rainfall']['rainfall'],
+            x=original_data[station_id]['rainfall'].index,
+            y=original_data[station_id]['rainfall']['rainfall'],
             name='Rainfall',
             line=dict(color='blue')
         ),
@@ -294,8 +297,8 @@ if __name__ == "__main__":
     # Add VST raw data trace to bottom subplot
     fig.add_trace(
         go.Scatter(
-            x=processed_data['21006847']['vst_raw'].index,
-            y=processed_data['21006847']['vst_raw']['vst_raw'],
+            x=original_data[station_id]['vst_raw'].index,
+            y=original_data[station_id]['vst_raw']['vst_raw'],
             name='VST Raw',
             line=dict(color='green')
         ),

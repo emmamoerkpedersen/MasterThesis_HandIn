@@ -4,6 +4,7 @@ import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
 from _3_lstm_model.model import LSTMModel
 from tqdm import tqdm
 
@@ -16,7 +17,46 @@ class DataPreprocessor:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.feature_cols = config['feature_cols']
         self.output_features = config['output_features'][0]
+    
+    def load_and_split_data(self, project_root, station_id):
+        """
+        Load and Split data into features and target.
+        """
+        data_dir = project_root / "data_utils" / "Sample data"
+        data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
 
+        # Check if station_id exists in the data dictionary, if not return empty dict
+        station_data = data.get(station_id)
+    
+        if not station_data:
+            raise ValueError(f"Station ID {station_id} not found in the data.")
+    
+        # Concatenate all station data columns
+        df = pd.concat(station_data.values(), axis=1)
+
+        # Start_date is first rainfall not nan, End_date is last vst_raw not nan
+        start_date = df['rainfall'].first_valid_index()
+        end_date = df['vst_raw'].last_valid_index()
+        # Cut dataframe
+        data = df[(df.index >= start_date) & (df.index <= end_date)]
+
+        # Fill temperature and rainfall Nan with bfill and ffill
+        data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
+        data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
+        print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
+
+        feature_cols = self.feature_cols
+        target_feature = self.output_features
+        all_features = list(set(feature_cols + [target_feature]))        
+        #Filter data to only include the features and target feature
+        data = data[all_features]
+
+        # Split data into train, val and test
+        train_data, temp = train_test_split(data, test_size=0.4, shuffle=False)
+        val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
+
+        return train_data, val_data, test_data
+    
     def prepare_data(self, data, is_training=True):
         """
         Prepare data for training or validation. Scale data and create sequences.
@@ -30,10 +70,9 @@ class DataPreprocessor:
 
         # Scale data
         scaled_features, scaled_target = self.scale_data(features, target)
-
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
-
+        print(f'X shape: {X.shape}, y shape: {y.shape}')
         # Convert to tensors and move to device
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)
 
@@ -106,7 +145,7 @@ class LSTM_Trainer:
         ).to(self.device)
         
         # Initialize optimizer and loss function
-        self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate', 0.001))
+        self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.MSELoss()
 
     def _run_epoch(self, data_loader, training=True):
@@ -120,20 +159,34 @@ class LSTM_Trainer:
             for batch_X, batch_y in tqdm(data_loader, desc="Training" if training else "Validating", leave=False):
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
-                loss = self.criterion(outputs, batch_y)
+
+                # Create a mask where target values are not NaN
+                non_nan_mask = ~torch.isnan(batch_y)
+                # Compute loss for only valid (non-NaN) values
+                valid_outputs = outputs[non_nan_mask]  # Only keep non-NaN outputs
+                valid_target = batch_y[non_nan_mask]   # Only keep non-NaN targets
+                
+                # If there are no valid targets (all NaNs), skip loss calculation for this batch
+                if valid_target.size(0) == 0:
+                    continue  # Skip this batch
+
+                # Calculate the loss only for valid targets
+                loss = self.criterion(valid_outputs, valid_target)
                 total_loss += loss.item()
 
                 if training:
                     loss.backward()
                     self.optimizer.step()
 
-        return total_loss / len(data_loader)
+        return total_loss / len(data_loader) 
 
     def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
         """
         Train the LSTM model.
         """
         # Prepare data
+        print(f"Train data length: {len(train_data)}")
+        print(f"Validation data length: {len(val_data)}")
         X_train, y_train = self.preprocessor.prepare_data(train_data, is_training=True)
         X_val, y_val = self.preprocessor.prepare_data(val_data, is_training=False)
 
