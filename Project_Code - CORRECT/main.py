@@ -23,24 +23,22 @@ print("cuDNN disabled globally to avoid contiguity issues")
 
 from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, plot_additional_data, generate_preprocessing_report, plot_station_data_overview
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
-from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
-from _1_preprocessing.split import split_data_with_combined_windows
-from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-from _3_lstm_model.lstm_forecaster import train_LSTM, LSTMModel, create_full_plot, plot_scaled_predictions, plot_convergence
-from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
+from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
+#from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
+
+from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
+from _3_lstm_model.model import LSTMModel
+from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
+from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
+
 
 def run_pipeline(
     project_root: Path,
     data_path: str, 
     output_path: str, 
-    test_mode: bool = False,
-    test_years: int = 1,
     preprocess_diagnostics: bool = False,
-    split_diagnostics: bool = False,
     synthetic_diagnostics: bool = False,
-    detection_diagnostics: bool = False,
     run_hyperparameter_optimization: bool = False,
     hyperparameter_trials: int = 10,
     hyperparameter_diagnostics: bool = False,
@@ -49,28 +47,6 @@ def run_pipeline(
     """
     Run the complete error detection and imputation pipeline using yearly windows.
     """
-    # Check for CUDA availability
-    cuda_available = torch.cuda.is_available()
-    if cuda_available:
-        device_name = torch.cuda.get_device_name(0)
-        print("\n" + "="*80)
-        print(f"CUDA IS AVAILABLE! Using GPU: {device_name}")
-        print(f"PyTorch version: {torch.__version__}")
-        print(f"CUDA version: {torch.version.cuda}")
-        
-        # Get GPU memory information
-        total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
-        allocated_memory = torch.cuda.memory_allocated(0) / (1024**3)  # GB
-        free_memory = total_memory - allocated_memory
-        
-        print(f"Total GPU memory: {total_memory:.2f} GB")
-        print(f"Free GPU memory: {free_memory:.2f} GB")
-        
-        if free_memory < 4.0:
-            print(f"Limited GPU memory detected ({free_memory:.2f} GB free).")
-            aggressive_memory_saving = True
-            print("Enabling aggressive memory saving mode automatically")
-    
     # Start with base configuration from config.py
     model_config = LSTM_CONFIG.copy()
     
@@ -86,6 +62,7 @@ def run_pipeline(
     data_dir = project_root / "data_utils" / "Sample data"
     preprocessed_data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
     freezing_periods = pd.read_pickle(data_dir / "frost_periods.pkl")
+
     # Generate dictionary keeping same structure but with the specified station_id
     preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
     df = pd.concat(preprocessed_data[station_id].values(), axis=1)
@@ -96,7 +73,6 @@ def run_pipeline(
     # Cut dataframe and rename
     preprocessed_data = df[(df.index >= start_date) & (df.index <= end_date)]
     # Fill vst_raw Nan with bfill and ffill
-    preprocessed_data['vst_raw'] = preprocessed_data['vst_raw'].ffill().bfill()
     preprocessed_data['temperature'] = preprocessed_data['temperature'].ffill().bfill()
     preprocessed_data['rainfall'] = preprocessed_data['rainfall'].fillna(-1)
     print(f"  - Filled vst_raw Nan with bfill and ffill")
@@ -241,9 +217,7 @@ def run_pipeline(
     
     # Initialize model
     print("\nInitializing LSTM model...")
-    
 
-    
     # Now create the real model with the correct input size
     model = LSTMModel(
         input_size=len(model_config['feature_cols']),
@@ -253,9 +227,12 @@ def run_pipeline(
         num_layers=model_config['num_layers'],
         dropout=model_config['dropout']
     )
-    
+
+    # Initialize the preprocessor
+    preprocessor = DataPreprocessor(model_config)
+
     # Initialize the real trainer with the correct model
-    trainer = train_LSTM(model, model_config)
+    trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
     
     # Train model on combined data
     print("\nTraining model on combined data...")
@@ -266,7 +243,7 @@ def run_pipeline(
         batch_size=model_config['batch_size'],
         patience=model_config['patience']
     )
-    
+
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
     # Make predictions on test set without synthetic errors
@@ -295,7 +272,6 @@ if __name__ == "__main__":
     output_path.mkdir(parents=True, exist_ok=True)
     
     print("\nRunning LSTM model with configuration from config.py")
-    
 
     
     # Run pipeline with simplified configuration handling
@@ -305,9 +281,7 @@ if __name__ == "__main__":
             data_path=data_path, 
             output_path=output_path,
             preprocess_diagnostics=False,
-            split_diagnostics=False,
             synthetic_diagnostics=False,
-            detection_diagnostics=False,
             run_hyperparameter_optimization=False,  # Set to True if you want to optimize
             hyperparameter_trials=10,
             hyperparameter_diagnostics=False,

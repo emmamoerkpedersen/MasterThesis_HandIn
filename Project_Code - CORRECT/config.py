@@ -125,5 +125,5 @@ LSTM_CONFIG = {
     'batch_size': 1,          
     'learning_rate': 0.0001,   
     'epochs': 20,             
-    'patience': 10,            
+    'patience': 1000,            
 } 

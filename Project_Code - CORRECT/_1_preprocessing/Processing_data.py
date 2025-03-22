@@ -31,7 +31,6 @@ def rename_columns(dictionary):
     
     return dictionary
 
-
 def detect_frost_periods(temperature_data):
     """
     Detect frost periods based on temperature data.
@@ -87,7 +86,6 @@ def detect_frost_periods(temperature_data):
             frost_sum = 0
     
     return frost_periods
-
 
 def detect_spikes(vst_data):
     """
@@ -153,8 +151,6 @@ def detect_flatlines(vst_data, window=20):
     
     return filtered_data, n_flatlines
 
-
-
 def align_data(data):
     aligned_data = {}
 
@@ -189,7 +185,6 @@ def align_data(data):
             aligned_data[key][subkey] = df
 
     return aligned_data
-
 
 def preprocess_data():
     """
@@ -260,11 +255,6 @@ def preprocess_data():
         if station_data['rainfall'] is not None:
             station_data['rainfall'] = station_data['rainfall'].resample('15min').asfreq().fillna(-1)
             print(f"  - Resampled rainfall data to 15-minute intervals with fillna(-1)")
-
-        # Fill vst_raw Nan with bfill and ffill
-        station_data['vst_raw'] = station_data['vst_raw'].bfill().ffill()
-        print(f"  - Filled vst_raw Nan with bfill and ffill")
-
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
     save_data_Dict(frost_periods, filename=save_path / 'frost_periods.pkl')
