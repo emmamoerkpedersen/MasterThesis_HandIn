@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from _3_lstm_model.model import LSTMModel
 from tqdm import tqdm
@@ -44,6 +44,8 @@ class DataPreprocessor:
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
 
+
+        
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
@@ -87,12 +89,12 @@ class DataPreprocessor:
 
     def scale_data(self, features, target):
         """
-        Scale features and target using MinMaxScaler.
+        Scale features and target using StandardScaler.
         """
         if not self.is_fitted:
             self.scalers = {
-                'features': {col: MinMaxScaler() for col in self.feature_cols},
-                'target': MinMaxScaler()
+                'features': {col: StandardScaler() for col in self.feature_cols},
+                'target': StandardScaler()
             }
             for col in self.feature_cols:
                 self.scalers['features'][col].fit(features[[col]])
@@ -155,8 +157,8 @@ class LSTM_Trainer:
         
         # Initialize optimizer and loss function
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
-        self.criterion = nn.MSELoss()
-        
+        self.criterion = nn.MSELoss()  #torch.nn.SmoothL1Loss()
+
         # Set gradient clipping threshold
         self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
 
