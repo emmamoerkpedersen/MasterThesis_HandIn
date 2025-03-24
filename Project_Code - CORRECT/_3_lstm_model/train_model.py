@@ -157,7 +157,7 @@ class LSTM_Trainer:
         
         # Initialize optimizer and loss function
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
-        self.criterion = nn.MSELoss()  #torch.nn.SmoothL1Loss()
+        self.criterion = nn.SmoothL1Loss()
 
         # Set gradient clipping threshold
         self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
