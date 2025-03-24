@@ -53,8 +53,9 @@ def run_pipeline(
     #    Step 1: Load and preprocess all station data       #
     #########################################################
     station_id = '21006846'
+    feature_station_id = '21006845'
     print(f"Loading, preprocessing and splitting station data for station {station_id}...")
-    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
+    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id, feature_station_id)
     
 
     print("\nData split summary:")
@@ -64,9 +65,9 @@ def run_pipeline(
         max_val = train_data[feature].max()
         print(f"{feature}: Min = {min_val}, Max = {max_val}")
     print(f"Validation data: {val_data.shape}")
-    print(f'Percentage of NaN in train target data: {np.round((train_data["vst_raw"].isna().sum() / len(train_data["vst_raw"]))*100, 2)}%')
-    print(f'Percentage of NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
-    print(f'Percentage of NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
+    print(f'Percentage of vst_raw NaN in train target data: {np.round((train_data["vst_raw"].isna().sum() / len(train_data["vst_raw"]))*100, 2)}%')
+    print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
+    print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
     
     print(f"Test data: {test_data.shape}")
 
@@ -179,7 +180,7 @@ def run_pipeline(
 
     # Now create the real model with the correct input size
     model = LSTMModel(
-        input_size=len(model_config['feature_cols']),
+        input_size=len(model_config['feature_cols']+['feature_station_vst_raw']),
         sequence_length=model_config['sequence_length'],
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
@@ -193,7 +194,7 @@ def run_pipeline(
     
     # Train model on combined data
     print("\nTraining model on combined data...")
-    history = trainer.train(
+    history, val_predictions, val_targets = trainer.train(
         train_data=train_data,
         val_data=val_data,
         epochs=model_config['epochs'],
@@ -204,13 +205,13 @@ def run_pipeline(
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
     # Make predictions on test set without synthetic errors
-    print("\nMaking predictions on test set without synthetic errors...")
+    #print("\nMaking predictions on test set without synthetic errors...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
 
     #plot_scaled_predictions(predictions_scaled, target_scaled, station_id)
-
+    create_full_plot(val_data, val_predictions, station_id)
     # Create and show the plot with correct data
-    create_full_plot(test_data, test_predictions, station_id)
+    #create_full_plot(test_data, test_predictions, station_id)
     
     # Plot convergence
     plot_convergence(history, title=f"Training and Validation Loss - Station {station_id}")

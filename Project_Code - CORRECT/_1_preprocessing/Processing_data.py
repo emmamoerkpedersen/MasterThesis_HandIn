@@ -186,6 +186,44 @@ def align_data(data):
 
     return aligned_data
 
+def distribute_hourly_rainfall(rainfall_df):
+    """
+    Distribute hourly cumulated rainfall values across previous 15-minute intervals.
+    
+    Args:
+        rainfall_df: Pandas DataFrame with hourly rainfall data
+    Returns:
+        Pandas DataFrame with 15-minute distributed rainfall data
+    """
+    # Get the rainfall column name (should be 'rainfall')
+    rainfall_col = rainfall_df.columns[0]
+    
+    # Convert to series for easier handling
+    rainfall_series = rainfall_df[rainfall_col]
+    
+    # Resample to 15-minute intervals
+    resampled = rainfall_series.resample('15min').asfreq()
+    
+    # For each non-NaN hourly value
+    for timestamp in rainfall_series.dropna().index:
+        hourly_value = rainfall_series.loc[timestamp]
+        
+        # Get the previous hour's timestamps (4 fifteen-minute intervals)
+        prev_timestamps = pd.date_range(end=timestamp, periods=4, freq='15min')
+        
+        # Distribute the hourly value equally (divide by 4)
+        distributed_value = hourly_value / 4
+        
+        # Assign the distributed value to each 15-minute interval
+        for prev_ts in prev_timestamps:
+            resampled.loc[prev_ts] = distributed_value
+    
+    # Fill remaining NaN with -1
+    resampled = resampled.fillna(-1)
+    
+    # Convert back to DataFrame with the same column name
+    return pd.DataFrame(resampled, columns=[rainfall_col])
+
 def preprocess_data():
     """
     Preprocess the data and save to pickle files.
@@ -251,10 +289,10 @@ def preprocess_data():
             station_data['temperature'] = station_data['temperature'].resample('15min').ffill().bfill()  # Hold mean temperature constant but divide by 4
             print(f"  - Resampled temperature data to 15-minute intervals with ffill and bfill")
 
-        # Resample rainfall data to 15-minute intervals with fillna(-1)
+        # Resample rainfall data to 15-minute intervals
         if station_data['rainfall'] is not None:
-            station_data['rainfall'] = station_data['rainfall'].resample('15min').asfreq().fillna(-1)
-            print(f"  - Resampled rainfall data to 15-minute intervals with fillna(-1)")
+            station_data['rainfall'] = distribute_hourly_rainfall(station_data['rainfall'])
+            print(f"  - Distributed hourly rainfall data to 15-minute intervals")
 
     All_station_data = align_data(All_station_data)
 
@@ -266,17 +304,17 @@ def preprocess_data():
 
 if __name__ == "__main__":
     processed_data, original_data, frost_periods = preprocess_data()
-    station_id = '21006847'
+    station_id = '21006846'
     # Create interactive plot using Plotly with three subplots
-    fig = make_subplots(rows=3, cols=1, 
+    fig = make_subplots(rows=4, cols=1, 
                         subplot_titles=('Temperature', 'Rainfall', 'VST Raw Data'),
                         vertical_spacing=0.1)
 
     # Add temperature trace to top subplot
     fig.add_trace(
         go.Scatter(
-            x=original_data[station_id]['temperature'].index,
-            y=original_data[station_id]['temperature']['temperature'],
+            x=processed_data[station_id]['temperature'].index,
+            y=processed_data[station_id]['temperature']['temperature'],
             name='Temperature',
             line=dict(color='red')
         ),
@@ -286,23 +324,34 @@ if __name__ == "__main__":
     # Add rainfall trace to middle subplot
     fig.add_trace(
         go.Scatter(
-            x=original_data[station_id]['rainfall'].index,
-            y=original_data[station_id]['rainfall']['rainfall'],
+            x=processed_data[station_id]['rainfall'].index,
+            y=processed_data[station_id]['rainfall']['rainfall'],
             name='Rainfall',
             line=dict(color='blue')
         ),
         row=2, col=1
     )
 
+     # Add temperature trace to top subplot
+    fig.add_trace(
+        go.Scatter(
+            x=original_data[station_id]['rainfall'].index,
+            y=original_data[station_id]['rainfall']['precipitation (mm)'],
+            name='Rainfall',
+            line=dict(color='blue')
+        ),
+        row=3, col=1
+    )
+
     # Add VST raw data trace to bottom subplot
     fig.add_trace(
         go.Scatter(
-            x=original_data[station_id]['vst_raw'].index,
-            y=original_data[station_id]['vst_raw']['vst_raw'],
+            x=processed_data[station_id]['vst_raw'].index,
+            y=processed_data[station_id]['vst_raw']['vst_raw'],
             name='VST Raw',
             line=dict(color='green')
         ),
-        row=3, col=1
+        row=4, col=1
     )
 
     # Update layout
