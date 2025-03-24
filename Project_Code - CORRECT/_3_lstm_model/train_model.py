@@ -156,38 +156,60 @@ class LSTM_Trainer:
         # Initialize optimizer and loss function
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.MSELoss()
+        
+        # Set gradient clipping threshold
+        self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
 
     def _run_epoch(self, data_loader, training=True):
         """
-        Runs an epoch for training or validation.
+        Runs an epoch for training or validation with gradient clipping.
         """
         self.model.train() if training else self.model.eval()
         total_loss = 0
+        
+        # Lists to store validation predictions and targets
+        all_predictions = []
+        all_targets = []
 
         with torch.set_grad_enabled(training):
             for batch_X, batch_y in tqdm(data_loader, desc="Training" if training else "Validating", leave=False):
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
 
-                # Create a mask where target values are not NaN
+                # Handle NaN values
                 non_nan_mask = ~torch.isnan(batch_y)
-                # Compute loss for only valid (non-NaN) values
-                valid_outputs = outputs[non_nan_mask]  # Only keep non-NaN outputs
-                valid_target = batch_y[non_nan_mask]   # Only keep non-NaN targets
+                valid_outputs = outputs[non_nan_mask]
+                valid_target = batch_y[non_nan_mask]
                 
-                # If there are no valid targets (all NaNs), skip loss calculation for this batch
                 if valid_target.size(0) == 0:
-                    continue  # Skip this batch
+                    continue
 
-                # Calculate the loss only for valid targets
                 loss = self.criterion(valid_outputs, valid_target)
-                total_loss += loss.item()
-
+                
                 if training:
                     loss.backward()
+                    
+                    # Clip gradients
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), 
+                        self.grad_clip
+                    )
+                    
                     self.optimizer.step()
+                
+                total_loss += loss.item()
 
-        return total_loss / len(data_loader) 
+                if not training:
+                    all_predictions.append(outputs.cpu().detach())
+                    all_targets.append(batch_y.cpu())
+
+        if training:
+            return total_loss / len(data_loader)
+        else:
+            # Concatenate all validation predictions and targets
+            val_predictions = torch.cat(all_predictions, dim=0)
+            val_targets = torch.cat(all_targets, dim=0)
+            return total_loss / len(data_loader), val_predictions, val_targets
 
     def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
         """

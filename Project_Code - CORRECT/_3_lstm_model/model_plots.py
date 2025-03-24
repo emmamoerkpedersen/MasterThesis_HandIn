@@ -13,7 +13,7 @@ def create_full_plot(test_data, test_predictions, station_id):
     test_actual = test_data['vst_raw']
     
     # Reshape predictions from (sequences, sequence_length, 1) to 1D array
-    test_predictions = test_predictions.reshape(-1)  # Flatten the predictions
+    test_predictions = test_predictions['vst_raw']  # Flatten the predictions
     
     # Print lengths for debugging
     print(f"Length of test_actual: {len(test_actual)}")

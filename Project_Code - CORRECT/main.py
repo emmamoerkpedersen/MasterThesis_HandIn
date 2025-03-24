@@ -1,4 +1,3 @@
-
 """
 Main script to run the error detection pipeline.
 
@@ -204,19 +203,33 @@ def run_pipeline(
 
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
-    # Make predictions on test set without synthetic errors
-    #print("\nMaking predictions on test set without synthetic errors...")
+    
+    # Convert validation predictions to numpy and reshape
+    val_predictions = val_predictions.cpu().numpy()
+    val_targets = val_targets.cpu().numpy()
+    
+    # Preserve temporal order during inverse transform (same as predict function)
+    predictions_reshaped = val_predictions.reshape(-1, 1)
+    predictions_original = preprocessor.scalers['target'].inverse_transform(predictions_reshaped)
+    predictions_flattened = predictions_original.flatten()  # Ensure 1D array
+    
+    # Create DataFrame with aligned predictions and targets
+    val_predictions_df = pd.DataFrame(
+        predictions_flattened,  # Use flattened 1D array
+        index=val_data.index[:len(predictions_flattened)],
+        columns=['vst_raw']
+    )
+    # Now plot with aligned data
+    create_full_plot(val_data, val_predictions_df, station_id)  # Pass the Series directly
+    
+    # Make and plot test predictions
+    print("\nMaking predictions on test set...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
-
-    #plot_scaled_predictions(predictions_scaled, target_scaled, station_id)
-    create_full_plot(val_data, val_predictions, station_id)
-    # Create and show the plot with correct data
-    #create_full_plot(test_data, test_predictions, station_id)
     
     # Plot convergence
     plot_convergence(history, title=f"Training and Validation Loss - Station {station_id}")
 
-    return test_predictions
+    return test_predictions, predictions_original, history
 
 
 if __name__ == "__main__":
@@ -234,19 +247,22 @@ if __name__ == "__main__":
     
     # Run pipeline with simplified configuration handling
     try:
-        test_predictions = run_pipeline(
+        test_predictions, val_predictions, history = run_pipeline(
             project_root=project_root,
             data_path=data_path, 
             output_path=output_path,
             preprocess_diagnostics=False,
             synthetic_diagnostics=False,
-            run_hyperparameter_optimization=False,  # Set to True if you want to optimize
+            run_hyperparameter_optimization=False,
             hyperparameter_trials=10,
             hyperparameter_diagnostics=False,
         )
 
         print("\nModel run completed!")
         print(f"Results saved to: {output_path}")
+        print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
+        print(f"Best validation loss: {min(history['val_loss']):.6f}")
+        
     except Exception as e:
         print(f"\nError running pipeline: {e}")
         import traceback
