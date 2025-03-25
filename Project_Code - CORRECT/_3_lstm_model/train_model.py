@@ -60,19 +60,19 @@ class DataPreprocessor:
 
         # Split data into train, val and test
         train_data, temp = train_test_split(data, test_size=0.4, shuffle=False)
-        val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
+        val_data, test_data = train_test_split(temp, test_size=0.25, shuffle=False)
         print(f'Data shape: {data.shape}')
         print(f'Train data shape: {train_data.shape}')
         print(f'Val data shape: {val_data.shape}')
         print(f'Test data shape: {test_data.shape}')
 
+    
         return train_data, val_data, test_data
     
     def prepare_data(self, data, is_training=True):
         """
-        Prepare data for training or validation. Scale data and create sequences.
+        Prepare data for training or validation.
         """
-        # Get features and target
         feature_cols = self.feature_cols
         target_col = self.output_features   
         
@@ -82,9 +82,8 @@ class DataPreprocessor:
         # Scale data
         scaled_features, scaled_target = self.scale_data(features, target)
         # Create sequences
-        X, y = self._create_sequences(scaled_features, scaled_target)
-        print(f'X shape: {X.shape}, y shape: {y.shape}')
-        # Convert to tensors and move to device
+        X, y = self._create_sequences(scaled_features, scaled_target, is_validation=not is_training)
+        print(f'Prepared data - X shape: {X.shape}, y shape: {y.shape}')
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)
 
     def scale_data(self, features, target):
@@ -112,23 +111,33 @@ class DataPreprocessor:
         
         return scaled_features, scaled_target
 
-    def _create_sequences(self, features, targets):
+    def _create_sequences(self, features, targets, is_validation=False):
         """
-        Create non-overlapping sequences for sequence-to-sequence prediction.
+        Create sequences for training or validation.
+        For validation, we want to keep the entire sequence intact to use training data as warmup.
         """
         sequence_length = self.config.get('sequence_length', 1000)
         X, y = [], []
         
-        for i in range(0, len(features), sequence_length):
-            if i + sequence_length <= len(features):
+        if is_validation:
+            # For validation, keep the entire sequence as one piece
+            # This preserves the training data for warmup
+            X = [features]  # Keep all data as one sequence
+            y = [targets]
+            print("Validation sequence creation:")
+            print(f"Total sequence length: {len(features)}")
+        else:
+            # For training, create normal sequences
+            for i in range(0, len(features) - sequence_length + 1, sequence_length):
                 feature_seq = features[i:(i + sequence_length)]
                 target_seq = targets[i:(i + sequence_length)]
                 X.append(feature_seq)
                 y.append(target_seq)
         
-        X = np.array(X)  # Shape: (num_full_sequences, sequence_length, num_features)
-        y = np.array(y)[..., np.newaxis]  # Shape: (num_full_sequences, sequence_length, 1)
-    
+        X = np.array(X)
+        y = np.array(y)[..., np.newaxis]
+        
+        print(f"Created sequences with shape - X: {X.shape}, y: {y.shape}")
         return X, y
 
 
@@ -162,70 +171,92 @@ class LSTM_Trainer:
         # Set gradient clipping threshold
         self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
 
-    def _run_epoch(self, data_loader, training=True):
-        """
-        Runs an epoch for training or validation with gradient clipping.
-        """
+    def _run_epoch(self, data_loader, training=True, train_data_length=None):
         self.model.train() if training else self.model.eval()
         total_loss = 0
+        num_valid_batches = 0
         
-        # Lists to store validation predictions and targets
         all_predictions = []
         all_targets = []
 
         with torch.set_grad_enabled(training):
-            for batch_X, batch_y in tqdm(data_loader, desc="Training" if training else "Validating", leave=False):
+            for batch_idx, (batch_X, batch_y) in enumerate(tqdm(data_loader, desc="Training" if training else "Validating", leave=False)):
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
 
-                # Handle NaN values
-                non_nan_mask = ~torch.isnan(batch_y)
-                valid_outputs = outputs[non_nan_mask]
-                valid_target = batch_y[non_nan_mask]
-                
-                if valid_target.size(0) == 0:
-                    continue
-
-                loss = self.criterion(valid_outputs, valid_target)
-                
                 if training:
-                    loss.backward()
-                    
-                    # Clip gradients
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), 
-                        self.grad_clip
-                    )
-                    
-                    self.optimizer.step()
+                    # During training, only mask NaN values
+                    valid_mask = ~torch.isnan(batch_y)
+                else:
+                    # Use training data as warmup
+                    # For validation, only use points training data
+                    valid_mask = torch.zeros_like(batch_y, dtype=torch.bool)
+                    valid_mask[:, train_data_length:, :] = True
+                    non_nan_mask = ~torch.isnan(batch_y)
+                    valid_mask = valid_mask & non_nan_mask
                 
-                total_loss += loss.item()
+                # Get valid outputs and targets
+                valid_outputs = outputs[valid_mask]
+                valid_target = batch_y[valid_mask]
+                
+                if valid_target.size(0) > 0:
+                    loss = self.criterion(valid_outputs, valid_target)
+                    total_loss += loss.item()
+                    num_valid_batches += 1
+                    
+                    if training:
+                        loss.backward()
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
+                        self.optimizer.step()
 
                 if not training:
                     all_predictions.append(outputs.cpu().detach())
                     all_targets.append(batch_y.cpu())
 
-        if training:
-            return total_loss / len(data_loader)
-        else:
-            # Concatenate all validation predictions and targets
-            val_predictions = torch.cat(all_predictions, dim=0)
-            val_targets = torch.cat(all_targets, dim=0)
-            return total_loss / len(data_loader), val_predictions, val_targets
+            if training:
+                return total_loss / max(num_valid_batches, 1)
+            else:
+                val_predictions = torch.cat(all_predictions, dim=0)
+                val_targets = torch.cat(all_targets, dim=0)
+                
+                return total_loss / max(num_valid_batches, 1), val_predictions, val_targets
 
-    def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
+    def train(self, train_data, val_data, epochs=100, batch_size=1, patience=15):
         """
-        Train the LSTM model.
+        Train the LSTM model with proper sequence handling for validation.
         """
-        # Prepare data
+        print(f"\nData Sizes:")
         print(f"Train data length: {len(train_data)}")
         print(f"Validation data length: {len(val_data)}")
+        
+        # Prepare training data normally
         X_train, y_train = self.preprocessor.prepare_data(train_data, is_training=True)
-        X_val, y_val = self.preprocessor.prepare_data(val_data, is_training=False)
+        
+        # For validation, combine train and validation data to use training data as warmup
+        combined_val_data = pd.concat([train_data, val_data])
+        print(f"Combined validation data length: {len(combined_val_data)}")
+        X_val, y_val = self.preprocessor.prepare_data(combined_val_data, is_training=False)
+        
+        train_data_length = len(train_data)
+        print(f"Using {train_data_length} steps as warmup for validation")
+        
+        print(f"\nTensor Shapes:")
+        print(f"X_train shape: {X_train.shape}")
+        print(f"y_train shape: {y_train.shape}")
+        print(f"X_val shape: {X_val.shape}")
+        print(f"y_val shape: {y_val.shape}")
 
         # Create data loaders
-        train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), batch_size=batch_size, shuffle=False)
-        val_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_val, y_val), batch_size=batch_size, shuffle=False)
+        train_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_train, y_train), 
+            batch_size=batch_size, 
+            shuffle=False
+        )
+        val_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_val, y_val), 
+            batch_size=1,  # Force batch_size=1 for validation
+            shuffle=False
+        )
 
         # Initialize early stopping
         best_val_loss = float('inf')
@@ -236,7 +267,11 @@ class LSTM_Trainer:
         # Training loop
         for epoch in range(epochs):
             train_loss = self._run_epoch(train_loader, training=True)
-            val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
+            val_loss, val_predictions, val_targets = self._run_epoch(
+                val_loader, 
+                training=False, 
+                train_data_length=train_data_length
+            )
 
             # Store history
             history['train_loss'].append(train_loss)
@@ -281,43 +316,3 @@ class LSTM_Trainer:
             predictions_original = predictions_original.reshape(predictions.shape)
             
             return predictions_original, predictions, y
-
-    # def predict(self, data):
-    #     """
-    #     Make predictions on new data with overlapping sequences.
-    #     """
-    #     self.model.eval()
-
-    #     # Prepare the data (this will return the raw data, not necessarily in overlapping sequences yet)
-    #     X, y = self.preprocessor.prepare_data(data, is_training=False)
-
-    #     sequence_length = self.config.get('sequence_length', 1000)  # Get sequence length from config
-    #     stride = self.config.get('stride', 20)  # Get stride from config (distance between sequences)
-        
-    #     predictions_list = []  # List to store all the predictions
-    #     actual_values = []    # List to store actual target values (for comparison)
-        
-    #     with torch.no_grad():
-    #         # Loop through the data to create overlapping sequences
-    #         for i in range(0, len(X) - sequence_length + 1, stride):
-    #             # Create an overlapping sequence
-    #             feature_seq = X[i:i + sequence_length]
-    #             target_seq = y[i:i + sequence_length]
-
-    #             # Predict the sequence for the current batch
-    #             prediction = self.model(feature_seq.unsqueeze(0))  # Add batch dimension (1, sequence_length, num_features)
-                
-    #             predictions_list.append(prediction.cpu().numpy().flatten())  # Store the predictions
-    #             actual_values.append(target_seq.cpu().numpy().flatten())  # Store actual values
-
-    #         # Convert the list of predictions to a numpy array
-    #         predictions = np.array(predictions_list)  # Shape: (num_sequences, sequence_length)
-    #         actual_values = np.array(actual_values)  # Shape: (num_sequences, sequence_length)
-
-    #         # Inverse transform the predictions back to the original scale
-    #         predictions_original = self.preprocessor.scalers['target'].inverse_transform(predictions.flatten().reshape(-1, 1))
-
-    #         # Reshape the predictions to match the original shape
-    #         predictions_original = predictions_original.reshape(predictions.shape)
-
-    #     return predictions_original, predictions, actual_values
