@@ -43,8 +43,6 @@ class DataPreprocessor:
         end_date = df['vst_raw'].last_valid_index()
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
-
-
         
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
@@ -168,8 +166,15 @@ class LSTM_Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.SmoothL1Loss()
 
-        # Set gradient clipping threshold
-        self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
+        # Initialize learning rate scheduler
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',           # Reduce LR when validation loss stops decreasing
+            factor=0.1,          # Multiply LR by this factor when reducing
+            patience=5,          # Number of epochs with no improvement after which LR will be reduced
+            verbose=True,        # Print message when LR is reduced
+            min_lr=1e-6         # Don't reduce LR below this value
+        )
 
     def _run_epoch(self, data_loader, training=True, train_data_length=None):
         self.model.train() if training else self.model.eval()
@@ -206,7 +211,6 @@ class LSTM_Trainer:
                     
                     if training:
                         loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
                         self.optimizer.step()
 
                 if not training:
@@ -277,7 +281,12 @@ class LSTM_Trainer:
             history['train_loss'].append(train_loss)
             history['val_loss'].append(val_loss)
 
-            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
+            # Update learning rate based on validation loss
+            self.scheduler.step(val_loss)
+            
+            # Print current learning rate
+            current_lr = self.optimizer.param_groups[0]['lr']
+            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {current_lr:.2e}")
 
             # Early stopping
             if val_loss < best_val_loss:
