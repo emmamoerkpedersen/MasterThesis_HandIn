@@ -119,11 +119,11 @@ LSTM_CONFIG = {
     'feature_cols': ['temperature', 'rainfall'],
     'output_features': ['vst_raw'],
     'sequence_length': 5000,
-    'hidden_size': 100,        
+    'hidden_size': 24,        
     'num_layers': 2,          
     'dropout': 0.25,          
     'batch_size': 2,          
-    'learning_rate': 0.001,   
+    'learning_rate': 0.1,   
     'epochs': 10,             
     'patience': 30, 
     

@@ -208,29 +208,17 @@ def run_pipeline(
     val_predictions = val_predictions.cpu().numpy()
     val_targets = val_targets.cpu().numpy()
     
-    # Print shapes for debugging
-    print("\nShape Debug:")
-    print(f"val_predictions shape: {val_predictions.shape}")
-    print(f"val_data shape: {val_data.shape}")
-    
-    # Preserve temporal order during inverse transform
+    # Preserve temporal order during inverse transform (same as predict function)
     predictions_reshaped = val_predictions.reshape(-1, 1)
     predictions_original = preprocessor.scalers['target'].inverse_transform(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
     # Create DataFrame with aligned predictions and targets
-    # Only use the validation portion of the predictions
-    train_length = len(train_data)
-    val_length = len(val_data)
-    
     val_predictions_df = pd.DataFrame(
-        predictions_flattened[-val_length:],  # Take only the validation portion
-        index=val_data.index,
+        predictions_flattened,  # Use flattened 1D array
+        index=val_data.index[:len(predictions_flattened)],
         columns=['vst_raw']
     )
-    
-    print(f"Final val_predictions_df shape: {val_predictions_df.shape}")
-    
     # Now plot with aligned data
     create_full_plot(val_data, val_predictions_df, station_id)  # Pass the Series directly
     
