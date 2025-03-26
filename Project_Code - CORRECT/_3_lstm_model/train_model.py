@@ -166,7 +166,7 @@ class LSTM_Trainer:
         # Initialize LSTM Model using parameters from config
         self.model = LSTMModel(
             input_size=len(config['feature_cols']+['feature_station_vst_raw']),
-            sequence_length=config['sequence_length'],
+            sequence_length=None,
             hidden_size=config['hidden_size'],
             output_size=len(config['output_features']),
             num_layers=config['num_layers'],
