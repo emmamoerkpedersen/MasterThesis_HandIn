@@ -113,38 +113,18 @@ PHYSICAL_LIMITS = {
     'max_rate_of_change': 50  # Maximum change per hour
 }
 
-# LSTM Configuration with improved hyperparameters
+# LSTM Configuration
 LSTM_CONFIG = {
     'model_type': 'seq2seq_forecaster',
     'feature_cols': ['temperature', 'rainfall'],
     'output_features': ['vst_raw'],
-    'hidden_size': 256,        # Keep as is for model capacity
-    'num_layers': 1,           # Keep as is for model capacity
-    'dropout': 0.15,          # Slightly reduced dropout for better fitting
-    'batch_size': 1,          # Keep as is
-    'learning_rate': 0.0005,   # Increased for faster learning
-    'epochs': 3,             # Increased number of epochs
-    'patience': 5,            # Decreased to be more selective
-    'min_delta': 0.00001,     # More sensitive to improvements
-    'max_chunk_size': 2500,   # Keep as is
-    'smoothness_weight': 0.2,  # Reduced to allow more flexibility
-    'attention_heads': 8,      # Keep as is
-    'attention_dropout': 0.1,  # Keep as is
+    'sequence_length': 5000,
+    'hidden_size': 24,        
+    'num_layers': 2,          
+    'dropout': 0.25,          
+    'batch_size': 2,          
+    'learning_rate': 0.1,   
+    'epochs': 10,             
+    'patience': 30, 
     
-    # New parameters for target scaling
-    'target_scaling': {
-        'lower_padding': 0.2,  # 20% padding below min
-        'upper_padding': 1.5   # 150% padding above max for better high value capture
-    },
-    
-    # Enhanced loss function parameters
-    'peak_detection_std': 1.5,  # More sensitive peak detection
-    'peak_weight': 5.0,        # Increased importance of peaks
-    'high_value_weight': 2.0,  # Additional weight for above-mean values
-    'loss_weights': {
-        'mse': 0.3,           # Base MSE component
-        'peak': 0.4,          # Increased peak importance
-        'gradient': 0.15,     # Gradient matching component
-        'smoothness': 0.15    # Reduced smoothness constraint
-    }
 } 

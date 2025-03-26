@@ -1,4 +1,4 @@
-#!\bin\sh
+#!/bin/sh
 ### General options
 ### specify queue
 #BSUB -q hpc 
@@ -18,13 +18,8 @@
 #BSUB -o "Output.%J.out"
 #BSUB -e "Error.%J.err"
 
-module load python3/3.10.11
-module load cuda/11.8.0
-module load cudnn/8.6.0
-module load numpy/1.26.0
-module load pandas/2.2.3
-module load matplotlib/3.10.1 
-
+pwd
+module load python3/3.12.9
 
 python3 "main.py"
 
