@@ -271,15 +271,15 @@ def preprocess_data():
         station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
         # Detect freezing periods
         temp_data = station_data['temperature']
-        frost_periods = detect_frost_periods(temp_data)
+        #frost_periods = detect_frost_periods(temp_data)
         # Remove VST data during frost periods
-        for start, end in frost_periods:
-            station_data['vst_raw'] = station_data['vst_raw'][
-                ~((station_data['vst_raw'].index >= start) & 
-                    (station_data['vst_raw'].index <= end))
-            ]
+        # for start, end in frost_periods:
+        #     station_data['vst_raw'] = station_data['vst_raw'][
+        #         ~((station_data['vst_raw'].index >= start) & 
+        #             (station_data['vst_raw'].index <= end))
+        #     ]
         print(f"\nProcessed {station_name}:")
-        print(f"  - Removed data from {len(frost_periods)} frost periods")
+        #print(f"  - Removed data from {len(frost_periods)} frost periods")
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
@@ -298,12 +298,12 @@ def preprocess_data():
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
-    save_data_Dict(frost_periods, filename=save_path / 'frost_periods.pkl')
-    
-    return All_station_data, All_station_data_original, frost_periods
+    #save_data_Dict(frost_periods, filename=save_path / 'frost_periods.pkl')
+  
+    return All_station_data, All_station_data_original
 
 if __name__ == "__main__":
-    processed_data, original_data, frost_periods = preprocess_data()
+    processed_data, original_data = preprocess_data()
     station_id = '21006846'
     # Create interactive plot using Plotly with three subplots
     fig = make_subplots(rows=4, cols=1, 
@@ -335,8 +335,8 @@ if __name__ == "__main__":
      # Add temperature trace to top subplot
     fig.add_trace(
         go.Scatter(
-            x=original_data[station_id]['rainfall'].index,
-            y=original_data[station_id]['rainfall']['precipitation (mm)'],
+            x=original_data[station_id]['vst_raw'].index,
+            y=original_data[station_id]['vst_raw']['Value'],
             name='Rainfall',
             line=dict(color='blue')
         ),

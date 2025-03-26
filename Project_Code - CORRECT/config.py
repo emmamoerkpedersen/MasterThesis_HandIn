@@ -124,7 +124,7 @@ LSTM_CONFIG = {
     'dropout': 0.25,          
     'batch_size': 2,          
     'learning_rate': 0.001,   
-    'epochs': 100,             
+    'epochs': 10,             
     'patience': 30, 
     
 } 
