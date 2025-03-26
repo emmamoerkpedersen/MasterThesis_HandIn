@@ -19,7 +19,7 @@ class LSTMModel(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=dropout
+            dropout=dropout if num_layers > 1 else 0
         )
 
         # Dropout layer

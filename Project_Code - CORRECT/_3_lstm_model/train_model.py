@@ -44,7 +44,6 @@ class DataPreprocessor:
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
 
-
         
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
@@ -114,21 +113,40 @@ class DataPreprocessor:
 
     def _create_sequences(self, features, targets):
         """
-        Create non-overlapping sequences for sequence-to-sequence prediction.
+        Create sequences automatically based on data length and batch size.
+        The sequence length is calculated to ensure the data can be evenly divided into batches.
         """
-        sequence_length = self.config.get('sequence_length', 1000)
+        batch_size = self.config.get('batch_size', 1)
+        data_length = len(features)
+        
+        # Calculate sequence length based on data length and batch size
+        sequence_length = data_length // batch_size
+        if data_length % batch_size != 0:
+            sequence_length += 1  # Add 1 to ensure we capture all data
+        
+        print(f"Automatically calculated sequence length: {sequence_length} for data length: {data_length} and batch size: {batch_size}")
+        
         X, y = [], []
         
-        for i in range(0, len(features), sequence_length):
-            if i + sequence_length <= len(features):
-                feature_seq = features[i:(i + sequence_length)]
-                target_seq = targets[i:(i + sequence_length)]
-                X.append(feature_seq)
-                y.append(target_seq)
+        # Create sequences based on calculated sequence length
+        for i in range(0, data_length, sequence_length):
+            end_idx = min(i + sequence_length, data_length)
+            feature_seq = features[i:end_idx]
+            target_seq = targets[i:end_idx]
+            
+            # Pad sequences if needed
+            if end_idx - i < sequence_length:
+                pad_length = sequence_length - (end_idx - i)
+                feature_seq = np.pad(feature_seq, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
+                target_seq = np.pad(target_seq, (0, pad_length), mode='constant', constant_values=np.nan)
+            
+            X.append(feature_seq)
+            y.append(target_seq)
         
-        X = np.array(X)  # Shape: (num_full_sequences, sequence_length, num_features)
-        y = np.array(y)[..., np.newaxis]  # Shape: (num_full_sequences, sequence_length, 1)
-    
+        X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
+        y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
+        
+        print(f"Created sequences with shape - X: {X.shape}, y: {y.shape}")
         return X, y
 
 
@@ -159,8 +177,7 @@ class LSTM_Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.MSELoss()
 
-        # Set gradient clipping threshold
-        self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
+       
 
     def _run_epoch(self, data_loader, training=True):
         """
@@ -191,12 +208,6 @@ class LSTM_Trainer:
                 if training:
                     loss.backward()
                     
-                    # Clip gradients
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), 
-                        self.grad_clip
-                    )
-                    
                     self.optimizer.step()
                 
                 total_loss += loss.item()
@@ -215,18 +226,29 @@ class LSTM_Trainer:
 
     def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
         """
-        Train the LSTM model.
+        Train the LSTM model with dynamic sequence length.
         """
         # Prepare data
         print(f"Train data length: {len(train_data)}")
         print(f"Validation data length: {len(val_data)}")
         X_train, y_train = self.preprocessor.prepare_data(train_data, is_training=True)
         X_val, y_val = self.preprocessor.prepare_data(val_data, is_training=False)
-
+        
+        # Update model's sequence length based on the actual sequence length from data
+        self.model.sequence_length = X_train.shape[1]
+        
         # Create data loaders
-        train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), batch_size=batch_size, shuffle=False)
-        val_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_val, y_val), batch_size=batch_size, shuffle=False)
-
+        train_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_train, y_train), 
+            batch_size=batch_size, 
+            shuffle=False
+        )
+        val_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_val, y_val), 
+            batch_size=batch_size, 
+            shuffle=False
+        )
+        
         # Initialize early stopping
         best_val_loss = float('inf')
         patience_counter = 0
