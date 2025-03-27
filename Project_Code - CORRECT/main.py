@@ -179,8 +179,8 @@ def run_pipeline(
 
     # Now create the real model with the correct input size
     model = LSTMModel(
-        input_size=len(model_config['feature_cols']+['feature_station_vst_raw']),
-        sequence_length=model_config['sequence_length'],
+        input_size=len(model_config['feature_cols']+['feature_station_vst_raw']+['feature_station_rainfall']),
+        sequence_length=None,
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
         num_layers=model_config['num_layers'],

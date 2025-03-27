@@ -14,7 +14,7 @@ class DataPreprocessor:
         self.scalers = {}
         self.is_fitted = False
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.feature_cols = config['feature_cols']+['feature_station_vst_raw']
+        self.feature_cols = config['feature_cols']+['feature_station_vst_raw']+['feature_station_rainfall']
         self.output_features = config['output_features'][0]
     
     def load_and_split_data(self, project_root, station_id, feature_station_id):
@@ -32,11 +32,12 @@ class DataPreprocessor:
             raise ValueError(f"Station ID {station_id} not found in the data.")
     
         # Extract vst_raw from feature_station_data
-        feature_station_data = feature_station_data['vst_raw']['vst_raw'].rename('feature_station_vst_raw')
-
+        feature_station_vst = feature_station_data['vst_raw']['vst_raw'].rename('feature_station_vst_raw')
+        feature_station_rainfall = feature_station_data['rainfall']['rainfall'].rename('feature_station_rainfall')
+        
         # Concatenate all station data columns
         df = pd.concat(station_data.values(), axis=1)
-        df = pd.concat([df, feature_station_data], axis=1)
+        df = pd.concat([df, feature_station_vst, feature_station_rainfall], axis=1)
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = df['rainfall'].first_valid_index()
@@ -50,6 +51,7 @@ class DataPreprocessor:
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
         data.loc[:, 'feature_station_vst_raw'] = data['feature_station_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_rainfall'] = data['feature_station_rainfall'].fillna(-1)
         print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
 
         feature_cols = self.feature_cols
@@ -147,8 +149,8 @@ class LSTM_Trainer:
 
         # Initialize LSTM Model using parameters from config
         self.model = LSTMModel(
-            input_size=len(config['feature_cols']+['feature_station_vst_raw']),
-            sequence_length=config['sequence_length'],
+            input_size=len(config['feature_cols']+['feature_station_vst_raw']+['feature_station_rainfall']),
+            sequence_length=None,
             hidden_size=config['hidden_size'],
             output_size=len(config['output_features']),
             num_layers=config['num_layers'],

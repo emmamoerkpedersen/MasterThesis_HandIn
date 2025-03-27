@@ -27,23 +27,20 @@ class LSTMModel(nn.Module):
 
         # Fully connected layer to map hidden state to output
         self.fc = nn.Linear(hidden_size, output_size)
+   
+    def update_sequence_length(self, sequence_length):
+        """
+        Update the sequence length after it's been calculated
+        """
+        self.sequence_length = sequence_length
 
     def forward(self, x):
-        """
-        Forward pass of the model.
-
-        Args:
-            x: Tensor of shape (batch_size, sequence_length, input_size)
-
-        Returns:
-            Tensor of shape (batch_size, sequence_length, output_size)
-        """
-
-        # LSTM forward pass
-        out, _ = self.lstm(x)  # out: [batch_size, seq_len, hidden_size]
+        # Forward pass doesn't depend on sequence_length attribute
+        lstm_out, _ = self.lstm(x)
         
-        out = self.dropout(out)
-        # Pass through fully connected layer
-        predictions = self.fc(out)  # Shape: (batch_size, sequence_length, output_size)
-       
+        if self.training:
+            lstm_out = self.dropout(lstm_out)
+            
+        predictions = self.fc(lstm_out)
+        
         return predictions
