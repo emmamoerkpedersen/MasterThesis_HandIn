@@ -14,10 +14,10 @@ class DataPreprocessor:
         self.scalers = {}
         self.is_fitted = False
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.feature_cols = config['feature_cols']
+        self.feature_cols = config['feature_cols']+['feature_station_vst_raw']
         self.output_features = config['output_features'][0]
     
-    def load_and_split_data(self, project_root, station_id):
+    def load_and_split_data(self, project_root, station_id, feature_station_id):
         """
         Load and Split data into features and target.
         """
@@ -26,17 +26,17 @@ class DataPreprocessor:
 
         # Check if station_id exists in the data dictionary, if not return empty dict
         station_data = data.get(station_id)
-        #feature_station_data = data.get(feature_station_id)
+        feature_station_data = data.get(feature_station_id)
 
         if not station_data:
             raise ValueError(f"Station ID {station_id} not found in the data.")
     
         # Extract vst_raw from feature_station_data
-        #feature_station_data = feature_station_data['vst_raw']['vst_raw'].rename('feature_station_vst_raw')
+        feature_station_data = feature_station_data['vst_raw']['vst_raw'].rename('feature_station_vst_raw')
 
         # Concatenate all station data columns
         df = pd.concat(station_data.values(), axis=1)
-        #df = pd.concat([df, feature_station_data], axis=1)
+        df = pd.concat([df, feature_station_data], axis=1)
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = df['rainfall'].first_valid_index()
@@ -49,7 +49,7 @@ class DataPreprocessor:
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
-        #data.loc[:, 'feature_station_vst_raw'] = data['feature_station_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_vst_raw'] = data['feature_station_vst_raw'].fillna(-1)
         print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
 
         feature_cols = self.feature_cols
@@ -147,7 +147,7 @@ class LSTM_Trainer:
 
         # Initialize LSTM Model using parameters from config
         self.model = LSTMModel(
-            input_size=len(config['feature_cols']),
+            input_size=len(config['feature_cols']+['feature_station_vst_raw']),
             sequence_length=config['sequence_length'],
             hidden_size=config['hidden_size'],
             output_size=len(config['output_features']),
@@ -159,12 +159,9 @@ class LSTM_Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.MSELoss()
 
-        # Set gradient clipping threshold
-        self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
-
     def _run_epoch(self, data_loader, training=True):
         """
-        Runs an epoch for training or validation with gradient clipping.
+        Runs an epoch for training or validation 
         """
         self.model.train() if training else self.model.eval()
         total_loss = 0
@@ -178,11 +175,16 @@ class LSTM_Trainer:
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
 
-                # Handle NaN values
+                # Create warm-up mask (False for first 50 points of each sequence)
+                warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
+                warmup_mask[:, :50, :] = False
+
+                # Combine warm-up mask with NaN mask
                 non_nan_mask = ~torch.isnan(batch_y)
-                valid_outputs = outputs[non_nan_mask]
-                valid_target = batch_y[non_nan_mask]
-                
+                valid_mask = non_nan_mask & warmup_mask
+
+                valid_outputs = outputs[valid_mask]
+                valid_target = batch_y[valid_mask]
                 if valid_target.size(0) == 0:
                     continue
 
@@ -190,12 +192,7 @@ class LSTM_Trainer:
                 
                 if training:
                     loss.backward()
-                    
-                    # Clip gradients
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), 
-                        self.grad_clip
-                    )
+
                     
                     self.optimizer.step()
                 
