@@ -175,7 +175,7 @@ class LSTM_Trainer:
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
 
-                # Create warm-up mask (False for first 50 points of each sequence)
+                # Create warm-up mask
                 warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
                 warmup_mask[:, :50, :] = False
 
