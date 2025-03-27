@@ -122,25 +122,9 @@ LSTM_CONFIG = {
     'hidden_size': 24,        
     'num_layers': 2,          
     'dropout': 0.25,          
-    'batch_size': 36,          
-    'learning_rate': 0.001,   
+    'batch_size': 2,          
+    'learning_rate': 0.1,   
     'epochs': 10,             
     'patience': 30, 
     
 } 
-
-
-# # LSTM Configuration
-# LSTM_CONFIG = {
-#     'model_type': 'seq2seq_forecaster',
-#     'feature_cols': ['temperature', 'rainfall'],
-#     'output_features': ['vst_raw'],
-#     'hidden_size': 24,        
-#     'num_layers': 2,          
-#     'dropout': 0.25,          
-#     'batch_size': 1,          
-#     'learning_rate': 0.001,   
-#     'epochs': 100,             
-#     'patience': 30, 
-    
-# } 

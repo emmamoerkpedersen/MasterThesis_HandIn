@@ -54,7 +54,7 @@ def run_pipeline(
     station_id = '21006846'
     feature_station_id = '21006845'
     print(f"Loading, preprocessing and splitting station data for station {station_id}...")
-    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
+    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id, feature_station_id)
     
 
     print("\nData split summary:")
@@ -179,7 +179,7 @@ def run_pipeline(
 
     # Now create the real model with the correct input size
     model = LSTMModel(
-        input_size=len(model_config['feature_cols']),
+        input_size=len(model_config['feature_cols']+['feature_station_vst_raw']),
         sequence_length=model_config['sequence_length'],
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),

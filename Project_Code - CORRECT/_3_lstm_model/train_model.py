@@ -14,10 +14,10 @@ class DataPreprocessor:
         self.scalers = {}
         self.is_fitted = False
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.feature_cols = config['feature_cols']
+        self.feature_cols = config['feature_cols'] + ['feature_station_vst_raw']
         self.output_features = config['output_features'][0]
     
-    def load_and_split_data(self, project_root, station_id):
+    def load_and_split_data(self, project_root, station_id, feature_station_id):
         """
         Load and Split data into features and target.
         """
@@ -26,17 +26,17 @@ class DataPreprocessor:
 
         # Check if station_id exists in the data dictionary, if not return empty dict
         station_data = data.get(station_id)
-        #feature_station_data = data.get(feature_station_id)
+        feature_station_data = data.get(feature_station_id)
 
         if not station_data:
             raise ValueError(f"Station ID {station_id} not found in the data.")
     
         # Extract vst_raw from feature_station_data
-        #feature_station_data = feature_station_data['vst_raw']['vst_raw'].rename('feature_station_vst_raw')
+        feature_station_data = feature_station_data['vst_raw']['vst_raw'].rename('feature_station_vst_raw')
 
         # Concatenate all station data columns
         df = pd.concat(station_data.values(), axis=1)
-        #df = pd.concat([df, feature_station_data], axis=1)
+        df = pd.concat([df, feature_station_data], axis=1)
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = df['rainfall'].first_valid_index()
@@ -44,11 +44,12 @@ class DataPreprocessor:
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
 
+
         
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
-        #data.loc[:, 'feature_station_vst_raw'] = data['feature_station_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_vst_raw'] = data['feature_station_vst_raw'].fillna(-1)
         print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
 
         feature_cols = self.feature_cols
@@ -113,40 +114,21 @@ class DataPreprocessor:
 
     def _create_sequences(self, features, targets):
         """
-        Create sequences automatically based on data length and batch size.
-        The sequence length is calculated to ensure the data can be evenly divided into batches.
+        Create non-overlapping sequences for sequence-to-sequence prediction.
         """
-        batch_size = self.config.get('batch_size', 1)
-        data_length = len(features)
-        
-        # Calculate sequence length based on data length and batch size
-        sequence_length = data_length // batch_size
-        if data_length % batch_size != 0:
-            sequence_length += 1  # Add 1 to ensure we capture all data
-        
-        print(f"Automatically calculated sequence length: {sequence_length} for data length: {data_length} and batch size: {batch_size}")
-        
+        sequence_length = self.config.get('sequence_length', 1000)
         X, y = [], []
         
-        # Create sequences based on calculated sequence length
-        for i in range(0, data_length, sequence_length):
-            end_idx = min(i + sequence_length, data_length)
-            feature_seq = features[i:end_idx]
-            target_seq = targets[i:end_idx]
-            
-            # Pad sequences if needed
-            if end_idx - i < sequence_length:
-                pad_length = sequence_length - (end_idx - i)
-                feature_seq = np.pad(feature_seq, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
-                target_seq = np.pad(target_seq, (0, pad_length), mode='constant', constant_values=np.nan)
-            
-            X.append(feature_seq)
-            y.append(target_seq)
+        for i in range(0, len(features), sequence_length):
+            if i + sequence_length <= len(features):
+                feature_seq = features[i:(i + sequence_length)]
+                target_seq = targets[i:(i + sequence_length)]
+                X.append(feature_seq)
+                y.append(target_seq)
         
-        X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
-        y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
-        
-        print(f"Created sequences with shape - X: {X.shape}, y: {y.shape}")
+        X = np.array(X)  # Shape: (num_full_sequences, sequence_length, num_features)
+        y = np.array(y)[..., np.newaxis]  # Shape: (num_full_sequences, sequence_length, 1)
+    
         return X, y
 
 
@@ -165,8 +147,8 @@ class LSTM_Trainer:
 
         # Initialize LSTM Model using parameters from config
         self.model = LSTMModel(
-            input_size=len(config['feature_cols']),
-            sequence_length=None,
+            input_size=len(config['feature_cols']+['feature_station_vst_raw']),
+            sequence_length=config['sequence_length'],
             hidden_size=config['hidden_size'],
             output_size=len(config['output_features']),
             num_layers=config['num_layers'],
@@ -177,7 +159,8 @@ class LSTM_Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.MSELoss()
 
-       
+        # Set gradient clipping threshold
+        self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
 
     def _run_epoch(self, data_loader, training=True):
         """
@@ -208,6 +191,12 @@ class LSTM_Trainer:
                 if training:
                     loss.backward()
                     
+                    # Clip gradients
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), 
+                        self.grad_clip
+                    )
+                    
                     self.optimizer.step()
                 
                 total_loss += loss.item()
@@ -226,29 +215,18 @@ class LSTM_Trainer:
 
     def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
         """
-        Train the LSTM model with dynamic sequence length.
+        Train the LSTM model.
         """
         # Prepare data
         print(f"Train data length: {len(train_data)}")
         print(f"Validation data length: {len(val_data)}")
         X_train, y_train = self.preprocessor.prepare_data(train_data, is_training=True)
         X_val, y_val = self.preprocessor.prepare_data(val_data, is_training=False)
-        
-        # Update model's sequence length based on the actual sequence length from data
-        self.model.sequence_length = X_train.shape[1]
-        
+
         # Create data loaders
-        train_loader = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(X_train, y_train), 
-            batch_size=batch_size, 
-            shuffle=False
-        )
-        val_loader = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(X_val, y_val), 
-            batch_size=batch_size, 
-            shuffle=False
-        )
-        
+        train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), batch_size=batch_size, shuffle=False)
+        val_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_val, y_val), batch_size=batch_size, shuffle=False)
+
         # Initialize early stopping
         best_val_loss = float('inf')
         patience_counter = 0
