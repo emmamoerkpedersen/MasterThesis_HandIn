@@ -52,7 +52,7 @@ def run_pipeline(
     #    Step 1: Load and preprocess all station data       #
     #########################################################
     station_id = '21006846'
-    feature_station_id = '21006845'
+    feature_station_id = '21006846'
     print(f"Loading, preprocessing and splitting station data for station {station_id}...")
     train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id, feature_station_id)
     
