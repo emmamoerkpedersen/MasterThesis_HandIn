@@ -180,7 +180,7 @@ def run_pipeline(
     # Now create the real model with the correct input size
     model = LSTMModel(
         input_size=len(model_config['feature_cols']+['feature_station_vst_raw']+['feature_station_rainfall']),
-        sequence_length=None,
+        sequence_length=100,  # Fixed sequence length
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
         num_layers=model_config['num_layers'],
@@ -191,13 +191,13 @@ def run_pipeline(
     # Initialize the real trainer with the correct model
     trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
     
-    # Train model on combined data
+    # Train model on combined data with optimized batch size
     print("\nTraining model on combined data...")
     history, val_predictions, val_targets = trainer.train(
         train_data=train_data,
         val_data=val_data,
         epochs=model_config['epochs'],
-        batch_size=model_config['batch_size'],
+        batch_size=32,  # Increased batch size for better efficiency
         patience=model_config['patience']
     )
 
@@ -213,10 +213,13 @@ def run_pipeline(
     predictions_original = preprocessor.scalers['target'].inverse_transform(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
+    # Trim predictions to match validation data length
+    predictions_flattened = predictions_flattened[:len(val_data)]
+    
     # Create DataFrame with aligned predictions and targets
     val_predictions_df = pd.DataFrame(
-        predictions_flattened,  # Use flattened 1D array
-        index=val_data.index[:len(predictions_flattened)],
+        predictions_flattened,  # Use trimmed 1D array
+        index=val_data.index,
         columns=['vst_raw']
     )
     # Now plot with aligned data

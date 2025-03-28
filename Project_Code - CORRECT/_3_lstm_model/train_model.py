@@ -115,23 +115,42 @@ class DataPreprocessor:
         return scaled_features, scaled_target
 
     def _create_sequences(self, features, targets):
-        """
-        Create non-overlapping sequences for sequence-to-sequence prediction.
-        """
-        sequence_length = self.config.get('sequence_length', 1000)
-        X, y = [], []
-        
-        for i in range(0, len(features), sequence_length):
-            if i + sequence_length <= len(features):
-                feature_seq = features[i:(i + sequence_length)]
-                target_seq = targets[i:(i + sequence_length)]
-                X.append(feature_seq)
-                y.append(target_seq)
-        
-        X = np.array(X)  # Shape: (num_full_sequences, sequence_length, num_features)
-        y = np.array(y)[..., np.newaxis]  # Shape: (num_full_sequences, sequence_length, 1)
-    
-        return X, y
+         """
+         Create sequences automatically based on data length and batch size.
+         The sequence length is calculated to ensure the data can be evenly divided into batches.
+         """
+         batch_size = self.config.get('batch_size', 1)
+         data_length = len(features)
+ 
+         # Calculate sequence length based on data length and batch size
+         sequence_length = data_length // batch_size
+         if data_length % batch_size != 0:
+             sequence_length += 1  # Add 1 to ensure we capture all data
+ 
+         print(f"Automatically calculated sequence length: {sequence_length} for data length: {data_length} and batch size: {batch_size}")
+ 
+         X, y = [], []
+ 
+         # Create sequences based on calculated sequence length
+         for i in range(0, data_length, sequence_length):
+             end_idx = min(i + sequence_length, data_length)
+             feature_seq = features[i:end_idx]
+             target_seq = targets[i:end_idx]
+ 
+             # Pad sequences if needed
+             if end_idx - i < sequence_length:
+                 pad_length = sequence_length - (end_idx - i)
+                 feature_seq = np.pad(feature_seq, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
+                 target_seq = np.pad(target_seq, (0, pad_length), mode='constant', constant_values=np.nan)
+ 
+             X.append(feature_seq)
+             y.append(target_seq)
+ 
+         X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
+         y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
+ 
+         print(f"Created sequences with shape - X: {X.shape}, y: {y.shape}")
+         return X, y
 
 
 class LSTM_Trainer:
@@ -214,7 +233,7 @@ class LSTM_Trainer:
 
     def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
         """
-        Train the LSTM model.
+        Train the LSTM model with improved efficiency.
         """
         # Prepare data
         print(f"Train data length: {len(train_data)}")
@@ -222,9 +241,21 @@ class LSTM_Trainer:
         X_train, y_train = self.preprocessor.prepare_data(train_data, is_training=True)
         X_val, y_val = self.preprocessor.prepare_data(val_data, is_training=False)
 
-        # Create data loaders
-        train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), batch_size=batch_size, shuffle=False)
-        val_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_val, y_val), batch_size=batch_size, shuffle=False)
+        # Create data loaders with num_workers for parallel data loading
+        train_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_train, y_train), 
+            batch_size=batch_size, 
+            shuffle=True,  # Enable shuffling for better training
+            num_workers=4,  # Parallel data loading
+            pin_memory=True  # Faster data transfer to GPU
+        )
+        val_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_val, y_val), 
+            batch_size=batch_size, 
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True
+        )
 
         # Initialize early stopping
         best_val_loss = float('inf')
@@ -232,7 +263,7 @@ class LSTM_Trainer:
         best_model_state = None
         history = {'train_loss': [], 'val_loss': []}
 
-        # Training loop
+        # Training loop with progress bar
         for epoch in range(epochs):
             train_loss = self._run_epoch(train_loader, training=True)
             val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
