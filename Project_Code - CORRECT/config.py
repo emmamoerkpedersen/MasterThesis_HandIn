@@ -118,11 +118,21 @@ LSTM_CONFIG = {
     'model_type': 'seq2seq_forecaster',
     'feature_cols': ['temperature', 'rainfall'],
     'output_features': ['vst_raw'],
-    'hidden_size': 224,        
-    'num_layers': 5,          
+    'feature_stations': [
+        {
+            'station_id': '21006845',
+            'features': ['vst_raw', 'rainfall']
+        },
+        {
+            'station_id': '21006847',
+            'features': ['vst_raw', 'rainfall']
+        }
+    ],
+    'hidden_size': 124,        
+    'num_layers': 2,          
     'dropout': 0.25,          
     'batch_size': 5,          
-    'learning_rate': 0.00001,   
+    'learning_rate': 0.001,   
     'epochs': 100,             
     'patience': 8, 
     

@@ -14,10 +14,19 @@ class DataPreprocessor:
         self.scalers = {}
         self.is_fitted = False
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.feature_cols = config['feature_cols']+['feature_station_vst_raw']+['feature_station_rainfall']
+        
+        # Initialize feature columns list with base features
+        self.feature_cols = config['feature_cols'].copy()
+        
+        # Add feature station columns dynamically
+        for station in config['feature_stations']:
+            for feature in station['features']:
+                feature_name = f"feature_station_{station['station_id']}_{feature}"
+                self.feature_cols.append(feature_name)
+                
         self.output_features = config['output_features'][0]
     
-    def load_and_split_data(self, project_root, station_id, feature_station_id):
+    def load_and_split_data(self, project_root, station_id):
         """
         Load and Split data into features and target.
         """
@@ -26,18 +35,29 @@ class DataPreprocessor:
 
         # Check if station_id exists in the data dictionary, if not return empty dict
         station_data = data.get(station_id)
-        feature_station_data = data.get(feature_station_id)
-
         if not station_data:
             raise ValueError(f"Station ID {station_id} not found in the data.")
-    
-        # Extract vst_raw from feature_station_data
-        feature_station_vst = feature_station_data['vst_raw']['vst_raw'].rename('feature_station_vst_raw')
-        feature_station_rainfall = feature_station_data['rainfall']['rainfall'].rename('feature_station_rainfall')
-        
+
         # Concatenate all station data columns
         df = pd.concat(station_data.values(), axis=1)
-        df = pd.concat([df, feature_station_vst, feature_station_rainfall], axis=1)
+
+        # Add feature station data
+        for station in self.config['feature_stations']:
+            feature_station_id = station['station_id']
+            feature_station_data = data.get(feature_station_id)
+            
+            if not feature_station_data:
+                raise ValueError(f"Feature station ID {feature_station_id} not found in the data.")
+            
+            # Add each requested feature from the feature station
+            for feature in station['features']:
+                if feature not in feature_station_data:
+                    raise ValueError(f"Feature {feature} not found in station {feature_station_id}")
+                    
+                feature_data = feature_station_data[feature][feature].rename(
+                    f"feature_station_{feature_station_id}_{feature}"
+                )
+                df = pd.concat([df, feature_data], axis=1)
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = df['rainfall'].first_valid_index()
@@ -48,8 +68,10 @@ class DataPreprocessor:
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
-        data.loc[:, 'feature_station_vst_raw'] = data['feature_station_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_rainfall'] = data['feature_station_rainfall'].fillna(-1)
+        data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
+        data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
 
         feature_cols = self.feature_cols
@@ -166,7 +188,7 @@ class LSTM_Trainer:
 
         # Initialize LSTM Model using parameters from config
         self.model = LSTMModel(
-            input_size=len(config['feature_cols']+['feature_station_vst_raw']+['feature_station_rainfall']),
+            input_size=len(preprocessor.feature_cols),
             sequence_length=None,
             hidden_size=config['hidden_size'],
             output_size=len(config['output_features']),
