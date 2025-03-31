@@ -270,7 +270,7 @@ def preprocess_data():
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
         # Detect freezing periods
-        temp_data = station_data['temperature']
+        #temp_data = station_data['temperature']
         #frost_periods = detect_frost_periods(temp_data)
         # Remove VST data during frost periods
         # for start, end in frost_periods:
@@ -291,8 +291,8 @@ def preprocess_data():
 
         # Resample rainfall data to 15-minute intervals
         if station_data['rainfall'] is not None:
-            station_data['rainfall'] = distribute_hourly_rainfall(station_data['rainfall'])
-            print(f"  - Distributed hourly rainfall data to 15-minute intervals")
+            station_data['rainfall'] = station_data['rainfall'].fillna(-1)
+            print(f"  - Filled rainfall data with -1")
 
     All_station_data = align_data(All_station_data)
 
