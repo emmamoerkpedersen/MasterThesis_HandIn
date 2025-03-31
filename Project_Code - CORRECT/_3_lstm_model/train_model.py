@@ -44,8 +44,6 @@ class DataPreprocessor:
         end_date = df['vst_raw'].last_valid_index()
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
-
-
         
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
@@ -198,7 +196,7 @@ class LSTM_Trainer:
 
                 # Create warm-up mask
                 warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
-                warmup_mask[:, :50, :] = False
+                warmup_mask[:, :150, :] = False
 
                 # Combine warm-up mask with NaN mask
                 non_nan_mask = ~torch.isnan(batch_y)
@@ -231,7 +229,7 @@ class LSTM_Trainer:
             val_targets = torch.cat(all_targets, dim=0)
             return total_loss / len(data_loader), val_predictions, val_targets
 
-    def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
+    def train(self, train_data, val_data, epochs, batch_size, patience):
         """
         Train the LSTM model with improved efficiency.
         """

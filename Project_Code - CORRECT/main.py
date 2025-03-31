@@ -197,7 +197,7 @@ def run_pipeline(
         train_data=train_data,
         val_data=val_data,
         epochs=model_config['epochs'],
-        batch_size=32,  # Increased batch size for better efficiency
+        batch_size=model_config['batch_size'], 
         patience=model_config['patience']
     )
 

@@ -24,7 +24,7 @@ class LSTMModel(nn.Module):
 
         # Dropout layer
         self.dropout = nn.Dropout(dropout)
-
+        
         # Fully connected layer to map hidden state to output
         self.fc = nn.Linear(hidden_size, output_size)
    
