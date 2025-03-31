@@ -51,39 +51,28 @@ def detect_frost_periods(temperature_data):
         current_temp = temperature_data['temperature'].iloc[idx]
         
         if current_temp < 0:
+            # Start or continue tracking frost period
             if current_period_start is None:
                 current_period_start = current_time
             current_period_end = current_time
             frost_sum += current_temp
-            
-            # If frost sum exceeds threshold, mark period for removal
-            if frost_sum < -10:
-                # Add 24 hours to the end of the frost period
-                extended_end = current_period_end + pd.Timedelta(hours=24)
-                # Convert times to timezone-naive if they're not already
-                if current_period_start.tzinfo is not None:
-                    current_period_start = current_period_start.tz_localize(None)
-                if extended_end.tzinfo is not None:
-                    extended_end = extended_end.tz_localize(None)
-                frost_periods.append((current_period_start, extended_end))
-                # Reset tracking
+        else:
+            # Temperature is above 0, check if we were tracking a frost period
+            if current_period_start is not None:
+                # Check against single threshold
+                if frost_sum < -25:
+                    # Add 24 hours to the end of the frost period
+                    extended_end = current_period_end + pd.Timedelta(hours=24)
+                    # Convert times to timezone-naive if they're not already
+                    if current_period_start.tzinfo is not None:
+                        current_period_start = current_period_start.tz_localize(None)
+                    if extended_end.tzinfo is not None:
+                        extended_end = extended_end.tz_localize(None)
+                    frost_periods.append((current_period_start, extended_end))
+                # Reset tracking regardless of whether threshold was met
                 current_period_start = None
                 current_period_end = None
                 frost_sum = 0
-        else:
-            # Reset tracking when temperature goes above 0
-            if current_period_start is not None and frost_sum < -15:
-                # Add 24 hours to the end of the frost period
-                extended_end = current_period_end + pd.Timedelta(hours=24)
-                # Convert times to timezone-naive if they're not already
-                if current_period_start.tzinfo is not None:
-                    current_period_start = current_period_start.tz_localize(None)
-                if extended_end.tzinfo is not None:
-                    extended_end = extended_end.tz_localize(None)
-                frost_periods.append((current_period_start, extended_end))
-            current_period_start = None
-            current_period_end = None
-            frost_sum = 0
     
     return frost_periods
 
@@ -270,16 +259,16 @@ def preprocess_data():
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
         # Detect freezing periods
-        #temp_data = station_data['temperature']
-        #frost_periods = detect_frost_periods(temp_data)
-        # Remove VST data during frost periods
-        # for start, end in frost_periods:
-        #     station_data['vst_raw'] = station_data['vst_raw'][
-        #         ~((station_data['vst_raw'].index >= start) & 
-        #             (station_data['vst_raw'].index <= end))
-        #     ]
+        temp_data = station_data['temperature']
+        frost_periods = detect_frost_periods(temp_data)
+        #Remove VST data during frost periods
+        for start, end in frost_periods:
+            station_data['vst_raw'] = station_data['vst_raw'][
+                ~((station_data['vst_raw'].index >= start) & 
+                    (station_data['vst_raw'].index <= end))
+            ]
         print(f"\nProcessed {station_name}:")
-        #print(f"  - Removed data from {len(frost_periods)} frost periods")
+        print(f"  - Removed data from {len(frost_periods)} frost periods")
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
@@ -337,7 +326,7 @@ if __name__ == "__main__":
         go.Scatter(
             x=original_data[station_id]['vst_raw'].index,
             y=original_data[station_id]['vst_raw']['Value'],
-            name='Rainfall',
+            name='Vst_raw original',
             line=dict(color='blue')
         ),
         row=3, col=1
@@ -348,7 +337,7 @@ if __name__ == "__main__":
         go.Scatter(
             x=processed_data[station_id]['vst_raw'].index,
             y=processed_data[station_id]['vst_raw']['vst_raw'],
-            name='VST Raw',
+            name='VST Raw processed',
             line=dict(color='green')
         ),
         row=4, col=1
