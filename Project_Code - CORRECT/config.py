@@ -131,7 +131,7 @@ LSTM_CONFIG = {
     'hidden_size': 124,        
     'num_layers': 2,          
     'dropout': 0.25,          
-    'batch_size': 5,          
+    'batch_size': 1,          
     'learning_rate': 0.001,   
     'epochs': 100,             
     'patience': 8, 

@@ -186,7 +186,6 @@ def run_pipeline(
         dropout=model_config['dropout']
     )
 
-
     # Initialize the real trainer with the correct model
     trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
     
