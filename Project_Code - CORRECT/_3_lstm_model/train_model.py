@@ -14,10 +14,19 @@ class DataPreprocessor:
         self.scalers = {}
         self.is_fitted = False
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.feature_cols = config['feature_cols'] + ['feature_station_vst_raw']
+        
+        # Initialize feature columns list with base features
+        self.feature_cols = config['feature_cols'].copy()
+        
+        # Add feature station columns dynamically
+        for station in config['feature_stations']:
+            for feature in station['features']:
+                feature_name = f"feature_station_{station['station_id']}_{feature}"
+                self.feature_cols.append(feature_name)
+                
         self.output_features = config['output_features'][0]
     
-    def load_and_split_data(self, project_root, station_id, feature_station_id):
+    def load_and_split_data(self, project_root, station_id):
         """
         Load and Split data into features and target.
         """
@@ -26,30 +35,43 @@ class DataPreprocessor:
 
         # Check if station_id exists in the data dictionary, if not return empty dict
         station_data = data.get(station_id)
-        feature_station_data = data.get(feature_station_id)
-
         if not station_data:
             raise ValueError(f"Station ID {station_id} not found in the data.")
-    
-        # Extract vst_raw from feature_station_data
-        feature_station_data = feature_station_data['vst_raw']['vst_raw'].rename('feature_station_vst_raw')
 
         # Concatenate all station data columns
         df = pd.concat(station_data.values(), axis=1)
-        df = pd.concat([df, feature_station_data], axis=1)
+
+        # Add feature station data
+        for station in self.config['feature_stations']:
+            feature_station_id = station['station_id']
+            feature_station_data = data.get(feature_station_id)
+            
+            if not feature_station_data:
+                raise ValueError(f"Feature station ID {feature_station_id} not found in the data.")
+            
+            # Add each requested feature from the feature station
+            for feature in station['features']:
+                if feature not in feature_station_data:
+                    raise ValueError(f"Feature {feature} not found in station {feature_station_id}")
+                    
+                feature_data = feature_station_data[feature][feature].rename(
+                    f"feature_station_{feature_station_id}_{feature}"
+                )
+                df = pd.concat([df, feature_data], axis=1)
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = df['rainfall'].first_valid_index()
         end_date = df['vst_raw'].last_valid_index()
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
-
-
         
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
-        data.loc[:, 'feature_station_vst_raw'] = data['feature_station_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
+        data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
 
         feature_cols = self.feature_cols
@@ -113,23 +135,42 @@ class DataPreprocessor:
         return scaled_features, scaled_target
 
     def _create_sequences(self, features, targets):
-        """
-        Create non-overlapping sequences for sequence-to-sequence prediction.
-        """
-        sequence_length = self.config.get('sequence_length', 1000)
-        X, y = [], []
-        
-        for i in range(0, len(features), sequence_length):
-            if i + sequence_length <= len(features):
-                feature_seq = features[i:(i + sequence_length)]
-                target_seq = targets[i:(i + sequence_length)]
-                X.append(feature_seq)
-                y.append(target_seq)
-        
-        X = np.array(X)  # Shape: (num_full_sequences, sequence_length, num_features)
-        y = np.array(y)[..., np.newaxis]  # Shape: (num_full_sequences, sequence_length, 1)
-    
-        return X, y
+         """
+         Create sequences automatically based on data length and batch size.
+         The sequence length is calculated to ensure the data can be evenly divided into batches.
+         """
+         batch_size = self.config.get('batch_size', 1)
+         data_length = len(features)
+ 
+         # Calculate sequence length based on data length and batch size
+         sequence_length = data_length // batch_size
+         if data_length % batch_size != 0:
+             sequence_length += 1  # Add 1 to ensure we capture all data
+ 
+         print(f"Automatically calculated sequence length: {sequence_length} for data length: {data_length} and batch size: {batch_size}")
+ 
+         X, y = [], []
+ 
+         # Create sequences based on calculated sequence length
+         for i in range(0, data_length, sequence_length):
+             end_idx = min(i + sequence_length, data_length)
+             feature_seq = features[i:end_idx]
+             target_seq = targets[i:end_idx]
+ 
+             # Pad sequences if needed
+             if end_idx - i < sequence_length:
+                 pad_length = sequence_length - (end_idx - i)
+                 feature_seq = np.pad(feature_seq, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
+                 target_seq = np.pad(target_seq, (0, pad_length), mode='constant', constant_values=np.nan)
+ 
+             X.append(feature_seq)
+             y.append(target_seq)
+ 
+         X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
+         y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
+ 
+         print(f"Created sequences with shape - X: {X.shape}, y: {y.shape}")
+         return X, y
 
 
 class LSTM_Trainer:
@@ -147,8 +188,8 @@ class LSTM_Trainer:
 
         # Initialize LSTM Model using parameters from config
         self.model = LSTMModel(
-            input_size=len(config['feature_cols']+['feature_station_vst_raw']),
-            sequence_length=config['sequence_length'],
+            input_size=len(preprocessor.feature_cols),
+            sequence_length=None,
             hidden_size=config['hidden_size'],
             output_size=len(config['output_features']),
             num_layers=config['num_layers'],
@@ -159,12 +200,9 @@ class LSTM_Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.MSELoss()
 
-        # Set gradient clipping threshold
-        self.grad_clip = config.get('grad_clip', 1.0)  # Default to 1.0 if not specified
-
     def _run_epoch(self, data_loader, training=True):
         """
-        Runs an epoch for training or validation with gradient clipping.
+        Runs an epoch for training or validation 
         """
         self.model.train() if training else self.model.eval()
         total_loss = 0
@@ -178,11 +216,16 @@ class LSTM_Trainer:
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
 
-                # Handle NaN values
+                # Create warm-up mask
+                warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
+                warmup_mask[:, :150, :] = False
+
+                # Combine warm-up mask with NaN mask
                 non_nan_mask = ~torch.isnan(batch_y)
-                valid_outputs = outputs[non_nan_mask]
-                valid_target = batch_y[non_nan_mask]
-                
+                valid_mask = non_nan_mask & warmup_mask
+
+                valid_outputs = outputs[valid_mask]
+                valid_target = batch_y[valid_mask]
                 if valid_target.size(0) == 0:
                     continue
 
@@ -190,12 +233,7 @@ class LSTM_Trainer:
                 
                 if training:
                     loss.backward()
-                    
-                    # Clip gradients
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), 
-                        self.grad_clip
-                    )
+
                     
                     self.optimizer.step()
                 
@@ -213,9 +251,9 @@ class LSTM_Trainer:
             val_targets = torch.cat(all_targets, dim=0)
             return total_loss / len(data_loader), val_predictions, val_targets
 
-    def train(self, train_data, val_data, epochs=100, batch_size=32, patience=15):
+    def train(self, train_data, val_data, epochs, batch_size, patience):
         """
-        Train the LSTM model.
+        Train the LSTM model with improved efficiency.
         """
         # Prepare data
         print(f"Train data length: {len(train_data)}")
@@ -223,9 +261,21 @@ class LSTM_Trainer:
         X_train, y_train = self.preprocessor.prepare_data(train_data, is_training=True)
         X_val, y_val = self.preprocessor.prepare_data(val_data, is_training=False)
 
-        # Create data loaders
-        train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_train, y_train), batch_size=batch_size, shuffle=False)
-        val_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_val, y_val), batch_size=batch_size, shuffle=False)
+        # Create data loaders with num_workers for parallel data loading
+        train_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_train, y_train), 
+            batch_size=batch_size, 
+            shuffle=True,  # Enable shuffling for better training
+            num_workers=4,  # Parallel data loading
+            pin_memory=True  # Faster data transfer to GPU
+        )
+        val_loader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_val, y_val), 
+            batch_size=batch_size, 
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True
+        )
 
         # Initialize early stopping
         best_val_loss = float('inf')
@@ -233,7 +283,7 @@ class LSTM_Trainer:
         best_model_state = None
         history = {'train_loss': [], 'val_loss': []}
 
-        # Training loop
+        # Training loop with progress bar
         for epoch in range(epochs):
             train_loss = self._run_epoch(train_loader, training=True)
             val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)

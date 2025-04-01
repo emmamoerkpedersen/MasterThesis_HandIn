@@ -52,9 +52,8 @@ def run_pipeline(
     #    Step 1: Load and preprocess all station data       #
     #########################################################
     station_id = '21006846'
-    feature_station_id = '21006845'
     print(f"Loading, preprocessing and splitting station data for station {station_id}...")
-    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id, feature_station_id)
+    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
     
 
     print("\nData split summary:")
@@ -179,25 +178,24 @@ def run_pipeline(
 
     # Now create the real model with the correct input size
     model = LSTMModel(
-        input_size=len(model_config['feature_cols']+['feature_station_vst_raw']),
-        sequence_length=model_config['sequence_length'],
+        input_size=6, # Hard coded for now
+        sequence_length=None,  
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
         num_layers=model_config['num_layers'],
         dropout=model_config['dropout']
     )
 
-
     # Initialize the real trainer with the correct model
     trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
     
-    # Train model on combined data
+    # Train model on combined data with optimized batch size
     print("\nTraining model on combined data...")
     history, val_predictions, val_targets = trainer.train(
         train_data=train_data,
         val_data=val_data,
         epochs=model_config['epochs'],
-        batch_size=model_config['batch_size'],
+        batch_size=model_config['batch_size'], 
         patience=model_config['patience']
     )
 
@@ -213,10 +211,13 @@ def run_pipeline(
     predictions_original = preprocessor.scalers['target'].inverse_transform(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
+    # Trim predictions to match validation data length
+    predictions_flattened = predictions_flattened[:len(val_data)]
+    
     # Create DataFrame with aligned predictions and targets
     val_predictions_df = pd.DataFrame(
-        predictions_flattened,  # Use flattened 1D array
-        index=val_data.index[:len(predictions_flattened)],
+        predictions_flattened,  # Use trimmed 1D array
+        index=val_data.index,
         columns=['vst_raw']
     )
     # Now plot with aligned data
