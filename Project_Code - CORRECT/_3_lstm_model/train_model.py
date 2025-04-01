@@ -199,6 +199,16 @@ class LSTM_Trainer:
         # Initialize optimizer and loss function
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.MSELoss()
+        
+        # Add learning rate scheduler
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',
+            factor=0.8,  
+            patience=3,  
+            verbose=True,
+            min_lr=1e-6  
+        )
 
     def _run_epoch(self, data_loader, training=True):
         """
@@ -284,6 +294,7 @@ class LSTM_Trainer:
         history = {'train_loss': [], 'val_loss': []}
 
         # Training loop with progress bar
+        current_lr = self.optimizer.param_groups[0]['lr']
         for epoch in range(epochs):
             train_loss = self._run_epoch(train_loader, training=True)
             val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
@@ -291,6 +302,15 @@ class LSTM_Trainer:
             # Store history
             history['train_loss'].append(train_loss)
             history['val_loss'].append(val_loss)
+
+            # Step the scheduler based on validation loss
+            self.scheduler.step(val_loss)
+            
+            # Check if learning rate changed
+            new_lr = self.optimizer.param_groups[0]['lr']
+            if new_lr != current_lr:
+                print(f'\nLearning rate updated: {current_lr:.2e} -> {new_lr:.2e}')
+                current_lr = new_lr
 
             print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
 

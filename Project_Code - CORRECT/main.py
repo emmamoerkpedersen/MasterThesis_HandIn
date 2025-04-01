@@ -178,7 +178,7 @@ def run_pipeline(
 
     # Now create the real model with the correct input size
     model = LSTMModel(
-        input_size=6, # Hard coded for now
+        input_size=5, # Hard coded for now
         sequence_length=None,  
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
