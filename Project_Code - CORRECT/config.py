@@ -132,8 +132,8 @@ LSTM_CONFIG = {
     'num_layers': 2,          
     'dropout': 0.25,          
     'batch_size': 1,          
-    'learning_rate': 0.01,   
-    'epochs': 150,             
-    'patience': 20, 
+    'learning_rate': 0.0001,   
+    'epochs': 100,             
+    'patience': 8, 
     
 } 

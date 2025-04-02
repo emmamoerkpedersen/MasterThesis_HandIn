@@ -200,13 +200,12 @@ class LSTM_Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate'))
         self.criterion = nn.MSELoss()
         
-        # Add learning rate scheduler
+        # Add learning rate scheduler (removed verbose parameter)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer,
             mode='min',
             factor=0.8,  
             patience=3,  
-            verbose=True,
             min_lr=1e-6  
         )
 
@@ -304,15 +303,15 @@ class LSTM_Trainer:
             history['val_loss'].append(val_loss)
 
             # Step the scheduler based on validation loss
+            prev_lr = self.optimizer.param_groups[0]['lr']
             self.scheduler.step(val_loss)
+            current_lr = self.optimizer.param_groups[0]['lr']
             
-            # Check if learning rate changed
-            new_lr = self.optimizer.param_groups[0]['lr']
-            if new_lr != current_lr:
-                print(f'\nLearning rate updated: {current_lr:.2e} -> {new_lr:.2e}')
-                current_lr = new_lr
+            # Print learning rate change if it occurred
+            if current_lr != prev_lr:
+                print(f'\nLearning rate updated: {prev_lr:.2e} -> {current_lr:.2e}')
 
-            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
+            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {current_lr:.2e}")
 
             # Early stopping
             if val_loss < best_val_loss:
