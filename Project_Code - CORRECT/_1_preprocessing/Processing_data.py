@@ -261,14 +261,22 @@ def preprocess_data():
         # Detect freezing periods
         temp_data = station_data['temperature']
         frost_periods = detect_frost_periods(temp_data)
+        # Count points before frost period removal
+        points_before = len(station_data['vst_raw'])
         #Remove VST data during frost periods
         for start, end in frost_periods:
             station_data['vst_raw'] = station_data['vst_raw'][
                 ~((station_data['vst_raw'].index >= start) & 
                     (station_data['vst_raw'].index <= end))
             ]
+        # Count points removed during frost periods
+        points_removed_frost = points_before - len(station_data['vst_raw'])
+        
         print(f"\nProcessed {station_name}:")
-        print(f"  - Removed data from {len(frost_periods)} frost periods")
+        print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
+        print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
+        print(f"  - Total data points removed: {len(All_station_data_original[station_name]['vst_raw']) - len(station_data['vst_raw'])}")
+        print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
@@ -321,7 +329,7 @@ if __name__ == "__main__":
         row=2, col=1
     )
 
-     # Add temperature trace to top subplot
+     
     fig.add_trace(
         go.Scatter(
             x=original_data[station_id]['vst_raw'].index,
