@@ -116,7 +116,7 @@ PHYSICAL_LIMITS = {
 # LSTM Configuration
 LSTM_CONFIG = {
     'model_type': 'seq2seq_forecaster',
-    'feature_cols': ['temperature', 'rainfall'],
+    'feature_cols': ['rainfall'],
     'output_features': ['vst_raw'],
     'feature_stations': [
         {
@@ -131,7 +131,7 @@ LSTM_CONFIG = {
     'hidden_size': 124,        
     'num_layers': 2,          
     'dropout': 0.25,          
-    'batch_size': 1,          
+    'batch_size': 36,          
     'learning_rate': 0.001,   
     'epochs': 100,             
     'patience': 8, 

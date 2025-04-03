@@ -23,10 +23,11 @@ from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 #from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
-from _3_lstm_model.model import LSTMModel
+#from _3_lstm_model.model import LSTMModel   
 from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
 from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
-
+from experiments.model_structure.model import LSTMModelUpdate
+from experiments.model_structure.train_model import LSTM_TrainerUpdate
 
 def run_pipeline(
     project_root: Path,
@@ -177,7 +178,7 @@ def run_pipeline(
     print("\nInitializing LSTM model...")
 
     # Now create the real model with the correct input size
-    model = LSTMModel(
+    model = LSTMModelUpdate(
         input_size=6, # Hard coded for now
         sequence_length=None,  
         hidden_size=model_config['hidden_size'],
@@ -187,7 +188,7 @@ def run_pipeline(
     )
 
     # Initialize the real trainer with the correct model
-    trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
+    trainer = LSTM_TrainerUpdate(model_config, preprocessor=preprocessor)
     
     # Train model on combined data with optimized batch size
     print("\nTraining model on combined data...")
