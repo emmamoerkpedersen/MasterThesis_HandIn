@@ -10,8 +10,7 @@ import os
 from pathlib import Path
 import pickle
 
-from _3_lstm_model.model import LSTMModel
-from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
+from experiments.Improved_model_structure.train_model import DataPreprocessor, LSTM_Trainer
 
 
 def define_model(trial, preprocessor, base_config):
@@ -20,7 +19,7 @@ def define_model(trial, preprocessor, base_config):
     """
     # Define the core hyperparameters to tune
     hidden_size = trial.suggest_categorical('hidden_size', [64, 128, 256, 350])
-    num_layers = trial.suggest_int('num_layers', 1, 2, 3)
+    num_layers = trial.suggest_int('num_layers', 1, 3)
     dropout = trial.suggest_float('dropout', 0.1, 0.4)
     learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
     batch_size = trial.suggest_categorical('batch_size', [32, 64, 128])
@@ -36,6 +35,7 @@ def define_model(trial, preprocessor, base_config):
         'dropout': dropout,
         'learning_rate': learning_rate,
         'batch_size': batch_size,
+        'sequence_length': sequence_length,
         'epochs': 100,       # Reduced for faster hyperparameter search
         'patience': 15      # Adjusted for stable early stopping
     })
@@ -99,7 +99,7 @@ def run_hyperparameter_tuning(train_data, val_data, output_path, base_config, n_
     Returns:
         Best hyperparameters, Optuna study
     """
-    from _3_lstm_model.train_model import DataPreprocessor
+    from experiments.Improved_model_structure.train_model import DataPreprocessor
     
     # Initialize preprocessor with base configuration
     preprocessor = DataPreprocessor(base_config)

@@ -23,7 +23,7 @@ from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison,
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
+from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from experiments.Improved_model_structure.train_model import DataPreprocessor, LSTM_Trainer
 from experiments.Improved_model_structure.model import LSTMModel
 from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
@@ -301,7 +301,7 @@ if __name__ == "__main__":
             preprocess_diagnostics=False,
             synthetic_diagnostics=False,
             run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
-            hyperparameter_trials=20,  # Reasonable number for demonstration
+            hyperparameter_trials=50,  # Reasonable number for demonstration
             hyperparameter_diagnostics=False,  # Simplified approach doesn't need diagnostics
         )
 
