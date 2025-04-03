@@ -26,13 +26,12 @@ from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from experiments.Improved_model_structure.train_model import DataPreprocessor, LSTM_Trainer
 from experiments.Improved_model_structure.model import LSTMModel
-from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
+from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot
 from experiments.Improved_model_structure.config import LSTM_CONFIG
 from config import SYNTHETIC_ERROR_PARAMS
 #from _3_lstm_model.model import LSTMModel
 #from _3_lstm_model.train_model import DataPreprocessor as OldDataPreprocessor, LSTM_Trainer as OldLSTM_Trainer
 #from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
-
 
 def run_pipeline(
     project_root: Path,
@@ -163,6 +162,19 @@ def run_pipeline(
                 if param in ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 'batch_size']:
                     print(f"  {param}: {value}")
             
+            # Generate hyperparameter visualization reports if diagnostics are enabled
+            if hyperparameter_diagnostics:
+                print("\nGenerating hyperparameter tuning diagnostics...")
+                study_path = Path(output_path) / "hyperparameter_tuning" / "all_trials.json"
+                if study_path.exists():
+                    generate_hyperparameter_report(
+                        study_path=study_path,
+                        output_dir=Path(output_path) / "hyperparameter_diagnostics",
+                        top_n=5  # Show top 5 models
+                    )
+                else:
+                    print(f"Could not find hyperparameter trials data at {study_path}")
+            
         except Exception as e:
             print(f"\nError during hyperparameter optimization: {str(e)}")
             print("Continuing with base configuration")
@@ -206,32 +218,52 @@ def run_pipeline(
         dropout=model_config['dropout']
     )
     
-    # Initialize the real trainer with the correct model
-    trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
+    # Load best hyperparameters
+    best_config = load_best_hyperparameters(Path(output_path), model_config)
     
-    # Print detailed model configuration
-    print("\nDetailed Model Configuration:")
-    print(f"Input Size: {input_size}")
-    print(f"Hidden Size: {model_config['hidden_size']}")
-    print(f"Number of Layers: {model_config['num_layers']}")
-    print(f"Dropout Rate: {model_config['dropout']}")
-    print(f"Learning Rate: {model_config.get('learning_rate', 0.001)}")
-    print(f"Batch Size: {model_config['batch_size']}")
-    print(f"Using Time Features: {model_config.get('use_time_features', False)}")
-    print(f"Using Peak Weighted Loss: {model_config.get('use_peak_weighted_loss', False)}")
-    if model_config.get('use_peak_weighted_loss', False):
-        print(f"Peak Weight: {model_config.get('peak_weight', 2.0)}")
-    print(f"Feature Columns: {preprocessor.feature_cols}")
+    # Verify the loaded parameters match what we expect
+    print("\nVerifying hyperparameters:")
+    expected_params = ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 
+                      'batch_size', 'sequence_length', 'peak_weight', 
+                      'grad_clip_value', 'smoothing_alpha']
+    for param in expected_params:
+        print(f"  {param}: {best_config.get(param)}")
     
-    # Train model on combined data with optimized batch size
-    print("\nTraining model on combined data...")
+    # Initialize the trainer with the verified config
+    trainer = LSTM_Trainer(best_config, preprocessor=preprocessor)
+    
+    # Print model architecture
+    print("\nModel Architecture:")
+    print(f"Input Size: {len(preprocessor.feature_cols)}")
+    print(f"Hidden Size: {best_config['hidden_size']}")
+    print(f"Number of Layers: {best_config['num_layers']}")
+    print(f"Dropout Rate: {best_config['dropout']}")
+    print(f"Learning Rate: {best_config['learning_rate']}")
+    print(f"Batch Size: {best_config['batch_size']}")
+    print(f"Sequence Length: {best_config['sequence_length']}")
+    
+    # Train model with verified parameters
+    print("\nStarting training with verified parameters...")
+    print("Using identical conditions as hyperparameter tuning")
+    print(f"Epochs: {best_config['epochs']}")
+    print(f"Batch size: {best_config['batch_size']}")
+    print(f"Patience: {best_config['patience']}")
+    print(f"Learning rate: {best_config['learning_rate']}")
+    
     history, val_predictions, val_targets = trainer.train(
         train_data=train_data,
         val_data=val_data,
-        epochs=model_config['epochs'],
-        batch_size=model_config['batch_size'], 
-        patience=model_config['patience']
+        epochs=300,  # Fixed to match tuning
+        batch_size=best_config['batch_size'],
+        patience=15  # Fixed to match tuning
     )
+    
+    print("\nTraining Results:")
+    print(f"Best validation loss: {min(history['val_loss']):.6f}")
+    print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
+    if 'smoothed_val_loss' in history:
+        print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+        print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
 
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
@@ -256,6 +288,34 @@ def run_pipeline(
     )
     # Now plot with aligned data - make sure station_id is a string
     create_full_plot(val_data, val_predictions_df, str(station_id), model_config)  # Pass model config
+    
+    # Create comprehensive performance analysis plot
+    print("\nGenerating comprehensive performance analysis plot...")
+    test_actual = pd.Series(
+        val_data['vst_raw'].values,
+        index=val_data.index,
+        name='Actual'
+    )
+    val_predictions_series = pd.Series(
+        predictions_flattened,
+        index=val_data.index[:len(predictions_flattened)],
+        name='Predicted'
+    )
+    performance_metrics = create_performance_analysis_plot(
+        test_actual, 
+        val_predictions_series, 
+        str(station_id), 
+        model_config,
+        Path(output_path) / "lstm"
+    )
+    
+    # Print performance metrics
+    print("\nModel Performance Metrics:")
+    print(f"RMSE: {performance_metrics['rmse']:.4f} mm")
+    print(f"MAE: {performance_metrics['mae']:.4f} mm")
+    print(f"R²: {performance_metrics['r2']:.4f}")
+    print(f"Mean Error: {performance_metrics['mean_error']:.4f} mm")
+    print(f"Std Error: {performance_metrics['std_error']:.4f} mm")
     
     # Make and plot test predictions
     print("\nMaking predictions on test set...")
@@ -301,8 +361,8 @@ if __name__ == "__main__":
             preprocess_diagnostics=False,
             synthetic_diagnostics=False,
             run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
-            hyperparameter_trials=50,  # Reasonable number for demonstration
-            hyperparameter_diagnostics=False,  # Simplified approach doesn't need diagnostics
+            hyperparameter_trials=30,  # Reasonable number for demonstration
+            hyperparameter_diagnostics=True,  # Simplified approach doesn't need diagnostics
         )
 
         print("\nModel run completed!")
