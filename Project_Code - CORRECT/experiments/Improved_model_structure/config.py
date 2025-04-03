@@ -113,11 +113,27 @@ PHYSICAL_LIMITS = {
     'max_rate_of_change': 50  # Maximum change per hour
 }
 
-# LSTM Configuration
+# Configuration for LSTM model
 LSTM_CONFIG = {
-    'model_type': 'seq2seq_forecaster',
-    'feature_cols': ['rainfall'],
+    'hidden_size': 32,  # Maintained at 256 - good balance
+    'num_layers': 1,
+    'dropout': 0.2,     # Reduced back from 0.3 to avoid underfitting
+    'batch_size': 128,   
+    'epochs': 100,
+    'patience': 15,
+    'learning_rate': 0.001,
+    'sequence_length': 1000,  # Reverted to original value
+    'feature_cols': [
+        'rainfall',
+        'temperature',
+    ],
     'output_features': ['vst_raw'],
+    'use_time_features': True,
+    'use_peak_weighted_loss': True,
+    'peak_weight': 3.0,  # Reverted to original value
+    'grad_clip_value': 1.5,
+    'use_smoothing': True,
+    'smoothing_alpha': 0.35,  # Slightly increased for better mid-range detail
     'feature_stations': [
         {
             'station_id': '21006845',
@@ -127,13 +143,8 @@ LSTM_CONFIG = {
             'station_id': '21006847',
             'features': ['vst_raw', 'rainfall']
         }
-    ],
-    'hidden_size': 32,        
-    'num_layers': 2,          
-    'dropout': 0.25,          
-    'batch_size': 64,          
-    'learning_rate': 0.001,   
-    'epochs': 100,             
-    'patience': 8, 
-    
-} 
+    ]
+}
+'''
+[I 2025-04-02 18:55:43,810] Trial 47 finished with value: 0.4119936525821686 and parameters: {'hidden_size': 128, 'num_layers': 2, 'dropout': 0.1, 'learning_rate': 0.0061, 'batch_size': 16, 'patience': 10}. Best is trial 47 with value: 0.4119936525821686.
+'''

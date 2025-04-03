@@ -16,18 +16,23 @@ from pathlib import Path
 import sys
 import numpy as np
 
+# Add the parent directory to Python path to allow imports from experiments
+sys.path.append(str(Path(__file__).parent))
+
 from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, plot_additional_data, generate_preprocessing_report, plot_station_data_overview
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-#from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
+from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
+from experiments.Improved_model_structure.train_model import DataPreprocessor, LSTM_Trainer
+from experiments.Improved_model_structure.model import LSTMModel
+from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
+from experiments.Improved_model_structure.config import LSTM_CONFIG
+from config import SYNTHETIC_ERROR_PARAMS
+#from _3_lstm_model.model import LSTMModel
+#from _3_lstm_model.train_model import DataPreprocessor as OldDataPreprocessor, LSTM_Trainer as OldLSTM_Trainer
+#from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
 
-from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
-#from _3_lstm_model.model import LSTMModel   
-from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
-from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
-from experiments.model_structure.model import LSTMModelUpdate
-from experiments.model_structure.train_model import LSTM_TrainerUpdate
 
 def run_pipeline(
     project_root: Path,
@@ -36,7 +41,7 @@ def run_pipeline(
     preprocess_diagnostics: bool = False,
     synthetic_diagnostics: bool = False,
     run_hyperparameter_optimization: bool = False,
-    hyperparameter_trials: int = 10,
+    hyperparameter_trials: int = 20,  # Reduced to 20 for faster results
     hyperparameter_diagnostics: bool = False,
     
 ):
@@ -145,28 +150,39 @@ def run_pipeline(
         print(f"\nRunning hyperparameter optimization with {hyperparameter_trials} trials...")
         try:
             best_config, study = run_hyperparameter_tuning(
-                split_datasets=split_datasets,
-                stations_results=stations_results,
+                train_data=train_data,
+                val_data=val_data,
                 output_path=Path(output_path),
                 base_config=model_config,
-                n_trials=hyperparameter_trials,
-                diagnostics=hyperparameter_diagnostics,
-                data_sample_ratio=0.3
+                n_trials=hyperparameter_trials
             )
             # Update configuration with optimized parameters
-            model_config.update(best_config)
+            model_config = best_config  # Replace with entire best config
             print("\nUsing optimized hyperparameters:")
             for param, value in best_config.items():
-                print(f"  {param}: {value}")
+                if param in ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 'batch_size']:
+                    print(f"  {param}: {value}")
+            
         except Exception as e:
             print(f"\nError during hyperparameter optimization: {str(e)}")
             print("Continuing with base configuration")
             import traceback
             traceback.print_exc()
     else:
-        print("\nUsing base configuration from config.py:")
-        for param, value in model_config.items():
-            print(f"  {param}: {value}")
+        # Try to load best hyperparameters from previous runs
+        try:
+            loaded_config = load_best_hyperparameters(Path(output_path), model_config)
+            if loaded_config != model_config:
+                model_config = loaded_config
+                print("\nLoaded hyperparameters from previous tuning:")
+                for param, value in model_config.items():
+                    if param in ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 'batch_size']:
+                        print(f"  {param}: {value}")
+            else:
+                print("\nUsing base configuration from config.py")
+        except Exception as e:
+            print(f"\nError loading previous hyperparameters: {str(e)}")
+            print("Using base configuration")
     
     #########################################################
     # Step 5: LSTM training and prediction                  #
@@ -176,19 +192,36 @@ def run_pipeline(
     
     # Initialize model
     print("\nInitializing LSTM model...")
+    
+    # Get input size from feature columns
+    input_size = len(preprocessor.feature_cols)
 
     # Now create the real model with the correct input size
-    model = LSTMModelUpdate(
-        input_size=6, # Hard coded for now
-        sequence_length=None,  
+    model = LSTMModel(
+        input_size=input_size,  # Use dynamically calculated input size
+        sequence_length=model_config['sequence_length'],  
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
         num_layers=model_config['num_layers'],
         dropout=model_config['dropout']
     )
-
+    
     # Initialize the real trainer with the correct model
-    trainer = LSTM_TrainerUpdate(model_config, preprocessor=preprocessor)
+    trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
+    
+    # Print detailed model configuration
+    print("\nDetailed Model Configuration:")
+    print(f"Input Size: {input_size}")
+    print(f"Hidden Size: {model_config['hidden_size']}")
+    print(f"Number of Layers: {model_config['num_layers']}")
+    print(f"Dropout Rate: {model_config['dropout']}")
+    print(f"Learning Rate: {model_config.get('learning_rate', 0.001)}")
+    print(f"Batch Size: {model_config['batch_size']}")
+    print(f"Using Time Features: {model_config.get('use_time_features', False)}")
+    print(f"Using Peak Weighted Loss: {model_config.get('use_peak_weighted_loss', False)}")
+    if model_config.get('use_peak_weighted_loss', False):
+        print(f"Peak Weight: {model_config.get('peak_weight', 2.0)}")
+    print(f"Feature Columns: {preprocessor.feature_cols}")
     
     # Train model on combined data with optimized batch size
     print("\nTraining model on combined data...")
@@ -221,16 +254,28 @@ def run_pipeline(
         index=val_data.index,
         columns=['vst_raw']
     )
-    # Now plot with aligned data
-    create_full_plot(val_data, val_predictions_df, station_id)  # Pass the Series directly
+    # Now plot with aligned data - make sure station_id is a string
+    create_full_plot(val_data, val_predictions_df, str(station_id), model_config)  # Pass model config
     
     # Make and plot test predictions
     print("\nMaking predictions on test set...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
     
+    '''
+    # Convert test predictions to DataFrame for plotting
+    test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
+    test_predictions_df = pd.DataFrame(
+        test_predictions_reshaped,  # Already flattened
+        index=test_data.index[:len(test_predictions_reshaped)],
+        columns=['vst_raw']
+    )
+    
+    # Plot test results with model config
+    create_full_plot(test_data, test_predictions_df, str(station_id), model_config)  # Pass model config
+    
     # Plot convergence
-    plot_convergence(history, title=f"Training and Validation Loss - Station {station_id}")
-
+    plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
+    '''
     return test_predictions, predictions_original, history
 
 
@@ -255,18 +300,55 @@ if __name__ == "__main__":
             output_path=output_path,
             preprocess_diagnostics=False,
             synthetic_diagnostics=False,
-            run_hyperparameter_optimization=False,
-            hyperparameter_trials=10,
-            hyperparameter_diagnostics=False,
+            run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
+            hyperparameter_trials=20,  # Reasonable number for demonstration
+            hyperparameter_diagnostics=False,  # Simplified approach doesn't need diagnostics
         )
 
         print("\nModel run completed!")
         print(f"Results saved to: {output_path}")
         print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
         print(f"Best validation loss: {min(history['val_loss']):.6f}")
+        if 'smoothed_val_loss' in history:
+            print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
+            print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
         
     except Exception as e:
         print(f"\nError running pipeline: {e}")
         import traceback
         traceback.print_exc()
     
+    '''
+Enhanced Architecture:
+Added residual connections between layers for better gradient flow
+Added a two-layer fully connected network for better feature extraction
+Used ReLU activation for improved non-linearity
+
+Improved Numerics:
+Proper dropout handling in training vs. inference modes
+Better weight initialization (implicitly handled by PyTorch)
+
+In train_model.py:
+Enhanced Loss Function:
+Implemented peak-weighted loss to give higher importance to water level peaks
+Added weighting based on rate of change to better capture rising/falling limbs
+
+Training Stability:
+Added gradient clipping to prevent exploding gradients
+Implemented learning rate scheduler to reduce LR when training plateaus
+Added EMA smoothing for validation loss to make stopping decisions more robust
+
+Prediction Improvements:
+Added exponential moving average smoothing for predictions
+Better handling of NaN values in predictions
+
+Hyperparameter Tuning:
+Simplified tuning process with focused parameter ranges
+Added sequence_length as a tunable parameter
+Using smoothed validation loss for more stable evaluation
+These improvements collectively addressed the key challenges we identified:
+Better peak detection (peak-weighted loss + residual connections)
+Reduced validation loss fluctuations (smoothing + LR scheduler)
+Prevented overfitting (appropriate dropout + early stopping)
+More accurate predictions (EMA smoothing)
+'''
