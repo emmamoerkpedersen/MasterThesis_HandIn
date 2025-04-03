@@ -128,7 +128,7 @@ LSTM_CONFIG = {
             'features': ['vst_raw', 'rainfall']
         }
     ],
-    'hidden_size': 164,        
+    'hidden_size': 64,        
     'num_layers': 1,          
     'dropout': 0.25,          
     'batch_size': 36,          
