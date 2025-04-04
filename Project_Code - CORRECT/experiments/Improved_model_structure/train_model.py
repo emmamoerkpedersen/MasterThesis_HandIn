@@ -234,7 +234,7 @@ class DataPreprocessor:
         data.loc[:, 'month'] = data.index.month
         data.loc[:, 'day'] = data.index.day
         data.loc[:, 'day_of_year'] = data.index.dayofyear
-        data.loc[:, 'is_weekend'] = data.index.dayofweek >= 5
+    
         
         # Create cyclical features for month (period = 12)
         data.loc[:, 'month_sin'] = np.sin(2 * np.pi * data['month'] / 12)
@@ -244,11 +244,9 @@ class DataPreprocessor:
         data.loc[:, 'day_of_year_sin'] = np.sin(2 * np.pi * data['day_of_year'] / 365.25)
         data.loc[:, 'day_of_year_cos'] = np.cos(2 * np.pi * data['day_of_year'] / 365.25)
         
-        # Add weekend as categorical feature (0 or 1)
-        data.loc[:, 'is_weekend'] = data['is_weekend'].astype(int)
         
         # Add these features to feature_cols (check to avoid duplicates)
-        time_features = ['month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos', 'is_weekend']
+        time_features = ['month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos']
         for feature in time_features:
             if feature not in self.feature_cols:
                 self.feature_cols.append(feature)

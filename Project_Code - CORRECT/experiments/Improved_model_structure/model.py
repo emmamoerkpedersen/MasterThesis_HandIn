@@ -65,12 +65,7 @@ class LSTMModel(nn.Module):
         self.fc1 = nn.Linear(hidden_size, hidden_size)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, output_size)
-   
-    def update_sequence_length(self, sequence_length):
-        """
-        Update the sequence length after it's been calculated
-        """
-        self.sequence_length = sequence_length
+
 
     def forward(self, x):
         # Forward pass through LSTM
