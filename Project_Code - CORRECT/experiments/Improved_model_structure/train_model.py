@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from _3_lstm_model.model import LSTMModel
+from experiments.Improved_model_structure.model import LSTMModel
 from tqdm import tqdm
 
 class DataPreprocessor:
