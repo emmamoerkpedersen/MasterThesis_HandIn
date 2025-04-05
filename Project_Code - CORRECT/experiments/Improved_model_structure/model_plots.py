@@ -214,17 +214,17 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
         fig.add_annotation(
             x=1.15,  # Place it to the right of the plot
             y=0.5,
-            xref="paper",
-            yref="paper",
-            text=config_text,
-            showarrow=False,
+                xref="paper", 
+                yref="paper",
+                text=config_text,
+                showarrow=False,
             font=dict(size=14),
-            align="left",
-            bgcolor="rgba(255, 255, 255, 0.9)",
+                align="left",
+                bgcolor="rgba(255, 255, 255, 0.9)",
             bordercolor="#000000",
-            borderwidth=1,
+                borderwidth=1,
             borderpad=10
-        )
+            )
         # Adjust margins to make room for config text
         fig.update_layout(margin=dict(r=250))
     
