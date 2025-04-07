@@ -120,20 +120,27 @@ LSTM_CONFIG = {
     'dropout': 0.2,     # Reduced back from 0.3 to avoid underfitting
     'batch_size': 2,   
     'epochs': 100,
+    'hidden_size': 64,
+    'num_layers': 2,
+    'dropout': 0.2732082146489317,
+    'batch_size': 128,
+    'epochs': 500,
     'patience': 15,
     'learning_rate': 0.001,
     'sequence_length': 10000,
     'warmup_length': 100,
+    'learning_rate': 0.005823484689107212,
+    'sequence_length': 1000,
     'feature_cols': [
         'rainfall',
     ],
     'output_features': ['vst_raw'],
     'use_time_features': True,
-    'use_peak_weighted_loss': False,
-    'peak_weight': 3.0,  # Reverted to original value
-    'grad_clip_value': 1.5,
-    'use_smoothing': False,
-    'smoothing_alpha': 0.35,  # Slightly increased for better mid-range detail
+    'use_peak_weighted_loss': True,
+    'peak_weight': 2.3047103629304044,
+    'grad_clip_value': 1.1489855340612218,
+    'use_smoothing': True,
+    'smoothing_alpha': 0.4570339719720078,
     'feature_stations': [
         {
             'station_id': '21006845',
@@ -146,5 +153,6 @@ LSTM_CONFIG = {
     ]
 }
 '''
-[I 2025-04-02 18:55:43,810] Trial 47 finished with value: 0.4119936525821686 and parameters: {'hidden_size': 128, 'num_layers': 2, 'dropout': 0.1, 'learning_rate': 0.0061, 'batch_size': 16, 'patience': 10}. Best is trial 47 with value: 0.4119936525821686.
+ 0.43391583273927786 and parameters: {'hidden_size': 64, 'num_layers': 2, 'dropout': 0.2732082146489317, 'learning_rate': 0.005823484689107212,
+   'batch_size': 128, 'sequence_length': 1000, 'peak_weight': 2.3047103629304044, 'grad_clip_value': 1.1489855340612218, 'smoothing_alpha': 0.4570339719720078}.
 '''
