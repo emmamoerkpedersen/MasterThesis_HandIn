@@ -115,19 +115,12 @@ PHYSICAL_LIMITS = {
 
 # Configuration for LSTM model
 LSTM_CONFIG = {
-    'hidden_size': 64,  # Maintained at 256 - good balance
-    'num_layers': 2,
-    'dropout': 0.2,     # Reduced back from 0.3 to avoid underfitting
-    'batch_size': 2,   
-    'epochs': 100,
     'hidden_size': 64,
     'num_layers': 2,
     'dropout': 0.2732082146489317,
     'batch_size': 128,
     'epochs': 500,
     'patience': 15,
-    'learning_rate': 0.001,
-    'sequence_length': 10000,
     'warmup_length': 100,
     'learning_rate': 0.005823484689107212,
     'sequence_length': 1000,
@@ -135,6 +128,8 @@ LSTM_CONFIG = {
         'rainfall',
     ],
     'output_features': ['vst_raw'],
+
+    
     'use_time_features': True,
     'use_peak_weighted_loss': True,
     'peak_weight': 2.3047103629304044,
