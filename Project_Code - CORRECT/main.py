@@ -301,21 +301,21 @@ def run_pipeline(
         index=val_data.index[:len(predictions_flattened)],
         name='Predicted'
     )
-    performance_metrics = create_performance_analysis_plot(
-        test_actual, 
-        val_predictions_series, 
-        str(station_id), 
-        model_config,
-        Path(output_path) / "lstm"
-    )
+    # performance_metrics = create_performance_analysis_plot(
+    #     test_actual, 
+    #     val_predictions_series, 
+    #     str(station_id), 
+    #     model_config,
+    #     Path(output_path) / "lstm"
+    # )
     
     # Print performance metrics
-    print("\nModel Performance Metrics:")
-    print(f"RMSE: {performance_metrics['rmse']:.4f} mm")
-    print(f"MAE: {performance_metrics['mae']:.4f} mm")
-    print(f"R²: {performance_metrics['r2']:.4f}")
-    print(f"Mean Error: {performance_metrics['mean_error']:.4f} mm")
-    print(f"Std Error: {performance_metrics['std_error']:.4f} mm")
+    # print("\nModel Performance Metrics:")
+    # print(f"RMSE: {performance_metrics['rmse']:.4f} mm")
+    # print(f"MAE: {performance_metrics['mae']:.4f} mm")
+    # print(f"R²: {performance_metrics['r2']:.4f}")
+    # print(f"Mean Error: {performance_metrics['mean_error']:.4f} mm")
+    # print(f"Std Error: {performance_metrics['std_error']:.4f} mm")
     
     # Make and plot test predictions
     print("\nMaking predictions on test set...")
@@ -369,9 +369,9 @@ if __name__ == "__main__":
         print(f"Results saved to: {output_path}")
         print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
         print(f"Best validation loss: {min(history['val_loss']):.6f}")
-        # if 'smoothed_val_loss' in history:
-        #     print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
-        #     print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+        if 'smoothed_val_loss' in history:
+            print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
+            print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
         
     except Exception as e:
         print(f"\nError running pipeline: {e}")

@@ -17,7 +17,7 @@ DETECTION_PARAMS = {
     }
 }
 
-# Imputation Parameters
+# Imputation Parametersx
 IMPUTATION_PARAMS = {
     'linear': {
         'max_gap': 24  # hours
@@ -117,13 +117,13 @@ PHYSICAL_LIMITS = {
 LSTM_CONFIG = {
     'hidden_size': 64,
     'num_layers': 2,
-    'dropout': 0.2732082146489317,
+    'dropout': 0.273,
     'batch_size': 128,
     'epochs': 500,
     'patience': 15,
     'warmup_length': 100,
-    'learning_rate': 0.005823484689107212,
-    'sequence_length': 1000,
+    'learning_rate': 0.0058,
+    'sequence_length': 10000,
     'feature_cols': [
         'rainfall',
     ],
@@ -131,11 +131,11 @@ LSTM_CONFIG = {
 
     
     'use_time_features': True,
-    'use_peak_weighted_loss': True,
-    'peak_weight': 2.3047103629304044,
-    'grad_clip_value': 1.1489855340612218,
+    'use_peak_weighted_loss': False,
+    'peak_weight': 2.304,
+    'grad_clip_value': 1.148,
     'use_smoothing': True,
-    'smoothing_alpha': 0.4570339719720078,
+    'smoothing_alpha': 0.457,
     'feature_stations': [
         {
             'station_id': '21006845',

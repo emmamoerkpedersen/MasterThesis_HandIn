@@ -66,18 +66,16 @@ class DataPreprocessor:
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
-        # Fill temperature and rainfall Nan with bfill and ffill
-        data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
         data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
-        print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
+        print(f"  - Filled rainfall Nan with -1")
 
-        # Add cumulative rainfall and temperature features
-        #data = self._add_cumulative_features(data)
-        #print(f"  - Added cumulative rainfall and temperature features")
+        # Add cumulative rainfall features
+        data = self._add_cumulative_features(data)
+        print(f"  - Added cumulative rainfall features")
         
         # Add time-based features if enabled in config
         if self.config.get('use_time_features', False):
@@ -258,15 +256,12 @@ class DataPreprocessor:
 
     def _add_cumulative_features(self, data):
         """
-        Add cumulative rainfall and temperature features to better capture long-term patterns.
+        Add cumulative rainfall features to better capture long-term patterns.
         
         Features added:
         - 1-month (30-day) cumulative rainfall
         - 3-month (90-day) cumulative rainfall
         - 6-month (180-day) cumulative rainfall
-        - 30-day average temperature
-        - 90-day average temperature
-        - Temp-rain interaction (product of temp and rain)
         
         Args:
             data: DataFrame containing time series data
@@ -291,13 +286,6 @@ class DataPreprocessor:
         data.loc[:, 'rainfall_90day'] = rainfall_fixed.rolling(window=90, min_periods=1).sum()
         data.loc[:, 'rainfall_180day'] = rainfall_fixed.rolling(window=180, min_periods=1).sum()
         
-        # Calculate average temperature for different windows
-        data.loc[:, 'temp_30day_avg'] = data['temperature'].rolling(window=30, min_periods=1).mean()
-        data.loc[:, 'temp_90day_avg'] = data['temperature'].rolling(window=90, min_periods=1).mean()
-        
-        # Calculate rainfall-temperature interaction term
-        # This can help capture effects where rainfall impact depends on temperature
-        data.loc[:, 'temp_rain_interaction'] = data['temperature'] * rainfall_fixed
         
         # Calculate cumulative rainfall for feature stations as well
         data.loc[:, 'feature1_rain_30day'] = feature_1_rain.rolling(window=30, min_periods=1).sum()
@@ -311,7 +299,6 @@ class DataPreprocessor:
         # Fill potential NaN values created by rolling operations with forward fill then backward fill
         cumulative_cols = [
             'rainfall_30day', 'rainfall_90day', 'rainfall_180day',
-            'temp_30day_avg', 'temp_90day_avg', 'temp_rain_interaction',
             'feature1_rain_30day', 'feature2_rain_30day',
             'combined_rain_30day', 'combined_rain_90day'
         ]
@@ -339,7 +326,7 @@ class LSTM_Trainer:
         self.preprocessor = preprocessor  # Use preprocessor for data handling
         
         # Initialize history dictionary for tracking during training
-        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': []} #, 'smoothed_val_loss': []}
+        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': [], 'smoothed_val_loss': []}
         
         # Get peak weight for the custom loss function (default to 2.0 if not specified)
         self.peak_weight = config.get('peak_weight', 2.0)
@@ -493,23 +480,23 @@ class LSTM_Trainer:
             torch.utils.data.TensorDataset(X_train, y_train), 
             batch_size=batch_size, 
             shuffle=True,  # Enable shuffling for better training
-            num_workers=0 if self.device.type == 'cuda' else 4  # Set to 0 since data is already on GPU
+            num_workers=0 if self.device.type == 'cuda' else 0  # Set to 0 since data is already on GPU
         )
         val_loader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(X_val, y_val), 
             batch_size=batch_size, 
             shuffle=False,
-            num_workers=0 if self.device.type == 'cuda' else 4  # Set to 0 since data is already on GPU
+            num_workers=0 if self.device.type == 'cuda' else 0  # Set to 0 since data is already on GPU
         )
 
         # Initialize early stopping
         best_val_loss = float('inf')
-        #smoothed_val_loss = float('inf')  # Initialize smoothed validation loss
+        smoothed_val_loss = float('inf')  # Initialize smoothed validation loss
         patience_counter = 0
         best_model_state = None
         
         # Reset history for new training run
-        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': []} #, 'smoothed_val_loss': []}
+        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': [], 'smoothed_val_loss': []}
         
         # Exponential moving average weight for validation loss
         beta = 0.7  # Weight for previous smoothed value (higher = more smoothing)
@@ -521,22 +508,22 @@ class LSTM_Trainer:
             val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
 
             # Calculate smoothed validation loss using exponential moving average
-            #if epoch == 0:
-            #    smoothed_val_loss = val_loss  # Initialize with first value
-            #else:
-            #    smoothed_val_loss = beta * smoothed_val_loss + (1 - beta) * val_loss
+            if epoch == 0:
+               smoothed_val_loss = val_loss  # Initialize with first value
+            else:
+               smoothed_val_loss = beta * smoothed_val_loss + (1 - beta) * val_loss
             
             # Store history
             self.history['train_loss'].append(train_loss)
             self.history['val_loss'].append(val_loss)
-            #self.history['smoothed_val_loss'].append(smoothed_val_loss)
+            self.history['smoothed_val_loss'].append(smoothed_val_loss)
             self.history['learning_rates'].append(self.optimizer.param_groups[0]['lr'])
             
             # Step the learning rate scheduler based on validation loss
             # Use smoothed validation loss for scheduler
-            # self.scheduler.step(smoothed_val_loss)
+            self.scheduler.step(smoothed_val_loss)
 
-            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}") #Smoothed Val Loss: {smoothed_val_loss:.6f}, )
+            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}, Smoothed Val Loss: {smoothed_val_loss:.6f}")
             
             # Call epoch callback if provided (for hyperparameter tuning)
             if epoch_callback is not None:
