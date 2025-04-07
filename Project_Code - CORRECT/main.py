@@ -250,7 +250,7 @@ def run_pipeline(
     
     # Create DataFrame with aligned predictions and targets
     val_predictions_df = pd.DataFrame(
-        predictions_flattened,  # Use trimmed 1D array
+        predictions_flattened,  # Use trimmed 1D array  
         index=val_data.index,
         columns=['vst_raw']
     )
@@ -261,21 +261,21 @@ def run_pipeline(
     print("\nMaking predictions on test set...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
     
-    '''
-    # Convert test predictions to DataFrame for plotting
-    test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
-    test_predictions_df = pd.DataFrame(
-        test_predictions_reshaped,  # Already flattened
-        index=test_data.index[:len(test_predictions_reshaped)],
-        columns=['vst_raw']
-    )
     
-    # Plot test results with model config
-    create_full_plot(test_data, test_predictions_df, str(station_id), model_config)  # Pass model config
+    # # Convert test predictions to DataFrame for plotting
+    # test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
+    # test_predictions_df = pd.DataFrame(
+    #     test_predictions_reshaped,  # Already flattened
+    #     index=test_data.index[:len(test_predictions_reshaped)],
+    #     columns=['vst_raw']
+    # )
+    
+    # # Plot test results with model config
+    # create_full_plot(test_data, test_predictions_df, str(station_id), model_config)  # Pass model config
     
     # Plot convergence
     plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
-    '''
+    
     return test_predictions, predictions_original, history
 
 
@@ -309,9 +309,9 @@ if __name__ == "__main__":
         print(f"Results saved to: {output_path}")
         print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
         print(f"Best validation loss: {min(history['val_loss']):.6f}")
-        if 'smoothed_val_loss' in history:
-            print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
-            print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+        # if 'smoothed_val_loss' in history:
+        #     print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
+        #     print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
         
     except Exception as e:
         print(f"\nError running pipeline: {e}")

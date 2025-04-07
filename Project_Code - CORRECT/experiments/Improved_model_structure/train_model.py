@@ -94,9 +94,9 @@ class DataPreprocessor:
         print(f"\nData ranges from {data.index.min()} to {data.index.max()}")
         
         # Split data based on years
-        test_data = data[data.index.year == 2024]  # Test data is 2024
-        val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
-        train_data = data[data.index.year < 2022]  # Training is everything before 2022
+        test_data = data[(data.index.year >= 2023) & (data.index.year <= 2024)]
+        val_data = data[(data.index.year >= 2021) & (data.index.year <= 2022)]  # Validation is 2022-2023
+        train_data = data[data.index.year < 2021]  # Training is everything before 2022
         
         print(f"\nSplit Summary:")
         print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
@@ -339,7 +339,7 @@ class LSTM_Trainer:
         self.preprocessor = preprocessor  # Use preprocessor for data handling
         
         # Initialize history dictionary for tracking during training
-        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': [], 'smoothed_val_loss': []}
+        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': []} #, 'smoothed_val_loss': []}
         
         # Get peak weight for the custom loss function (default to 2.0 if not specified)
         self.peak_weight = config.get('peak_weight', 2.0)
@@ -420,6 +420,7 @@ class LSTM_Trainer:
         Runs an epoch for training or validation 
         """
         self.model.train() if training else self.model.eval()
+        warmup_length = self.config.get('warmup_length', 150)
         total_loss = 0
         
         # Lists to store validation predictions and targets
@@ -427,13 +428,12 @@ class LSTM_Trainer:
         all_targets = []
 
         with torch.set_grad_enabled(training):
-            for batch_X, batch_y in tqdm(data_loader, desc="Training" if training else "Validating", leave=False):
+            for batch_idx, (batch_X, batch_y) in enumerate(tqdm(data_loader, desc="Training" if training else "Validating", leave=False)):
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
-
                 # Create warm-up mask
                 warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
-                warmup_mask[:, :150, :] = False
+                warmup_mask[:, :warmup_length, :] = False
 
                 # Combine warm-up mask with NaN mask
                 non_nan_mask = ~torch.isnan(batch_y)
@@ -504,12 +504,12 @@ class LSTM_Trainer:
 
         # Initialize early stopping
         best_val_loss = float('inf')
-        smoothed_val_loss = float('inf')  # Initialize smoothed validation loss
+        #smoothed_val_loss = float('inf')  # Initialize smoothed validation loss
         patience_counter = 0
         best_model_state = None
         
         # Reset history for new training run
-        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': [], 'smoothed_val_loss': []}
+        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': []} #, 'smoothed_val_loss': []}
         
         # Exponential moving average weight for validation loss
         beta = 0.7  # Weight for previous smoothed value (higher = more smoothing)
@@ -521,22 +521,22 @@ class LSTM_Trainer:
             val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
 
             # Calculate smoothed validation loss using exponential moving average
-            if epoch == 0:
-                smoothed_val_loss = val_loss  # Initialize with first value
-            else:
-                smoothed_val_loss = beta * smoothed_val_loss + (1 - beta) * val_loss
+            #if epoch == 0:
+            #    smoothed_val_loss = val_loss  # Initialize with first value
+            #else:
+            #    smoothed_val_loss = beta * smoothed_val_loss + (1 - beta) * val_loss
             
             # Store history
             self.history['train_loss'].append(train_loss)
             self.history['val_loss'].append(val_loss)
-            self.history['smoothed_val_loss'].append(smoothed_val_loss)
+            #self.history['smoothed_val_loss'].append(smoothed_val_loss)
             self.history['learning_rates'].append(self.optimizer.param_groups[0]['lr'])
             
             # Step the learning rate scheduler based on validation loss
             # Use smoothed validation loss for scheduler
-            self.scheduler.step(smoothed_val_loss)
+            # self.scheduler.step(smoothed_val_loss)
 
-            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, Smoothed Val Loss: {smoothed_val_loss:.6f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}") #Smoothed Val Loss: {smoothed_val_loss:.6f}, )
             
             # Call epoch callback if provided (for hyperparameter tuning)
             if epoch_callback is not None:
@@ -547,14 +547,14 @@ class LSTM_Trainer:
                     break
 
             # Early stopping based on smoothed validation loss
-            if smoothed_val_loss < best_val_loss:
-                best_val_loss = smoothed_val_loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 patience_counter = 0
                 best_model_state = self.model.state_dict().copy()
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
-                    print(f"Early stopping triggered! No improvement in smoothed validation loss for {patience} epochs.")
+                    print(f"Early stopping triggered! No improvement in validation loss for {patience} epochs.")
                     break
 
         # Restore best model
