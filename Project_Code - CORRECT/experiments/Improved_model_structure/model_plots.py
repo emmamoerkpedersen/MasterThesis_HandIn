@@ -100,7 +100,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
                 x=test_actual.index,
                 y=test_actual.values,
                 name="Actual",
-                line=dict(color='#1f77b4', width=2)
+                line=dict(color='#1f77b4', width=1)
             ),
             row=2, col=1
         )
@@ -110,7 +110,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
                 x=predictions_series.index,
                 y=predictions_series.values,
                 name="Predicted",
-                line=dict(color='#d62728', width=2)
+                line=dict(color='#d62728', width=1)
             ),
             row=2, col=1
         )
@@ -158,7 +158,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
                 x=test_actual.index,
                 y=test_actual.values,
                 name="Actual",
-                line=dict(color='#1f77b4', width=2)
+                line=dict(color='#1f77b4', width=1)
             )
         )
         
@@ -167,7 +167,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
                 x=predictions_series.index,
                 y=predictions_series.values,
                 name="Predicted",
-                line=dict(color='#d62728', width=2)
+                line=dict(color='#d62728', width=1)
             )
         )
     
