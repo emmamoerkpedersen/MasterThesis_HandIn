@@ -264,9 +264,9 @@ def run_pipeline(
     print("\nTraining Results:")
     print(f"Best validation loss: {min(history['val_loss']):.6f}")
     print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
-    # if 'smoothed_val_loss' in history:
-    #     print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
-    #     print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
+    if 'smoothed_val_loss' in history:
+        print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+        print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
 
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
@@ -379,9 +379,9 @@ if __name__ == "__main__":
         print(f"Results saved to: {output_path}")
         print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
         print(f"Best validation loss: {min(history['val_loss']):.6f}")
-        # if 'smoothed_val_loss' in history:
-        #     print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
-        #     print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+        if 'smoothed_val_loss' in history:
+            print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
+            print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
         
     except Exception as e:
         print(f"\nError running pipeline: {e}")
