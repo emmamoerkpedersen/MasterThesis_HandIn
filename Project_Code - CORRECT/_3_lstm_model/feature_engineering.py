@@ -27,11 +27,15 @@ class FeatureEngineer:
             data = data.copy()
                 
             # Extract datetime components
+            data.loc[:, 'hour'] = data.index.hour
             data.loc[:, 'month'] = data.index.month
             data.loc[:, 'day'] = data.index.day
             data.loc[:, 'day_of_year'] = data.index.dayofyear
         
-            
+            # Create cyclical features for hour of day (period = 24)
+            data.loc[:, 'hour_sin'] = np.sin(2 * np.pi * data['hour'] / 24)
+            data.loc[:, 'hour_cos'] = np.cos(2 * np.pi * data['hour'] / 24)
+
             # Create cyclical features for month (period = 12)
             data.loc[:, 'month_sin'] = np.sin(2 * np.pi * data['month'] / 12)
             data.loc[:, 'month_cos'] = np.cos(2 * np.pi * data['month'] / 12)
@@ -42,13 +46,13 @@ class FeatureEngineer:
             
             
             # Add these features to feature_cols (check to avoid duplicates)
-            time_features = ['month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos']
+            time_features = ['month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos', 'hour_sin', 'hour_cos']
             for feature in time_features:
                 if feature not in self.feature_cols:
                     self.feature_cols.append(feature)
             
             # Remove the raw time features that we don't want to use directly
-            data = data.drop(['month', 'day', 'day_of_year'], axis=1, errors='ignore')
+            data = data.drop(['month', 'day', 'day_of_year', 'hour'], axis=1, errors='ignore')
             
             return data
 
@@ -93,15 +97,15 @@ class FeatureEngineer:
         data.loc[:, 'feature2_rain_30day'] = feature_2_rain.rolling(window=30, min_periods=1).sum()
         
         # Calculate combined rainfall (average of all stations)
-        # combined_rain = (rainfall_fixed + feature_1_rain + feature_2_rain) / 3
-        # data.loc[:, 'combined_rain_30day'] = combined_rain.rolling(window=30, min_periods=1).sum()
-        # data.loc[:, 'combined_rain_90day'] = combined_rain.rolling(window=90, min_periods=1).sum()
+        combined_rain = (rainfall_fixed + feature_1_rain + feature_2_rain) / 3
+        data.loc[:, 'combined_rain_30day'] = combined_rain.rolling(window=30, min_periods=1).sum()
+        data.loc[:, 'combined_rain_90day'] = combined_rain.rolling(window=90, min_periods=1).sum()
         
         # Fill potential NaN values created by rolling operations with forward fill then backward fill
         cumulative_cols = [
             'rainfall_30day', 'rainfall_90day', 'rainfall_180day',
             'feature1_rain_30day', 'feature2_rain_30day',
-            #'combined_rain_30day', 'combined_rain_90day'
+            'combined_rain_30day', 'combined_rain_90day'
         ]
         
         for col in cumulative_cols:

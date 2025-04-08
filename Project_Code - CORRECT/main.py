@@ -312,7 +312,7 @@ def run_pipeline(
         columns=['vst_raw']
     )
     # Now plot with aligned data - make sure station_id is a string
-    create_full_plot(val_data, val_predictions_df, str(station_id))#, model_config)  # Pass model config
+    create_full_plot(val_data, val_predictions_df, str(station_id), model_config)  # Pass model config
     
 
     # Plot scaled predictions to check if they are correct   

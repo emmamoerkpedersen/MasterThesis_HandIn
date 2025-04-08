@@ -30,6 +30,24 @@ class DataPreprocessor:
             output_features=self.output_features,
             device=self.device
         )
+        
+        # Print feature configuration
+        print(f"Feature configuration:")
+        print(f"  - Base features: {self.feature_cols}")
+        print(f"  - Use time features: {self.config.get('use_time_features', False)}")
+        print(f"  - Use cumulative features: {self.config.get('use_cumulative_features', False)}")
+    
+    def update_feature_scaler(self):
+        """
+        Update the feature scaler with the latest feature columns.
+        This should be called after adding new features.
+        """
+        self.feature_scaler = FeatureScaler(
+            feature_cols=self.feature_cols,
+            output_features=self.output_features,
+            device=self.device
+        )
+        print(f"Updated feature scaler with columns: {self.feature_cols}")
     
     def load_and_split_data(self, project_root, station_id):
         """
@@ -82,12 +100,20 @@ class DataPreprocessor:
         # Add cumulative rainfall features if enabled in config
         if self.config.get('use_cumulative_features', False):
             data = self._add_cumulative_features(data)
-            print(f"  - Added cumulative rainfall features")
+            # Update feature_cols with the new cumulative features
+            self.feature_cols = self.feature_engineer.feature_cols.copy()
+            print(f"  - Updated feature columns with cumulative features: {self.feature_cols}")
+            # Update the feature scaler with the new feature columns
+            self.update_feature_scaler()
         
         # Add time-based features if enabled in config
         if self.config.get('use_time_features', False):
             data = self._add_time_features(data)
-            print(f"  - Added cyclical time features")
+            # Update feature_cols with the new time features
+            self.feature_cols = self.feature_engineer.feature_cols.copy()
+            print(f"  - Updated feature columns with time features: {self.feature_cols}")
+            # Update the feature scaler with the new feature columns
+            self.update_feature_scaler()
 
 
         feature_cols = self.feature_cols
@@ -121,6 +147,12 @@ class DataPreprocessor:
         # Get features and target
         feature_cols = self.feature_cols
         target_col = self.output_features   
+        
+        # Ensure we're using the most up-to-date feature columns
+        if self.config.get('use_time_features', False) or self.config.get('use_cumulative_features', False):
+            # Update feature_cols with the latest from feature_engineer
+            feature_cols = self.feature_engineer.feature_cols.copy()
+            print(f"Using updated feature columns in prepare_data: {feature_cols}")
         
         features = pd.concat([data[col] for col in feature_cols], axis=1)
         target = pd.DataFrame(data[target_col])
