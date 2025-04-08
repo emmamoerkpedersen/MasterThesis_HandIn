@@ -132,6 +132,7 @@ class FeatureScaler:
     def scale_data(self, features, target):
         """
         Scale features and target using StandardScaler.
+        For target variables, NaN values are excluded from scaling calculations.
         """
         if not self.is_fitted:
             self.scalers = {
@@ -143,8 +144,20 @@ class FeatureScaler:
             for col in self.feature_cols:
                 self.scalers['features'][col].fit(features[[col]])
             
-            # Fit target scaler
-            self.scalers['target'].fit(target)
+            # Fit target scaler - exclude NaN values
+            # Convert target to numpy array if it's a DataFrame
+            target_array = target.values if isinstance(target, pd.DataFrame) else target
+            
+            # Create a mask for non-NaN values
+            non_nan_mask = ~np.isnan(target_array)
+            
+            # Fit the scaler only on non-NaN values
+            if np.any(non_nan_mask):
+                self.scalers['target'].fit(target_array[non_nan_mask].reshape(-1, 1))
+            else:
+                # If all values are NaN, create a dummy scaler
+                self.scalers['target'].fit(np.array([[0]]))
+                
             self.is_fitted = True
 
         # Scale features
@@ -155,7 +168,23 @@ class FeatureScaler:
         
         scaled_features = np.hstack(scaled_features_list)
 
-        # Scale target
-        scaled_target = self.scalers['target'].transform(target).flatten()
+        # Scale target - handle NaN values
+        target_array = target.values if isinstance(target, pd.DataFrame) else target
+        
+        # Create a copy of the target array to avoid modifying the original
+        scaled_target = np.full_like(target_array, np.nan)
+        
+        # Create a mask for non-NaN values
+        non_nan_mask = ~np.isnan(target_array)
+        
+        # Scale only non-NaN values
+        if np.any(non_nan_mask):
+            scaled_target[non_nan_mask] = self.scalers['target'].transform(
+                target_array[non_nan_mask].reshape(-1, 1)
+            ).flatten()
+        
+        # Ensure scaled_target has the same shape as before (1D array)
+        if scaled_target.ndim > 1:
+            scaled_target = scaled_target.flatten()
         
         return scaled_features, scaled_target 
