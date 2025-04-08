@@ -253,9 +253,9 @@ def run_pipeline(
     history, val_predictions, val_targets = trainer.train(
         train_data=train_data,
         val_data=val_data,
-        epochs=300,  # Fixed to match tuning
-        batch_size=best_config['batch_size'],
-        patience=15  # Fixed to match tuning
+        epochs=LSTM_CONFIG['epochs'],  # Fixed to match tuning
+        batch_size=LSTM_CONFIG['batch_size'],
+        patience=LSTM_CONFIG['patience']  # Fixed to match tuning
     )
     
     print("\nTraining Results:")

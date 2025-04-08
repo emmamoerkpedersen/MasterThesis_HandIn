@@ -1,3 +1,4 @@
+
 import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -60,7 +61,7 @@ def detect_frost_periods(temperature_data):
             # Temperature is above 0, check if we were tracking a frost period
             if current_period_start is not None:
                 # Check against single threshold
-                if frost_sum < -25:
+                if frost_sum < -1000:
                     # Add 24 hours to the end of the frost period
                     extended_end = current_period_end + pd.Timedelta(hours=24)
                     # Convert times to timezone-naive if they're not already
@@ -147,8 +148,19 @@ def align_data(data):
     all_timestamps = []
     for key in data:
         for subkey, df in data[key].items():
-            all_timestamps.extend(df.index)
+            # Convert all timestamps to timezone-naive before adding to the list
+            if df is not None and not df.empty:
+                # Make a copy of the index and convert to timezone-naive
+                timestamps = df.index.copy()
+                if timestamps.tz is not None:
+                    timestamps = timestamps.tz_localize(None)
+                all_timestamps.extend(timestamps)
 
+    # Ensure we have timestamps to work with
+    if not all_timestamps:
+        print("Warning: No timestamps found in the data")
+        return data
+        
     min_time = min(all_timestamps)
     max_time = max(all_timestamps)
 
@@ -159,7 +171,15 @@ def align_data(data):
     for key in data:
         aligned_data[key] = {}
         for i, (subkey, df) in enumerate(data[key].items()):
+            if df is None or df.empty:
+                aligned_data[key][subkey] = None
+                continue
+                
             df = df.copy()
+
+            # Ensure index is timezone-naive
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
 
             # Round timestamps **only** for the vst_raw, vst_edt, vinge data
             if subkey == 'vst_raw' or subkey == 'vst_edt' or subkey == 'vinge':
@@ -170,6 +190,10 @@ def align_data(data):
 
             # Reindex to match the common 15-minute intervals
             df = df.reindex(common_index)  # Default fill value is NaN
+            
+            # Fill missing values using forward fill then backward fill
+            # This ensures continuous data without gaps
+            df = df.ffill().bfill()
 
             aligned_data[key][subkey] = df
 
@@ -213,6 +237,7 @@ def distribute_hourly_rainfall(rainfall_df):
     # Convert back to DataFrame with the same column name
     return pd.DataFrame(resampled, columns=[rainfall_col])
 
+
 def preprocess_data():
     """
     Preprocess the data and save to pickle files.
@@ -237,6 +262,17 @@ def preprocess_data():
     
     # Rename columns before processing
     All_station_data = rename_columns(All_station_data)
+    
+    # Ensure all timestamps are timezone-naive before alignment
+    for station_name, station_data in All_station_data.items():
+        for key, data in station_data.items():
+            if data is not None and not data.empty:
+                # Convert to timezone-naive if needed
+                if data.index.tz is not None:
+                    data.index = data.index.tz_localize(None)
+    
+    # Align data to common time index
+    All_station_data = align_data(All_station_data)
     
     # Process each station's data
     for station_name, station_data in All_station_data.items():
@@ -286,12 +322,10 @@ def preprocess_data():
             station_data['temperature'] = station_data['temperature'].resample('15min').ffill().bfill()  # Hold mean temperature constant but divide by 4
             print(f"  - Resampled temperature data to 15-minute intervals with ffill and bfill")
 
-        # Resample rainfall data to 15-minute intervals
+        # Resample rainfall data 
         if station_data['rainfall'] is not None:
             station_data['rainfall'] = station_data['rainfall'].fillna(-1)
             print(f"  - Filled rainfall data with -1")
-
-    All_station_data = align_data(All_station_data)
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')

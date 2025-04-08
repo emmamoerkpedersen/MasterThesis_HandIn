@@ -61,8 +61,8 @@ class DataPreprocessor:
                 df = pd.concat([df, feature_data], axis=1)
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
-        start_date = df['rainfall'].first_valid_index()
-        end_date = df['vst_raw'].last_valid_index()
+        start_date = pd.Timestamp('2010-01-04')
+        end_date = pd.Timestamp('2025-01-07')
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
@@ -292,15 +292,15 @@ class DataPreprocessor:
         data.loc[:, 'feature2_rain_30day'] = feature_2_rain.rolling(window=30, min_periods=1).sum()
         
         # Calculate combined rainfall (average of all stations)
-        combined_rain = (rainfall_fixed + feature_1_rain + feature_2_rain) / 3
-        data.loc[:, 'combined_rain_30day'] = combined_rain.rolling(window=30, min_periods=1).sum()
-        data.loc[:, 'combined_rain_90day'] = combined_rain.rolling(window=90, min_periods=1).sum()
+        # combined_rain = (rainfall_fixed + feature_1_rain + feature_2_rain) / 3
+        # data.loc[:, 'combined_rain_30day'] = combined_rain.rolling(window=30, min_periods=1).sum()
+        # data.loc[:, 'combined_rain_90day'] = combined_rain.rolling(window=90, min_periods=1).sum()
         
         # Fill potential NaN values created by rolling operations with forward fill then backward fill
         cumulative_cols = [
             'rainfall_30day', 'rainfall_90day', 'rainfall_180day',
             'feature1_rain_30day', 'feature2_rain_30day',
-            'combined_rain_30day', 'combined_rain_90day'
+            #'combined_rain_30day', 'combined_rain_90day'
         ]
         
         for col in cumulative_cols:
@@ -358,7 +358,10 @@ class LSTM_Trainer:
         )
         
         # Choose loss function based on configuration
-        if config.get('use_peak_weighted_loss', False):
+        if config.get('use_dynamic_weighting', False):
+            print("Using dynamic weighted loss to focus on areas with larger changes in water levels")
+            self.criterion = self.dynamic_weighted_loss
+        elif config.get('use_peak_weighted_loss', False):
             print(f"Using peak weighted loss (weight: {self.peak_weight})")
             self.criterion = self.peak_weighted_loss
         else:
@@ -386,13 +389,9 @@ class LSTM_Trainer:
             # Create tailored weighting function specifically for the water level data pattern
             # Higher weights for both peaks (>0.7) and troughs (<0.3)
             peak_weight = torch.pow(normalized_targets, 2) * self.peak_weight
-            
-            # Targeted boost for mid-range values (0.3-0.7) 
-            # Using a Gaussian with max at 0.5 (mid-range)
-            mid_boost = 2.0 * torch.exp(-40.0 * torch.pow(normalized_targets - 0.5, 2))
-            
+         
             # Combined weights with higher mid-range emphasis
-            weights = 1.0 + peak_weight + mid_boost
+            weights = 1.0 + peak_weight 
         else:
             weights = torch.ones_like(targets)
         
@@ -402,6 +401,40 @@ class LSTM_Trainer:
         # Return mean of weighted loss
         return weighted_loss.mean()
     
+    def dynamic_weighted_loss(self, outputs, targets):
+        """
+        Loss function that applies dynamic weighting based on the magnitude of target values.
+        This helps the model focus more on areas with larger water levels.
+        
+        Args:
+            outputs: Model predictions
+            targets: Target values
+            
+        Returns:
+            Tensor: Mean of the dynamically weighted MSE loss
+        """
+        # Calculate MSE loss
+        mse_loss = nn.functional.mse_loss(outputs, targets, reduction='none')
+        
+        # Calculate the dynamic weighting based on the magnitude of target values
+        # Higher weights for larger water levels
+        min_val = targets.min()
+        max_val = targets.max()
+        if max_val > min_val:  # Avoid division by zero
+            normalized_targets = (targets - min_val) / (max_val - min_val)
+            
+            # Create weighting that increases with target magnitude
+            # Using a sigmoid-like scaling to keep values in a reasonable range
+            scaled_weighting = 2.0 * torch.sigmoid(normalized_targets) - 1.0
+            
+            # Multiply the loss by the dynamic weighting
+            weighted_loss = mse_loss * (1.0 + scaled_weighting)
+        else:
+            weighted_loss = mse_loss
+        
+        return weighted_loss.mean()
+    
+
     def _run_epoch(self, data_loader, training=True):
         """
         Runs an epoch for training or validation 
@@ -562,6 +595,7 @@ class LSTM_Trainer:
         # Add time features if needed - ensure consistency with training
         if self.config.get('use_time_features', False):
             data_copy = self.preprocessor._add_time_features(data_copy)
+            print("Using time features for prediction")
             
         X, y = self.preprocessor.prepare_data(data_copy, is_training=False)
         
@@ -582,6 +616,23 @@ class LSTM_Trainer:
             
             # Reshape back maintaining temporal order
             predictions_original = predictions_original.reshape(predictions.shape)
+            
+            # Print information about the model and prediction process
+            print("\nPrediction Information:")
+            print(f"Model: LSTM with {self.config['num_layers']} layers, {self.config['hidden_size']} hidden units")
+            print(f"Sequence length: {self.config['sequence_length']}")
+            print(f"Features used: {len(self.preprocessor.feature_cols)}")
+            
+            # Print loss function information
+            if self.config.get('use_dynamic_weighting', False):
+                print(f"Loss function: Dynamic weighted loss")
+            elif self.config.get('use_peak_weighted_loss', False):
+                print(f"Loss function: Peak weighted loss (weight: {self.peak_weight})")
+            else:
+                print(f"Loss function: Standard MSE loss")
+                
+            print(f"Time features: {self.config.get('use_time_features', False)}")
+            print(f"Smoothing: {self.config.get('use_smoothing', False)}")
             
             return predictions_original, predictions, y
     
