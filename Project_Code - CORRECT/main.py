@@ -76,30 +76,30 @@ def run_pipeline(
     print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
     print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
     
-    # Plot scaled vs unscaled features for visualization
-    print("\nGenerating scaled vs unscaled features plot for control...")
+    # # Plot scaled vs unscaled features for visualization
+    # print("\nGenerating scaled vs unscaled features plot for control...")
     
-    # Get the original data before scaling
-    original_data = train_data.copy()
+    # # Get the original data before scaling
+    # original_data = train_data.copy()
     
-    # Get the scaled data by applying the scaler
-    features = pd.concat([train_data[col] for col in preprocessor.feature_cols], axis=1)
-    target = pd.DataFrame(train_data[preprocessor.output_features])
+    # # Get the scaled data by applying the scaler
+    # features = pd.concat([train_data[col] for col in preprocessor.feature_cols], axis=1)
+    # target = pd.DataFrame(train_data[preprocessor.output_features])
     
-    # Scale the data
-    scaled_features, scaled_target = preprocessor.feature_scaler.fit_transform(features, target)
+    # # Scale the data
+    # scaled_features, scaled_target = preprocessor.feature_scaler.fit_transform(features, target)
     
-    # Create a DataFrame with the scaled data
-    scaled_data = pd.DataFrame(scaled_features, columns=preprocessor.feature_cols, index=train_data.index)
-    scaled_data[preprocessor.output_features] = scaled_target
+    # # Create a DataFrame with the scaled data
+    # scaled_data = pd.DataFrame(scaled_features, columns=preprocessor.feature_cols, index=train_data.index)
+    # scaled_data[preprocessor.output_features] = scaled_target
     
-    # Create the plot
-    plot_scaled_vs_unscaled_features(
-        data=original_data,
-        scaled_data=scaled_data,
-        feature_cols=preprocessor.feature_cols + [preprocessor.output_features],
-        output_dir=Path(output_path) / "lstm"
-    )
+    # # Create the plot
+    # plot_scaled_vs_unscaled_features(
+    #     data=original_data,
+    #     scaled_data=scaled_data,
+    #     feature_cols=preprocessor.feature_cols + [preprocessor.output_features],
+    #     output_dir=Path(output_path) / "lstm"
+    # )
 
     # Generate preprocessing diagnostics if enabled
     if preprocess_diagnostics:

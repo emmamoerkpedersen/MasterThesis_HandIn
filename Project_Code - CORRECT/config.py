@@ -115,15 +115,15 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'hidden_size': 24,
+    'hidden_size': 124,
     'num_layers': 2,
     'dropout': 0.273,
     'batch_size': 12,
-    'sequence_length': 1000,
+    'sequence_length': 5000,
     'epochs': 10,
     'patience': 15,
     'warmup_length': 100,
-    'learning_rate': 0.1,    
+    'learning_rate': 0.001,    
 
     'objective_function': 'mse_loss',
     'use_time_features': True,
