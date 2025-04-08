@@ -23,16 +23,20 @@ from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison,
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-#from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
-#from experiments.Improved_model_structure.train_model import DataPreprocessor, LSTM_Trainer
-#from experiments.Improved_model_structure.model import LSTMModel
-#from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot
-#from experiments.Improved_model_structure.config import LSTM_CONFIG
+from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from config import SYNTHETIC_ERROR_PARAMS
 from config import LSTM_CONFIG
-from _3_lstm_model.model import LSTMModel
-from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
-from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
+
+
+from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
+from experiments.Improved_model_structure.train_model import LSTM_Trainer
+from experiments.Improved_model_structure.model import LSTMModel
+from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot
+
+
+# from _3_lstm_model.model import LSTMModel
+# from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
+# from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
 
 def run_pipeline(
     project_root: Path,

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from .feature_scaler import FeatureScaler
-
+from .feature_engineering import FeatureEngineer
 
 class DataPreprocessor:
     def __init__(self, config):
@@ -21,7 +21,10 @@ class DataPreprocessor:
                 
         self.output_features = config['output_features'][0]
         
-        # Initialize the feature scaler
+        # Initialize feature engineer
+        self.feature_engineer = FeatureEngineer(config)
+        
+        # Initialize feature scaler
         self.feature_scaler = FeatureScaler(
             feature_cols=self.feature_cols,
             output_features=self.output_features,
@@ -76,6 +79,17 @@ class DataPreprocessor:
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
 
+        # Add cumulative rainfall features if enabled in config
+        if self.config.get('use_cumulative_features', False):
+            data = self._add_cumulative_features(data)
+            print(f"  - Added cumulative rainfall features")
+        
+        # Add time-based features if enabled in config
+        if self.config.get('use_time_features', False):
+            data = self._add_time_features(data)
+            print(f"  - Added cyclical time features")
+
+
         feature_cols = self.feature_cols
         target_feature = self.output_features
         all_features = list(set(feature_cols + [target_feature]))        
@@ -87,10 +101,16 @@ class DataPreprocessor:
         val_data = data[(data.index.year >= 2021) & (data.index.year <= 2022)]  # Validation is 2022-2023
         train_data = data[data.index.year < 2021]  # Training is everything before 2022
         
-        print(f'Data shape: {data.shape}')
-        print(f'Train data shape: {train_data.shape}')
-        print(f'Val data shape: {val_data.shape}')
-        print(f'Test data shape: {test_data.shape}')
+        print(f"\nSplit Summary:")
+        print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
+        print(f"Validation period: {val_data.index.min().year} - {val_data.index.max().year}")
+        print(f"Test year: {test_data.index.min().year}")
+        
+        print(f'\nData shapes:')
+        print(f'Total data: {data.shape}')
+        print(f'Train data: {train_data.shape}')
+        print(f'Validation data: {val_data.shape}')
+        print(f'Test data: {test_data.shape}')
 
         return train_data, val_data, test_data
     
@@ -98,10 +118,17 @@ class DataPreprocessor:
         """
         Prepare data for training or validation. Scale data and create sequences.
         """
+
         # Get features and target
         feature_cols = self.feature_cols
         target_col = self.output_features   
         
+        # Make sure all feature columns are in the data
+        available_features = [col for col in feature_cols if col in data.columns]
+        if len(available_features) != len(feature_cols):
+            missing = set(feature_cols) - set(available_features)
+            print(f"Warning: Missing features in data: {missing}")
+
         features = pd.concat([data[col] for col in feature_cols], axis=1)
         target = pd.DataFrame(data[target_col])
 
@@ -129,7 +156,8 @@ class DataPreprocessor:
 
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
-        print(f'X shape: {X.shape}, y shape: {y.shape}')
+        # Only print basic shape info for debugging
+        print(f"{'Training' if is_training else 'Validation'} data: {X.shape[0]} sequences of length {X.shape[1]}")
         
         # Convert to tensors and move to device
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)
@@ -162,3 +190,15 @@ class DataPreprocessor:
          y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
  
          return X, y
+
+    def _add_time_features(self, data):
+        """
+        Add time-based features to the data.
+        """
+        return self.feature_engineer._add_time_features(data)
+        
+    def _add_cumulative_features(self, data):
+        """
+        Add cumulative features to the data.
+        """
+        return self.feature_engineer._add_cumulative_features(data)

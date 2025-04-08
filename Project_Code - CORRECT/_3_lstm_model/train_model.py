@@ -49,6 +49,7 @@ class LSTM_Trainer:
         Runs an epoch for training or validation 
         """
         self.model.train() if training else self.model.eval()
+        warmup_length = self.config.get('warmup_length', 100)
         total_loss = 0
         
         # Lists to store validation predictions and targets
@@ -62,7 +63,7 @@ class LSTM_Trainer:
 
                 # Create warm-up mask
                 warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
-                warmup_mask[:, :150, :] = False
+                warmup_mask[:, :warmup_length, :] = False
 
                 # Combine warm-up mask with NaN mask
                 non_nan_mask = ~torch.isnan(batch_y)
