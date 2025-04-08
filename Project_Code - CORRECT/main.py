@@ -350,8 +350,8 @@ def run_pipeline(
     # print(f"Std Error: {performance_metrics['std_error']:.4f} mm")
     
     # Make and plot test predictions
-    # print("\nMaking predictions on test set...")
-    # test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
+    print("\nMaking predictions on test set...")
+    test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
   
     
     # # Convert test predictions to DataFrame for plotting
