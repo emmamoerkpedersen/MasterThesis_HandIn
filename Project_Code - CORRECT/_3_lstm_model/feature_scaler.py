@@ -133,10 +133,6 @@ class FeatureScaler:
         """
         Scale features and target using StandardScaler.
         """
-        # Handle NaN values in target
-        target_filled = target.copy()
-        target_filled = target_filled.fillna(target_filled.mean())
-        
         if not self.is_fitted:
             self.scalers = {
                 'features': {col: StandardScaler() for col in self.feature_cols},
@@ -145,25 +141,21 @@ class FeatureScaler:
             
             # Fit each feature scaler
             for col in self.feature_cols:
-                # Handle NaN values in features
-                feature_data = features[[col]].fillna(features[col].mean())
-                self.scalers['features'][col].fit(feature_data)
+                self.scalers['features'][col].fit(features[[col]])
             
             # Fit target scaler
-            self.scalers['target'].fit(target_filled)
+            self.scalers['target'].fit(target)
             self.is_fitted = True
 
         # Scale features
         scaled_features_list = []
         for col in self.feature_cols:
-            # Handle NaN values in features
-            feature_data = features[[col]].fillna(features[col].mean())
-            scaled_feature = self.scalers['features'][col].transform(feature_data)
+            scaled_feature = self.scalers['features'][col].transform(features[[col]])
             scaled_features_list.append(scaled_feature)
         
         scaled_features = np.hstack(scaled_features_list)
 
         # Scale target
-        scaled_target = self.scalers['target'].transform(target_filled).flatten()
+        scaled_target = self.scalers['target'].transform(target).flatten()
         
         return scaled_features, scaled_target 

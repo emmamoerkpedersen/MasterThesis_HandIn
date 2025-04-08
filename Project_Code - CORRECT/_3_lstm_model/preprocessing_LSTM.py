@@ -62,8 +62,8 @@ class DataPreprocessor:
                 df = pd.concat([df, feature_data], axis=1)
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
-        start_date = df['rainfall'].first_valid_index()
-        end_date = df['vst_raw'].last_valid_index()
+        start_date = pd.Timestamp('2010-01-04')
+        end_date = pd.Timestamp('2025-01-07')
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
@@ -82,9 +82,11 @@ class DataPreprocessor:
         #Filter data to only include the features and target feature
         data = data[all_features]
 
-        # Split data into train, val and test
-        train_data, temp = train_test_split(data, test_size=0.4, shuffle=False)
-        val_data, test_data = train_test_split(temp, test_size=0.5, shuffle=False)
+        # Split data based on years
+        test_data = data[(data.index.year >= 2023) & (data.index.year <= 2024)]
+        val_data = data[(data.index.year >= 2021) & (data.index.year <= 2022)]  # Validation is 2022-2023
+        train_data = data[data.index.year < 2021]  # Training is everything before 2022
+        
         print(f'Data shape: {data.shape}')
         print(f'Train data shape: {train_data.shape}')
         print(f'Val data shape: {val_data.shape}')
