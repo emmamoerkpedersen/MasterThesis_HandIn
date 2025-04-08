@@ -91,9 +91,15 @@ def create_full_plot(test_data, test_predictions, station_id):
     webbrowser.open('file://' + absolute_path)
 
 
-def plot_scaled_predictions(predictions, targets, title="Scaled Predictions vs Targets"):
+def plot_scaled_predictions(predictions, targets, test_data=None, title="Scaled Predictions vs Targets"):
         """
         Plot scaled predictions and targets before inverse transformation.
+        
+        Args:
+            predictions: Scaled predictions array
+            targets: Scaled targets array
+            test_data: Original DataFrame with datetime index (optional)
+            title: Plot title
         """
         # Create figure
         fig = go.Figure()
@@ -102,8 +108,13 @@ def plot_scaled_predictions(predictions, targets, title="Scaled Predictions vs T
         flat_predictions = predictions.reshape(-1)
         flat_targets = targets.reshape(-1)
         
-        # Create x-axis points
-        x_points = np.arange(len(flat_predictions))
+        # Create x-axis points - either use dates from test_data or timesteps
+        if test_data is not None and hasattr(test_data, 'index'):
+            x_points = test_data.index[:len(flat_predictions)]
+            x_label = 'Date'
+        else:
+            x_points = np.arange(len(flat_predictions))
+            x_label = 'Timestep'
         
         # Add targets
         fig.add_trace(
@@ -128,12 +139,28 @@ def plot_scaled_predictions(predictions, targets, title="Scaled Predictions vs T
         # Update layout
         fig.update_layout(
             title=title,
-            xaxis_title='Timestep',
+            xaxis_title=x_label,
             yaxis_title='Scaled Value',
             width=1200,
             height=600,
-            showlegend=True
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
         )
+        
+        # Add rangeslider if using dates
+        if test_data is not None and hasattr(test_data, 'index'):
+            fig.update_layout(
+                xaxis=dict(
+                    rangeslider=dict(visible=True),
+                    type="date"  # This will format the x-axis as dates
+                )
+            )
         
         # Save and open in browser
         html_path = 'scaled_predictions.html'

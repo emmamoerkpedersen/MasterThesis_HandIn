@@ -23,15 +23,16 @@ from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison,
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
-from experiments.Improved_model_structure.train_model import DataPreprocessor, LSTM_Trainer
-from experiments.Improved_model_structure.model import LSTMModel
-from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot
-from experiments.Improved_model_structure.config import LSTM_CONFIG
+#from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
+#from experiments.Improved_model_structure.train_model import DataPreprocessor, LSTM_Trainer
+#from experiments.Improved_model_structure.model import LSTMModel
+#from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot
+#from experiments.Improved_model_structure.config import LSTM_CONFIG
 from config import SYNTHETIC_ERROR_PARAMS
-#from _3_lstm_model.model import LSTMModel
-#from _3_lstm_model.train_model import DataPreprocessor as OldDataPreprocessor, LSTM_Trainer as OldLSTM_Trainer
-#from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
+from config import LSTM_CONFIG
+from _3_lstm_model.model import LSTMModel
+from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
+from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
 
 def run_pipeline(
     project_root: Path,
@@ -62,7 +63,6 @@ def run_pipeline(
     
 
     print("\nData split summary:")
-    print(f"Train data: {train_data.shape}")
     for feature in train_data.columns:
         min_val = train_data[feature].min()
         max_val = train_data[feature].max()
@@ -72,7 +72,6 @@ def run_pipeline(
     print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
     print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
     
-    print(f"Test data: {test_data.shape}")
 
     # Generate preprocessing diagnostics if enabled
     if preprocess_diagnostics:
@@ -219,51 +218,51 @@ def run_pipeline(
     )
     
     # Load best hyperparameters
-    best_config = load_best_hyperparameters(Path(output_path), model_config)
+    #best_config = load_best_hyperparameters(Path(output_path), model_config)
     
     # Verify the loaded parameters match what we expect
     print("\nVerifying hyperparameters:")
     expected_params = ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 
                       'batch_size', 'sequence_length', 'peak_weight', 
                       'grad_clip_value', 'smoothing_alpha']
-    for param in expected_params:
-        print(f"  {param}: {best_config.get(param)}")
+    # for param in expected_params:
+    #     print(f"  {param}: {best_config.get(param)}")
     
     # Initialize the trainer with the verified config
-    trainer = LSTM_Trainer(best_config, preprocessor=preprocessor)
+    trainer = LSTM_Trainer(LSTM_CONFIG, preprocessor=preprocessor)
     
-    # Print model architecture
-    print("\nModel Architecture:")
-    print(f"Input Size: {len(preprocessor.feature_cols)}")
-    print(f"Hidden Size: {best_config['hidden_size']}")
-    print(f"Number of Layers: {best_config['num_layers']}")
-    print(f"Dropout Rate: {best_config['dropout']}")
-    print(f"Learning Rate: {best_config['learning_rate']}")
-    print(f"Batch Size: {best_config['batch_size']}")
-    print(f"Sequence Length: {best_config['sequence_length']}")
+    # # Print model architecture
+    # print("\nModel Architecture:")
+    # print(f"Input Size: {len(preprocessor.feature_cols)}")
+    # print(f"Hidden Size: {best_config['hidden_size']}")
+    # print(f"Number of Layers: {best_config['num_layers']}")
+    # print(f"Dropout Rate: {best_config['dropout']}")
+    # print(f"Learning Rate: {best_config['learning_rate']}")
+    # print(f"Batch Size: {best_config['batch_size']}")
+    # print(f"Sequence Length: {best_config['sequence_length']}")
     
-    # Train model with verified parameters
-    print("\nStarting training with verified parameters...")
-    print("Using identical conditions as hyperparameter tuning")
-    print(f"Epochs: {best_config['epochs']}")
-    print(f"Batch size: {best_config['batch_size']}")
-    print(f"Patience: {best_config['patience']}")
-    print(f"Learning rate: {best_config['learning_rate']}")
+    # # Train model with verified parameters
+    # print("\nStarting training with verified parameters...")
+    # print("Using identical conditions as hyperparameter tuning")
+    # print(f"Epochs: {best_config['epochs']}")
+    # print(f"Batch size: {best_config['batch_size']}")
+    # print(f"Patience: {best_config['patience']}")
+    # print(f"Learning rate: {best_config['learning_rate']}")
     
     history, val_predictions, val_targets = trainer.train(
         train_data=train_data,
         val_data=val_data,
-        epochs=LSTM_CONFIG['epochs'],  # Fixed to match tuning
+        epochs=LSTM_CONFIG['epochs'],  
         batch_size=LSTM_CONFIG['batch_size'],
-        patience=LSTM_CONFIG['patience']  # Fixed to match tuning
+        patience=LSTM_CONFIG['patience']  
     )
     
     print("\nTraining Results:")
     print(f"Best validation loss: {min(history['val_loss']):.6f}")
     print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
-    if 'smoothed_val_loss' in history:
-        print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
-        print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
+    # if 'smoothed_val_loss' in history:
+    #     print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+    #     print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
 
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
@@ -274,7 +273,7 @@ def run_pipeline(
     
     # Preserve temporal order during inverse transform (same as predict function)
     predictions_reshaped = val_predictions.reshape(-1, 1)
-    predictions_original = preprocessor.scalers['target'].inverse_transform(predictions_reshaped)
+    predictions_original = preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
     # Trim predictions to match validation data length
@@ -287,8 +286,15 @@ def run_pipeline(
         columns=['vst_raw']
     )
     # Now plot with aligned data - make sure station_id is a string
-    create_full_plot(val_data, val_predictions_df, str(station_id), model_config)  # Pass model config
+    create_full_plot(val_data, val_predictions_df, str(station_id))#, model_config)  # Pass model config
     
+
+    # Plot scaled predictions to check if they are correct   
+    print("\nPlotting scaled validation predictions...")
+    val_predictions, predictions_scaled, target_scaled = trainer.predict(val_data)
+    plot_scaled_predictions(predictions_scaled, target_scaled, test_data=val_data, title="Scaled Validation Predictions vs Targets")
+
+
     # Create comprehensive performance analysis plot
     print("\nGenerating comprehensive performance analysis plot...")
     test_actual = pd.Series(
@@ -320,7 +326,7 @@ def run_pipeline(
     # Make and plot test predictions
     print("\nMaking predictions on test set...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
-    
+  
     
     # # Convert test predictions to DataFrame for plotting
     # test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
@@ -334,7 +340,7 @@ def run_pipeline(
     # create_full_plot(test_data, test_predictions_df, str(station_id), model_config)  # Pass model config
     
     # Plot convergence
-    plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
+    # plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
     
     return test_predictions, predictions_original, history
 
@@ -362,53 +368,19 @@ if __name__ == "__main__":
             synthetic_diagnostics=False,
             run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
             hyperparameter_trials=30,  # Reasonable number for demonstration
-            hyperparameter_diagnostics=True,  # Simplified approach doesn't need diagnostics
+            hyperparameter_diagnostics=False,  # Simplified approach doesn't need diagnostics
         )
 
         print("\nModel run completed!")
         print(f"Results saved to: {output_path}")
         print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
         print(f"Best validation loss: {min(history['val_loss']):.6f}")
-        if 'smoothed_val_loss' in history:
-            print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
-            print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+        # if 'smoothed_val_loss' in history:
+        #     print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
+        #     print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
         
     except Exception as e:
         print(f"\nError running pipeline: {e}")
         import traceback
         traceback.print_exc()
     
-    '''
-Enhanced Architecture:
-Added residual connections between layers for better gradient flow
-Added a two-layer fully connected network for better feature extraction
-Used ReLU activation for improved non-linearity
-
-Improved Numerics:
-Proper dropout handling in training vs. inference modes
-Better weight initialization (implicitly handled by PyTorch)
-
-In train_model.py:
-Enhanced Loss Function:
-Implemented peak-weighted loss to give higher importance to water level peaks
-Added weighting based on rate of change to better capture rising/falling limbs
-
-Training Stability:
-Added gradient clipping to prevent exploding gradients
-Implemented learning rate scheduler to reduce LR when training plateaus
-Added EMA smoothing for validation loss to make stopping decisions more robust
-
-Prediction Improvements:
-Added exponential moving average smoothing for predictions
-Better handling of NaN values in predictions
-
-Hyperparameter Tuning:
-Simplified tuning process with focused parameter ranges
-Added sequence_length as a tunable parameter
-Using smoothed validation loss for more stable evaluation
-These improvements collectively addressed the key challenges we identified:
-Better peak detection (peak-weighted loss + residual connections)
-Reduced validation loss fluctuations (smoothing + LR scheduler)
-Prevented overfitting (appropriate dropout + early stopping)
-More accurate predictions (EMA smoothing)
-'''

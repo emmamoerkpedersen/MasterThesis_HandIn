@@ -28,11 +28,6 @@ class LSTMModel(nn.Module):
         # Fully connected layer to map hidden state to output
         self.fc = nn.Linear(hidden_size, output_size)
    
-    def update_sequence_length(self, sequence_length):
-        """
-        Update the sequence length after it's been calculated
-        """
-        self.sequence_length = sequence_length
 
     def forward(self, x):
         # Forward pass doesn't depend on sequence_length attribute
