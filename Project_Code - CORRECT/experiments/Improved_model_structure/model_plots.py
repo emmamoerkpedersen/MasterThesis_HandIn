@@ -328,20 +328,17 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     plt.close()
 
 
-def plot_scaled_predictions(predictions, targets, station_id=None, title="Scaled Predictions vs Targets"):
+def plot_scaled_predictions(predictions, targets, test_data=None, title="Scaled Predictions vs Targets"):
+    
         """
         Plot scaled predictions and targets before inverse transformation.
         
         Args:
-            predictions: Numpy array of scaled predictions
-            targets: Numpy array of scaled targets
-            station_id: Optional station ID for filename
+            predictions: Scaled predictions array
+            targets: Scaled targets array
+            test_data: Original DataFrame with datetime index (optional)
             title: Plot title
         """
-        # Ensure output directory exists
-        output_dir = Path("Project_Code - CORRECT/results/lstm")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
         # Create figure
         fig = go.Figure()
         
@@ -349,8 +346,13 @@ def plot_scaled_predictions(predictions, targets, station_id=None, title="Scaled
         flat_predictions = predictions.reshape(-1)
         flat_targets = targets.reshape(-1)
         
-        # Create x-axis points
-        x_points = np.arange(len(flat_predictions))
+        # Create x-axis points - either use dates from test_data or timesteps
+        if test_data is not None and hasattr(test_data, 'index'):
+            x_points = test_data.index[:len(flat_predictions)]
+            x_label = 'Date'
+        else:
+            x_points = np.arange(len(flat_predictions))
+            x_label = 'Timestep'
         
         # Add targets
         fig.add_trace(
@@ -375,20 +377,34 @@ def plot_scaled_predictions(predictions, targets, station_id=None, title="Scaled
         # Update layout
         fig.update_layout(
             title=title,
-            xaxis_title='Timestep',
+            xaxis_title=x_label,
             yaxis_title='Scaled Value',
             width=1200,
             height=600,
-            showlegend=True
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
         )
         
+        # Add rangeslider if using dates
+        if test_data is not None and hasattr(test_data, 'index'):
+            fig.update_layout(
+                xaxis=dict(
+                    rangeslider=dict(visible=True),
+                    type="date"  # This will format the x-axis as dates
+                )
+            )
+        
         # Save and open in browser
-        station_suffix = f"_station_{station_id}" if station_id else ""
-        html_path = output_dir / f'scaled_predictions{station_suffix}.html'
-        fig.write_html(str(html_path))
+        html_path = 'scaled_predictions.html'
+        fig.write_html(html_path)
         print(f"Opening scaled predictions plot in browser...")
         webbrowser.open('file://' + os.path.abspath(html_path))
-
 
 def plot_convergence(history, station_id, title=None):
     """
@@ -444,6 +460,7 @@ def plot_convergence(history, station_id, title=None):
 
 
 def create_performance_analysis_plot(actual, predictions, station_id, model_config=None, output_dir=None):
+
     """
     Create a comprehensive performance analysis plot with multiple subplots:
     1. Time series comparison during peak events
@@ -723,3 +740,115 @@ def create_performance_analysis_plot(actual, predictions, station_id, model_conf
         'mean_error': error_mean,
         'std_error': error_std
     }
+
+def plot_scaled_vs_unscaled_features(data, scaled_data, feature_cols, output_dir=None):
+    """
+    Create an interactive HTML plot comparing scaled and unscaled versions of all features and targets.
+    
+    Args:
+        data: DataFrame containing unscaled data with datetime index
+        scaled_data: DataFrame containing scaled data with datetime index
+        feature_cols: List of feature column names to plot
+        output_dir: Optional output directory path
+    """
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path("Project_Code - CORRECT/results/lstm")
+        output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for unique filename
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create a figure with subplots - one for each feature
+    n_features = len(feature_cols)
+    
+    # Create a subplot figure with Plotly
+    fig = make_subplots(
+        rows=n_features, 
+        cols=2, 
+        vertical_spacing=0.05,
+        horizontal_spacing=0.05
+    )
+    
+    # Plot each feature
+    for i, feature in enumerate(feature_cols):
+        # Unscaled plot
+        fig.add_trace(
+            go.Scatter(
+                x=data.index,
+                y=data[feature],
+                name=f'{feature} (Unscaled)',
+                line=dict(color='#1f77b4', width=1),
+                showlegend=False
+            ),
+            row=i+1, col=1
+        )
+        
+        # Scaled plot
+        fig.add_trace(
+            go.Scatter(
+                x=scaled_data.index,
+                y=scaled_data[feature],
+                name=f'{feature} (Scaled)',
+                line=dict(color='#d62728', width=1),
+                showlegend=False
+            ),
+            row=i+1, col=2
+        )
+        
+        # Add statistics text as annotations
+        unscaled_mean = np.nanmean(data[feature])
+        unscaled_std = np.nanstd(data[feature])
+        scaled_mean = np.nanmean(scaled_data[feature])
+        scaled_std = np.nanstd(scaled_data[feature])
+        
+        stats_text = (
+            f'Unscaled: Mean={unscaled_mean:.2f}, Std={unscaled_std:.2f}<br>'
+            f'Scaled: Mean={scaled_mean:.2f}, Std={scaled_std:.2f}'
+        )
+        
+        # Add text annotation for statistics
+        fig.add_annotation(
+            x=0.05, y=0.95,
+            xref=f'x{i*2+1}', yref=f'y{i*2+1}',
+            text=stats_text,
+            showarrow=False,
+            font=dict(size=10),
+            bgcolor='rgba(255, 255, 255, 0.8)',
+            bordercolor='#cccccc',
+            borderwidth=1,
+            borderpad=4
+        )
+        
+        # Update axes labels
+        fig.update_xaxes(title_text='Date', row=i+1, col=1)
+        fig.update_xaxes(title_text='Date', row=i+1, col=2)
+        fig.update_yaxes(title_text='Value', row=i+1, col=1)
+        fig.update_yaxes(title_text='Scaled Value', row=i+1, col=2)
+    
+    # Update layout
+    fig.update_layout(
+        title='Scaled vs Unscaled Features Comparison',
+        height=300 * n_features,  # Adjust height based on number of features
+        width=1200,
+        showlegend=False,
+        template='plotly_white'
+    )
+    
+    # Set x-axis range for all subplots
+    start_date = pd.Timestamp('2010-01-04')
+    end_date = pd.Timestamp('2020-12-31')
+    
+    # Update the x-axis range for all subplots
+    for i in range(n_features):
+        # Update x-axis range for unscaled plots
+        fig.update_xaxes(range=[start_date, end_date], row=i+1, col=1)
+        # Update x-axis range for scaled plots
+        fig.update_xaxes(range=[start_date, end_date], row=i+1, col=2)
+    
+
+    # Display the plot in the browser without saving
+    fig.show()
+    
+    # Return None since we're not saving the file
+    return None

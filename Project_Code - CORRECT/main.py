@@ -31,7 +31,7 @@ from config import LSTM_CONFIG
 from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
 from experiments.Improved_model_structure.model import LSTMModel
-from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot
+from experiments.Improved_model_structure.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot, plot_scaled_vs_unscaled_features
 
 
 # from _3_lstm_model.model import LSTMModel
@@ -76,6 +76,30 @@ def run_pipeline(
     print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
     print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
     
+    # Plot scaled vs unscaled features for visualization
+    print("\nGenerating scaled vs unscaled features plot for control...")
+    
+    # Get the original data before scaling
+    original_data = train_data.copy()
+    
+    # Get the scaled data by applying the scaler
+    features = pd.concat([train_data[col] for col in preprocessor.feature_cols], axis=1)
+    target = pd.DataFrame(train_data[preprocessor.output_features])
+    
+    # Scale the data
+    scaled_features, scaled_target = preprocessor.feature_scaler.fit_transform(features, target)
+    
+    # Create a DataFrame with the scaled data
+    scaled_data = pd.DataFrame(scaled_features, columns=preprocessor.feature_cols, index=train_data.index)
+    scaled_data[preprocessor.output_features] = scaled_target
+    
+    # Create the plot
+    plot_scaled_vs_unscaled_features(
+        data=original_data,
+        scaled_data=scaled_data,
+        feature_cols=preprocessor.feature_cols + [preprocessor.output_features],
+        output_dir=Path(output_path) / "lstm"
+    )
 
     # Generate preprocessing diagnostics if enabled
     if preprocess_diagnostics:
@@ -84,8 +108,6 @@ def run_pipeline(
         original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
         
         if original_data:
-            # Convert freezing_periods to list if it's not already
-            frost_periods = freezing_periods if isinstance(freezing_periods, list) else []
             plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), frost_periods)
             plot_additional_data(preprocessed_data, Path(output_path), original_data)
             plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
@@ -294,23 +316,23 @@ def run_pipeline(
     
 
     # Plot scaled predictions to check if they are correct   
-    print("\nPlotting scaled validation predictions...")
-    val_predictions, predictions_scaled, target_scaled = trainer.predict(val_data)
-    plot_scaled_predictions(predictions_scaled, target_scaled, test_data=val_data, title="Scaled Validation Predictions vs Targets")
+    # print("\nPlotting scaled validation predictions...")
+    # val_predictions, predictions_scaled, target_scaled = trainer.predict(val_data)
+    # plot_scaled_predictions(predictions_scaled, target_scaled, test_data=val_data, title="Scaled Validation Predictions vs Targets")
 
 
-    # Create comprehensive performance analysis plot
-    print("\nGenerating comprehensive performance analysis plot...")
-    test_actual = pd.Series(
-        val_data['vst_raw'].values,
-        index=val_data.index,
-        name='Actual'
-    )
-    val_predictions_series = pd.Series(
-        predictions_flattened,
-        index=val_data.index[:len(predictions_flattened)],
-        name='Predicted'
-    )
+    # # Create comprehensive performance analysis plot
+    # print("\nGenerating comprehensive performance analysis plot...")
+    # test_actual = pd.Series(
+    #     val_data['vst_raw'].values,
+    #     index=val_data.index,
+    #     name='Actual'
+    # )
+    # val_predictions_series = pd.Series(
+    #     predictions_flattened,
+    #     index=val_data.index[:len(predictions_flattened)],
+    #     name='Predicted'
+    #)
     # performance_metrics = create_performance_analysis_plot(
     #     test_actual, 
     #     val_predictions_series, 
@@ -328,8 +350,8 @@ def run_pipeline(
     # print(f"Std Error: {performance_metrics['std_error']:.4f} mm")
     
     # Make and plot test predictions
-    print("\nMaking predictions on test set...")
-    test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
+    # print("\nMaking predictions on test set...")
+    # test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
   
     
     # # Convert test predictions to DataFrame for plotting

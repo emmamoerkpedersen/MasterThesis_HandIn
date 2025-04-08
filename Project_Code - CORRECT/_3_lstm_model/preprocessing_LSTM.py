@@ -172,11 +172,10 @@ class DataPreprocessor:
         std_val = np.nanstd(scaled_target)
         print(f"Target range after scaling:")
         print(f"  {target_col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
-        print('test')
+    
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
 
-        print('test2')
         # Only print basic shape info for debugging
         print(f"{'Training' if is_training else 'Validation'} data: {X.shape[0]} sequences of length {X.shape[1]}")
         
