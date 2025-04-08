@@ -118,25 +118,42 @@ class DataPreprocessor:
         """
         Prepare data for training or validation. Scale data and create sequences.
         """
-
         # Get features and target
         feature_cols = self.feature_cols
         target_col = self.output_features   
         
-        # Make sure all feature columns are in the data
-        available_features = [col for col in feature_cols if col in data.columns]
-        if len(available_features) != len(feature_cols):
-            missing = set(feature_cols) - set(available_features)
-            print(f"Warning: Missing features in data: {missing}")
-
         features = pd.concat([data[col] for col in feature_cols], axis=1)
         target = pd.DataFrame(data[target_col])
+        
+        # Print diagnostic information about NaN values in target
+        nan_count = target[target_col].isna().sum()
+        total_count = len(target)
+        print(f"\nTarget NaN diagnostics before scaling:")
+        print(f"  {target_col}: {nan_count}/{total_count} NaN values ({nan_count/total_count*100:.2f}%)")
+        
+        if nan_count == total_count:
+            print("  WARNING: All target values are NaN!")
+            # Fill NaN values with a default value (e.g., 0) to allow scaling to proceed
+            target[target_col] = target[target_col].fillna(0)
+            print("  Filled NaN values with 0 to allow scaling to proceed")
 
         # Scale data using FeatureScaler
         if is_training:
             scaled_features, scaled_target = self.feature_scaler.fit_transform(features, target)
         else:
             scaled_features, scaled_target = self.feature_scaler.transform(features, target)
+            
+        # Print diagnostic information about NaN values in scaled target
+        nan_count_scaled = np.isnan(scaled_target).sum()
+        total_count_scaled = len(scaled_target)
+        print(f"\nTarget NaN diagnostics after scaling:")
+        print(f"  {target_col}: {nan_count_scaled}/{total_count_scaled} NaN values ({nan_count_scaled/total_count_scaled*100:.2f}%)")
+        
+        if nan_count_scaled == total_count_scaled:
+            print("  WARNING: All scaled target values are NaN!")
+            # Fill NaN values with a default value (e.g., 0) to allow model training to proceed
+            scaled_target = np.nan_to_num(scaled_target, nan=0)
+            print("  Filled NaN values with 0 to allow model training to proceed")
 
         # Print feature ranges after scaling
         print("\nFeature ranges after scaling:")
@@ -148,20 +165,24 @@ class DataPreprocessor:
             print(f"  {col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
         
         # Print target range after scaling
-        min_val = scaled_target.min()
-        max_val = scaled_target.max()
-        mean_val = scaled_target.mean()
-        std_val = scaled_target.std()
+        # Use NaN-aware functions to handle the few NaN values
+        min_val = np.nanmin(scaled_target)
+        max_val = np.nanmax(scaled_target)
+        mean_val = np.nanmean(scaled_target)
+        std_val = np.nanstd(scaled_target)
+        print(f"Target range after scaling:")
         print(f"  {target_col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
-
+        print('test')
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
+
+        print('test2')
         # Only print basic shape info for debugging
         print(f"{'Training' if is_training else 'Validation'} data: {X.shape[0]} sequences of length {X.shape[1]}")
         
         # Convert to tensors and move to device
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)
-
+    
     def _create_sequences(self, features, targets):
          """
          Create sequences using the configured sequence length.
