@@ -276,15 +276,11 @@ class LSTM_TrainerUpdate:
             torch.utils.data.TensorDataset(X_train, y_train), 
             batch_size=batch_size, 
             shuffle=True,  # Enable shuffling for better training
-            num_workers=4,  # Parallel data loading
-            pin_memory=True  # Faster data transfer to GPU
         )
         val_loader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(X_val, y_val), 
             batch_size=batch_size, 
             shuffle=False,
-            num_workers=4,
-            pin_memory=True
         )
 
         # Initialize early stopping
