@@ -123,7 +123,7 @@ class DataPreprocessor:
         data = data[all_features]
 
         # Split data based on years
-        test_data = data[(data.index.year >= 2023) & (data.index.year <= 2024)]
+        test_data = data[(data.index.year >= 2022) & (data.index.year <= 2024)]
         val_data = data[(data.index.year >= 2021) & (data.index.year <= 2022)]  # Validation is 2022-2023
         train_data = data[data.index.year < 2021]  # Training is everything before 2022
         
