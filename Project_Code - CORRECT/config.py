@@ -125,10 +125,9 @@ LSTM_CONFIG = {
     'warmup_length': 100,
     'learning_rate': 0.001,    
 
-    # 'handle_dynamic_weighting', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 
-    'objective_function': 'dynamic_weighted_loss',
-    
-    'peak_weight': 2.304,
+    # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 
+    'objective_function': 'peak_weighted_loss',
+    'peak_weight': 1.5,
     'grad_clip_value': 1.148,
     'use_smoothing': False,
     'smoothing_alpha': 0.457,

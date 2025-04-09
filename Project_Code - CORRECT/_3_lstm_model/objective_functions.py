@@ -69,7 +69,7 @@ def dynamic_weighted_loss(outputs, targets):
 
 
 @register_objective('peak_weighted_loss')
-def peak_weighted_loss(outputs, targets, peak_weight=2.304):
+def peak_weighted_loss(outputs, targets, peak_weight=1.5):
     """
     Custom loss function that gives higher weight to errors during peak water levels
     and mid-range values where the model tends to struggle.
