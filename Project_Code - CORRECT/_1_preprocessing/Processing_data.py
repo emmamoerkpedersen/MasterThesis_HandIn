@@ -60,7 +60,7 @@ def detect_frost_periods(temperature_data):
             # Temperature is above 0, check if we were tracking a frost period
             if current_period_start is not None:
                 # Check against single threshold
-                if frost_sum < -25:
+                if frost_sum < -100:
                     # Add 24 hours to the end of the frost period
                     extended_end = current_period_end + pd.Timedelta(hours=24)
                     # Convert times to timezone-naive if they're not already
@@ -114,7 +114,7 @@ def detect_spikes(vst_data):
     
     return filtered_data, n_spikes, (lower_bound, upper_bound)
 
-def detect_flatlines(vst_data, window=20):
+def detect_flatlines(vst_data, window=30):
     """
     Detect and remove flatlines in VST data.
     
@@ -259,24 +259,24 @@ def preprocess_data():
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
         # Detect freezing periods
-        temp_data = station_data['temperature']
-        frost_periods = detect_frost_periods(temp_data)
+        #temp_data = station_data['temperature']
+        #frost_periods = detect_frost_periods(temp_data)
         # Count points before frost period removal
         points_before = len(station_data['vst_raw'])
         #Remove VST data during frost periods
-        for start, end in frost_periods:
-            station_data['vst_raw'] = station_data['vst_raw'][
-                ~((station_data['vst_raw'].index >= start) & 
-                    (station_data['vst_raw'].index <= end))
-            ]
+        #for start, end in frost_periods:
+        #    station_data['vst_raw'] = station_data['vst_raw'][
+        #        ~((station_data['vst_raw'].index >= start) & 
+        #            (station_data['vst_raw'].index <= end))
+        #    ]
         # Count points removed during frost periods
-        points_removed_frost = points_before - len(station_data['vst_raw'])
+        #points_removed_frost = points_before - len(station_data['vst_raw'])
         
         print(f"\nProcessed {station_name}:")
         print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
         print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
         print(f"  - Total data points removed: {len(All_station_data_original[station_name]['vst_raw']) - len(station_data['vst_raw'])}")
-        print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
+       # print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")

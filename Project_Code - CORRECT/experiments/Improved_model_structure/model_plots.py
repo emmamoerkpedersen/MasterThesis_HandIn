@@ -31,6 +31,21 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
     # Get the actual test data with its datetime index
     test_actual = test_data['vst_raw']
     
+    # Get vinge data if available
+    vinge_data = None
+    if 'vinge' in test_data.columns:
+        vinge_data = test_data['vinge']
+        # Debug vinge data
+        print("\nVinge data debug information:")
+        print(f"Vinge data type: {type(vinge_data)}")
+        print(f"Vinge data column contains NaN: {vinge_data.isna().sum()} NaN values out of {len(vinge_data)}")
+        # Print the non-NaN values in vinge data
+        non_nan_vinge = vinge_data.dropna()
+        print(f"Found {len(non_nan_vinge)} non-NaN vinge measurements")
+        if len(non_nan_vinge) > 0:
+            print(f"First 5 vinge values: {non_nan_vinge.head().values}")
+            print(f"First 5 vinge dates: {non_nan_vinge.head().index}")
+    
     # Get rainfall data without resampling
     rainfall_data = None
     if 'rainfall' in test_data.columns:
@@ -39,6 +54,8 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
     # Print lengths for debugging
     print(f"Length of test_actual: {len(test_actual)}")
     print(f"Length of predictions: {len(test_predictions)}")
+    if vinge_data is not None:
+        print(f"Length of vinge data: {len(vinge_data)}")
     
     # Extract predictions values - handle both DataFrame and Series inputs
     if isinstance(test_predictions, pd.DataFrame):
@@ -77,7 +94,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
             vertical_spacing=0.08,
             subplot_titles=subplot_titles,
             specs=specs,
-            row_heights=[0.3, 0.7]  # Give more space to rainfall
+            row_heights=[0.3, 0.7]  # Give more space to water level
         )
         
         # Add rainfall data to first subplot (top)
@@ -114,6 +131,30 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
             ),
             row=2, col=1
         )
+        
+        # Add vinge data if available - as scatter points
+        if vinge_data is not None:
+            # Filter out NaN values
+            non_nan_vinge = vinge_data.dropna()
+            if len(non_nan_vinge) > 0:
+                fig.add_trace(
+                    go.Scatter(
+                        x=non_nan_vinge.index,
+                        y=non_nan_vinge.values,
+                        name="Vinge Measurements",
+                        mode='markers',  # Use markers only (points)
+                        marker=dict(
+                            color='#2ca02c',
+                            size=8,
+                            symbol='circle',
+                            line=dict(width=1, color='#000000')
+                        )
+                    ),
+                    row=2, col=1
+                )
+                print(f"Added {len(non_nan_vinge)} vinge data points to plot")
+            else:
+                print("No valid vinge data points to plot")
         
         # Update y-axes labels and ranges
         fig.update_yaxes(
@@ -170,6 +211,29 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
                 line=dict(color='#d62728', width=1)
             )
         )
+        
+        # Add vinge data if available - as scatter points
+        if vinge_data is not None:
+            # Filter out NaN values
+            non_nan_vinge = vinge_data.dropna()
+            if len(non_nan_vinge) > 0:
+                fig.add_trace(
+                    go.Scatter(
+                        x=non_nan_vinge.index,
+                        y=non_nan_vinge.values,
+                        name="Vinge Measurements",
+                        mode='markers',  # Use markers only (points)
+                        marker=dict(
+                            color='#2ca02c',
+                            size=8,
+                            symbol='circle',
+                            line=dict(width=1, color='#000000')
+                        )
+                    )
+                )
+                print(f"Added {len(non_nan_vinge)} vinge data points to plot")
+            else:
+                print("No valid vinge data points to plot")
     
     # Create model configuration text
     config_text = ""
@@ -214,17 +278,17 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
         fig.add_annotation(
             x=1.15,  # Place it to the right of the plot
             y=0.5,
-                xref="paper", 
-                yref="paper",
-                text=config_text,
-                showarrow=False,
+            xref="paper", 
+            yref="paper",
+            text=config_text,
+            showarrow=False,
             font=dict(size=14),
-                align="left",
-                bgcolor="rgba(255, 255, 255, 0.9)",
+            align="left",
+            bgcolor="rgba(255, 255, 255, 0.9)",
             bordercolor="#000000",
-                borderwidth=1,
+            borderwidth=1,
             borderpad=10
-            )
+        )
         # Adjust margins to make room for config text
         fig.update_layout(margin=dict(r=250))
     
@@ -264,18 +328,26 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
     })
     
     # Create and save PNG version with just water level
-    create_water_level_plot_png(test_actual, predictions_series, station_id, timestamp, model_config, output_dir)
+    create_water_level_plot_png(test_actual, predictions_series, station_id, timestamp, model_config, output_dir, vinge_data)
     
     # Open HTML in browser
     absolute_path = os.path.abspath(html_path)
     print(f"Opening plot in browser: {absolute_path}")
     webbrowser.open('file://' + str(absolute_path))
 
-
-def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None):
+def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, vinge_data=None):
     """
-    Create a publication-quality matplotlib plot with just water level data and save as PNG.
+    Create a publication-quality matplotlib plot with water level data and save as PNG.
     Designed for thesis report with consistent colors and clean styling.
+    
+    Args:
+        actual: Series containing actual values with datetime index
+        predictions: Series containing model predictions with datetime index
+        station_id: ID of the station
+        timestamp: Timestamp string for unique filename
+        model_config: Optional model configuration
+        output_dir: Optional output directory path
+        vinge_data: Optional Series containing vinge measurements
     """
     # Set default output directory if not provided
     if output_dir is None:
@@ -302,8 +374,20 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     ax.plot(actual.index, actual.values, color='#1f77b4', linewidth=1.2, label='Actual')
     ax.plot(predictions.index, predictions.values, color='#d62728', linewidth=1.2, label='Predicted')
     
+    # Add vinge data if available as scatter points (not line)
+    if vinge_data is not None:
+        # Filter out NaN values
+        non_nan_vinge = vinge_data.dropna()
+        if len(non_nan_vinge) > 0:
+            ax.scatter(non_nan_vinge.index, non_nan_vinge.values, 
+                     color='#2ca02c', marker='o', s=40, alpha=0.8,
+                     edgecolors='black', linewidths=0.5,
+                     label='Vinge Measurements', zorder=5)  # Higher zorder to display on top
+            print(f"Added {len(non_nan_vinge)} vinge data points to PNG plot")
+        else:
+            print("No valid vinge data points to add to PNG plot")
+    
     # Clean styling
-    ax.set_title(f'Water Level Predictions - Station {station_id}', fontweight='bold', pad=15)
     ax.set_xlabel('Date', fontweight='bold', labelpad=10)
     ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
     
@@ -326,7 +410,6 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     plt.savefig(output_path, dpi=600, bbox_inches='tight', facecolor='white')
     print(f"Saved water level PNG plot to: {output_path}")
     plt.close()
-
 
 def plot_scaled_predictions(predictions, targets, station_id=None, title="Scaled Predictions vs Targets"):
         """
