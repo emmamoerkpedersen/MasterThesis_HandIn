@@ -67,31 +67,40 @@ def dynamic_weighted_loss(outputs, targets):
     
     return weighted_loss.mean()
 
-@register_objective('handle_dynamic_weighting')
-def handle_dynamic_weighting(loss, previous, targets):
+
+@register_objective('peak_weighted_loss')
+def peak_weighted_loss(outputs, targets, peak_weight=2.304):
     """
-    Apply dynamic weighting to the loss based on the magnitude of change between consecutive targets.
-    This helps the model focus more on areas with larger changes in water levels.
+    Custom loss function that gives higher weight to errors during peak water levels
+    and mid-range values where the model tends to struggle.
+    """
+    # Calculate normal MSE
+    mse_loss = nn.functional.mse_loss(outputs, targets, reduction='none')
     
-    Args:
-        loss: The base loss tensor
-        previous: Tensor of previous target values
-        targets: Tensor of current target values
+    # Create weights based on target values
+    min_val = targets.min()
+    max_val = targets.max()
+    if max_val > min_val:  # Avoid division by zero
+        normalized_targets = (targets - min_val) / (max_val - min_val)
         
-    Returns:
-        Tensor: Loss with dynamic weighting applied
-    """
-    # Calculate the dynamic weighting; assign higher weights to larger differences
-    dynamic_weighting = torch.abs(targets - previous)
+        # Create tailored weighting function specifically for the water level data pattern
+        # Higher weights for both peaks (>0.7) and troughs (<0.3)
+        peak_weight = torch.pow(normalized_targets, 2) * peak_weight
+        
+        # Targeted boost for mid-range values (0.3-0.7) 
+        # Using a Gaussian with max at 0.5 (mid-range)
+        mid_boost = 2.0 * torch.exp(-40.0 * torch.pow(normalized_targets - 0.5, 2))
+        
+        # Combined weights with higher mid-range emphasis
+        weights = 1.0 + peak_weight + mid_boost
+    else:
+        weights = torch.ones_like(targets)
     
-    # Scale the dynamic weighting to avoid extreme values
-    # Using a sigmoid-like scaling to keep values in a reasonable range
-    scaled_weighting = 2.0 * torch.sigmoid(dynamic_weighting) - 1.0
+    # Apply weights to the MSE loss
+    weighted_loss = mse_loss * weights
     
-    # Multiply the loss by the dynamic weighting
-    loss = loss * (1.0 + scaled_weighting)
-    
-    return loss
+    # Return mean of weighted loss
+    return weighted_loss.mean()
 
 def get_objective_function(name):
     """
