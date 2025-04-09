@@ -177,8 +177,7 @@ class LSTM_Trainer:
             self.history['smoothed_val_loss'].append(smoothed_val_loss)
             self.history['learning_rates'].append(self.optimizer.param_groups[0]['lr'])
             
-            # Step the learning rate scheduler based on validation loss
-            # Use smoothed validation loss for scheduler
+            # Step the learning rate scheduler based on smoothed validation loss
             self.scheduler.step(smoothed_val_loss)
 
             print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}, Smoothed Val Loss: {smoothed_val_loss:.6f}")
@@ -191,15 +190,15 @@ class LSTM_Trainer:
                     print(f"Callback raised an exception: {e}")
                     break
 
-            # Early stopping based on validation loss
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            # Early stopping based on smoothed validation loss
+            if smoothed_val_loss < best_val_loss:
+                best_val_loss = smoothed_val_loss
                 patience_counter = 0
                 best_model_state = self.model.state_dict().copy()
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
-                    print(f"Early stopping triggered! No improvement in validation loss for {patience} epochs.")
+                    print(f"Early stopping triggered! No improvement in smoothed validation loss for {patience} epochs.")
                     break
 
         # Restore best model
