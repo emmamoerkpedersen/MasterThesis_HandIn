@@ -1,3 +1,4 @@
+
 import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -60,7 +61,7 @@ def detect_frost_periods(temperature_data):
             # Temperature is above 0, check if we were tracking a frost period
             if current_period_start is not None:
                 # Check against single threshold
-                if frost_sum < -25:
+                if frost_sum < -100:
                     # Add 24 hours to the end of the frost period
                     extended_end = current_period_end + pd.Timedelta(hours=24)
                     # Convert times to timezone-naive if they're not already
@@ -114,7 +115,7 @@ def detect_spikes(vst_data):
     
     return filtered_data, n_spikes, (lower_bound, upper_bound)
 
-def detect_flatlines(vst_data, window=20):
+def detect_flatlines(vst_data, window=30):
     """
     Detect and remove flatlines in VST data.
     
@@ -147,8 +148,19 @@ def align_data(data):
     all_timestamps = []
     for key in data:
         for subkey, df in data[key].items():
-            all_timestamps.extend(df.index)
+            # Convert all timestamps to timezone-naive before adding to the list
+            if df is not None and not df.empty:
+                # Make a copy of the index and convert to timezone-naive
+                timestamps = df.index.copy()
+                if timestamps.tz is not None:
+                    timestamps = timestamps.tz_localize(None)
+                all_timestamps.extend(timestamps)
 
+    # Ensure we have timestamps to work with
+    if not all_timestamps:
+        print("Warning: No timestamps found in the data")
+        return data
+        
     min_time = min(all_timestamps)
     max_time = max(all_timestamps)
 
@@ -159,7 +171,15 @@ def align_data(data):
     for key in data:
         aligned_data[key] = {}
         for i, (subkey, df) in enumerate(data[key].items()):
+            if df is None or df.empty:
+                aligned_data[key][subkey] = None
+                continue
+                
             df = df.copy()
+
+            # Ensure index is timezone-naive
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
 
             # Round timestamps **only** for the vst_raw, vst_edt, vinge data
             if subkey == 'vst_raw' or subkey == 'vst_edt' or subkey == 'vinge':
@@ -170,6 +190,14 @@ def align_data(data):
 
             # Reindex to match the common 15-minute intervals
             df = df.reindex(common_index)  # Default fill value is NaN
+            
+            # Fill missing values using forward fill then backward fill
+            # This ensures continuous data without gaps
+            df = df.ffill().bfill()
+
+            # Fill rainfall data with -1
+            if subkey == 'rainfall':
+                df = df.fillna(-1)
 
             aligned_data[key][subkey] = df
 
@@ -213,6 +241,7 @@ def distribute_hourly_rainfall(rainfall_df):
     # Convert back to DataFrame with the same column name
     return pd.DataFrame(resampled, columns=[rainfall_col])
 
+
 def preprocess_data():
     """
     Preprocess the data and save to pickle files.
@@ -238,6 +267,17 @@ def preprocess_data():
     # Rename columns before processing
     All_station_data = rename_columns(All_station_data)
     
+    # Ensure all timestamps are timezone-naive before alignment
+    for station_name, station_data in All_station_data.items():
+        for key, data in station_data.items():
+            if data is not None and not data.empty:
+                # Convert to timezone-naive if needed
+                if data.index.tz is not None:
+                    data.index = data.index.tz_localize(None)
+    
+    # Align data to common time index
+    All_station_data = align_data(All_station_data)
+    
     # Process each station's data
     for station_name, station_data in All_station_data.items():
         # Process all datasets in the station_data dictionary
@@ -258,17 +298,26 @@ def preprocess_data():
         station_data['vst_raw'], n_spikes, (lower_bound, upper_bound) = detect_spikes(station_data['vst_raw'])
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
-        # Detect freezing periods
-        temp_data = station_data['temperature']
-        frost_periods = detect_frost_periods(temp_data)
-        #Remove VST data during frost periods
-        for start, end in frost_periods:
-            station_data['vst_raw'] = station_data['vst_raw'][
-                ~((station_data['vst_raw'].index >= start) & 
-                    (station_data['vst_raw'].index <= end))
-            ]
+        # # Detect freezing periods
+        # temp_data = station_data['temperature']
+        # frost_periods = detect_frost_periods(temp_data)
+        # # Count points before frost period removal
+        # points_before = len(station_data['vst_raw'])
+        # #Remove VST data during frost periods
+        # for start, end in frost_periods:
+        #     station_data['vst_raw'] = station_data['vst_raw'][
+        #         ~((station_data['vst_raw'].index >= start) & 
+        #             (station_data['vst_raw'].index <= end))
+        #     ]
+        # # Count points removed during frost periods
+        # points_removed_frost = points_before - len(station_data['vst_raw'])
+        
         print(f"\nProcessed {station_name}:")
-        print(f"  - Removed data from {len(frost_periods)} frost periods")
+        print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
+        print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
+        print(f"  - Total data points removed: {len(All_station_data_original[station_name]['vst_raw']) - len(station_data['vst_raw'])}")
+        # print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
+
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
@@ -278,12 +327,10 @@ def preprocess_data():
             station_data['temperature'] = station_data['temperature'].resample('15min').ffill().bfill()  # Hold mean temperature constant but divide by 4
             print(f"  - Resampled temperature data to 15-minute intervals with ffill and bfill")
 
-        # Resample rainfall data to 15-minute intervals
+        # Resample rainfall data 
         if station_data['rainfall'] is not None:
             station_data['rainfall'] = station_data['rainfall'].fillna(-1)
             print(f"  - Filled rainfall data with -1")
-
-    All_station_data = align_data(All_station_data)
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
@@ -292,62 +339,58 @@ def preprocess_data():
     return All_station_data, All_station_data_original
 
 if __name__ == "__main__":
-    processed_data, original_data = preprocess_data()
+    processed_data, original_data  = preprocess_data()
     station_id = '21006846'
-    # Create interactive plot using Plotly with three subplots
-    fig = make_subplots(rows=4, cols=1, 
-                        subplot_titles=('Temperature', 'Rainfall', 'VST Raw Data'),
+    
+    # Create figure with secondary y-axis
+    fig = make_subplots(rows=3, cols=1,
+                        subplot_titles=('Original VST Raw Data', 'Processed VST Raw Data with Frost Periods', 'Rainfall'),
                         vertical_spacing=0.1)
 
-    # Add temperature trace to top subplot
+    # Add original VST raw data trace to top subplot
     fig.add_trace(
         go.Scatter(
-            x=processed_data[station_id]['temperature'].index,
-            y=processed_data[station_id]['temperature']['temperature'],
-            name='Temperature',
-            line=dict(color='red')
+            x=original_data[station_id]['vst_raw'].index,
+            y=original_data[station_id]['vst_raw']['Value'],
+            name='VST Raw Original',
+            line=dict(color='blue')
         ),
         row=1, col=1
     )
 
-    # Add rainfall trace to middle subplot
+    # Add processed VST raw data trace to bottom subplot
+    fig.add_trace(
+        go.Scatter(
+            x=processed_data[station_id]['vst_raw'].index,
+            y=processed_data[station_id]['vst_raw']['vst_raw'],
+            name='VST Raw Processed',
+            line=dict(color='green')
+        ),
+        row=2, col=1
+    )
+
+      # Debug: Print rainfall data info
+    print("Rainfall data info:")
+    print(processed_data[station_id]['rainfall'].info())
+    print("\nFirst few rows of rainfall data:")
+    print(processed_data[station_id]['rainfall'].head())
+
     fig.add_trace(
         go.Scatter(
             x=processed_data[station_id]['rainfall'].index,
             y=processed_data[station_id]['rainfall']['rainfall'],
             name='Rainfall',
-            line=dict(color='blue')
-        ),
-        row=2, col=1
-    )
-
-     # Add temperature trace to top subplot
-    fig.add_trace(
-        go.Scatter(
-            x=original_data[station_id]['vst_raw'].index,
-            y=original_data[station_id]['vst_raw']['Value'],
-            name='Vst_raw original',
-            line=dict(color='blue')
-        ),
+            line=dict(color='red')
+        ), 
         row=3, col=1
-    )
-
-    # Add VST raw data trace to bottom subplot
-    fig.add_trace(
-        go.Scatter(
-            x=processed_data[station_id]['vst_raw'].index,
-            y=processed_data[station_id]['vst_raw']['vst_raw'],
-            name='VST Raw processed',
-            line=dict(color='green')
-        ),
-        row=4, col=1
     )
 
     # Update layout
     fig.update_layout(
-        height=1200,
+        height=1000,
         showlegend=True,
-        hovermode='x unified'
+        hovermode='x unified',
+        title_text="VST Raw Data"
     )
 
     # Link x-axes of all subplots
@@ -355,9 +398,11 @@ if __name__ == "__main__":
     fig.update_xaxes(range=['2010-01-01', '2025-01-01'])
 
     # Update y-axis labels
-    fig.update_yaxes(title_text="Temperature (°C)", row=1, col=1)
-    fig.update_yaxes(title_text="Rainfall (mm)", row=2, col=1)
-    fig.update_yaxes(title_text="VST Value", row=3, col=1)
+    fig.update_yaxes(title_text="VST Value", row=1, col=1)
+    fig.update_yaxes(title_text="VST Value", row=2, col=1)
 
     # Open the plot in browser
     plot(fig, filename='station_data_comparison.html')
+
+
+

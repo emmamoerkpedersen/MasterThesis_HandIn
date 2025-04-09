@@ -115,9 +115,30 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'model_type': 'seq2seq_forecaster',
-    'feature_cols': ['rainfall'],
+    'hidden_size': 64,
+    'num_layers': 2,
+    'dropout': 0.25,
+    'batch_size': 5,
+    'sequence_length': 5000,
+    'epochs': 100,
+    'patience': 15,
+    'warmup_length': 100,
+    'learning_rate': 0.001,    
+
+    # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 
+    'objective_function': 'peak_weighted_loss',
+    'peak_weight': 1.5,
+    'grad_clip_value': 1.148,
+    'use_smoothing': False,
+    'smoothing_alpha': 0.457,
+
+    'use_time_features': False,
+    'use_cumulative_features': True,
+    'feature_cols': [
+        'rainfall',
+    ],
     'output_features': ['vst_raw'],
+
     'feature_stations': [
         {
             'station_id': '21006845',
@@ -127,13 +148,6 @@ LSTM_CONFIG = {
             'station_id': '21006847',
             'features': ['vst_raw', 'rainfall']
         }
-    ],
-    'hidden_size': 124,        
-    'num_layers': 2,          
-    'dropout': 0.25,          
-    'batch_size': 1,          
-    'learning_rate': 0.01,   
-    'epochs': 150,             
-    'patience': 20, 
-    
-} 
+    ]
+}
+
