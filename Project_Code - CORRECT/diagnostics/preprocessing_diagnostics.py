@@ -49,6 +49,19 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
     # Set professional plot style
     set_plot_style()
     
+    # Set publication-quality styling similar to create_water_level_plot_png
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 12,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'figure.titlesize': 18
+    })
+    
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
     
@@ -56,7 +69,7 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
     stats_data = []
     
     # Set start date to January 1, 2010
-    start_date = pd.to_datetime('2010-02-01')
+    start_date = pd.to_datetime('2010-01-01')
     
     for station_name in original_data.keys():
         if (original_data[station_name]['vst_raw'] is not None and 
@@ -81,8 +94,22 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Filter data to start from 2010
             orig = orig[orig.index >= start_date]
+            proc = proc[proc.index >= start_date]
             
-            # Calculate IQR bounds using the original data
+            # PERFORMANCE OPTIMIZATION: Downsample data if too large (more than 10,000 points)
+            if len(orig) > 10000:
+                # Use efficient resampling instead of random sampling
+                orig_plot = orig.resample('6H').mean().dropna()
+            else:
+                orig_plot = orig
+                
+            if len(proc) > 10000:
+                # Use efficient resampling for processed data
+                proc_plot = proc.resample('6H').mean().dropna()
+            else:
+                proc_plot = proc
+            
+            # Calculate IQR bounds using the original data (use full dataset for calculations)
             Q1 = orig[orig_value_col].quantile(0.25)
             Q3 = orig[orig_value_col].quantile(0.75)
             IQR = Q3 - Q1
@@ -125,8 +152,8 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Top subplot: Original data with IQR bounds and removed points
             ax1 = fig.add_subplot(gs[0])
-            ax1.plot(orig.index, orig[orig_value_col], color='#1f77b4', alpha=0.7, 
-                    linewidth=1.0, label='Original Data', zorder=2)
+            ax1.plot(orig_plot.index, orig_plot[orig_value_col], color='#1f77b4', alpha=0.8, 
+                    linewidth=1.2, label='Original Data', zorder=2)
             
             # Add IQR bounds with improved styling
             ax1.axhline(y=lower_bound, color='#ff7f0e', linestyle='--', alpha=0.6,
@@ -141,33 +168,62 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                         ax1.axvspan(start, end, color='#E3F2FD', alpha=0.5, 
                                   label='Frost Period' if start == frost_periods[0][0] else "", zorder=1)
             
-            # Highlight only points outside IQR bounds
+            # PERFORMANCE OPTIMIZATION: Only plot a sample of outlier points if there are too many
             outlier_points = orig[outlier_mask]
             if len(outlier_points) > 0:
-                ax1.scatter(outlier_points.index, outlier_points[orig_value_col],
-                          color='#ff7f0e', s=25, alpha=0.6, label='Removed Points', zorder=5)
+                if len(outlier_points) > 1000:
+                    # Sample to get at most 1000 outlier points
+                    outlier_sample = outlier_points.sample(n=min(1000, len(outlier_points)), random_state=42)
+                    ax1.scatter(outlier_sample.index, outlier_sample[orig_value_col],
+                              color='#d62728', s=25, alpha=0.7, label='Removed Points (Sample)', zorder=5)
+                else:
+                    ax1.scatter(outlier_points.index, outlier_points[orig_value_col],
+                              color='#d62728', s=25, alpha=0.7, label='Removed Points', zorder=5)
             
-            ax1.set_title('Original Data with IQR Bounds', fontsize=14, fontweight='bold', pad=15)
-            ax1.set_ylabel('Water Level (mm)', fontsize=12, labelpad=10)
-            ax1.legend(loc='best', frameon=True, framealpha=0.9)
+            ax1.set_title('Original Data with Quality Control Bounds', fontweight='bold', pad=15)
+            ax1.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+            
+            # Clean styling similar to create_water_level_plot_png
+            ax1.spines['top'].set_visible(False)
+            ax1.spines['right'].set_visible(False)
+            ax1.grid(False)
+            ax1.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
             
             # Bottom subplot: Preprocessed data only
             ax2 = fig.add_subplot(gs[1])
-            ax2.plot(proc.index, proc['vst_raw'], color='#2ca02c', alpha=0.8, 
+            ax2.plot(proc_plot.index, proc_plot['vst_raw'], color='#2ca02c', alpha=0.8, 
                     linewidth=1.2, label='Preprocessed Data', zorder=2)
             
-            ax2.set_title('Preprocessed Data', fontsize=14, fontweight='bold', pad=15)
-            ax2.set_ylabel('Water Level (mm)', fontsize=12, labelpad=10)
-            ax2.set_xlabel('Date', fontsize=12, labelpad=10)
-            ax2.legend(loc='best', frameon=True, framealpha=0.9)
+            ax2.set_title('Preprocessed Data (2010 onwards)', fontweight='bold', pad=15)
+            ax2.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+            ax2.set_xlabel('Date', fontweight='bold', labelpad=10)
+            
+            # Clean styling similar to create_water_level_plot_png
+            ax2.spines['top'].set_visible(False)
+            ax2.spines['right'].set_visible(False)
+            ax2.grid(False)
+            ax2.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
+            
+            # Set consistent x-axis limits
+            x_min = start_date
+            x_max = pd.to_datetime('2022-01-01')  # Set a consistent end date or use data max
+            for ax in [ax1, ax2]:
+                ax.set_xlim(x_min, x_max)
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+                ax.xaxis.set_major_locator(mdates.YearLocator(1))
+                ax.tick_params(axis='x', rotation=45)
             
             # Add main title
-            fig.suptitle(f'Data Comparison - Station {station_name}', 
-                        fontsize=16, fontweight='bold', y=0.95)
+            fig.suptitle(f'Data Preprocessing - Station {station_name}', 
+                        fontweight='bold', y=0.95)
             
-            # Save the figure
+            # Format the figure for nice display
+            fig.autofmt_xdate()
+            plt.tight_layout()
+            
+            # PERFORMANCE OPTIMIZATION: Use a lower DPI for faster rendering, but still good quality
             plt.savefig(diagnostic_dir / f"{station_name}_preprocessing.png", 
-                       dpi=300, bbox_inches='tight', facecolor='white')
+                       dpi=200, bbox_inches='tight', facecolor='white')
             plt.close()
     
     # Create and save statistics table
@@ -306,36 +362,43 @@ def generate_preprocessing_report(preprocessed_data: dict, output_dir: Path, ori
             f.write("\n" + "="*50 + "\n")
 
 def plot_station_data_overview(original_data: dict, preprocessed_data: dict, output_dir: Path):
-    """Create simple visualization of VST, temperature, and rainfall data."""
+    """Create visualization of temperature, rainfall, and VST data showing full available date ranges."""
     set_plot_style()
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
     
+    # Set publication-quality styling similar to create_water_level_plot_png
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 12,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'figure.titlesize': 18
+    })
+    
+    # Define start date for precipitation data
+    precip_start_date = pd.to_datetime('2010-01-01')
+    
     for station_name in preprocessed_data.keys():
         if station_name in original_data and original_data[station_name]['vst_raw'] is not None:
-            # Create figure with three subplots
+            # Create figure with GridSpec for better control of subplot heights
             fig = plt.figure(figsize=(15, 12))
-            gs = GridSpec(3, 1, height_ratios=[1, 1, 1], hspace=0.4)
+            gs = GridSpec(3, 1, figure=fig, height_ratios=[1, 1, 3], hspace=0.3)
             
             # Get data for this station
             orig_data = original_data[station_name]
             proc_data = preprocessed_data[station_name]
             
-            # 1. Water level measurements (VST_RAW)
-            ax1 = fig.add_subplot(gs[0])
-            if orig_data['vst_raw'] is not None:
-                vst_data = orig_data['vst_raw'].copy()
-                if not isinstance(vst_data.index, pd.DatetimeIndex):
-                    vst_data.set_index('Date', inplace=True)
-                
-                # Get the VST column name (no date filtering)
-                vst_col = [col for col in vst_data.columns if col != 'Date'][0]
-                
-                ax1.plot(vst_data.index, vst_data[vst_col],
-                        color='#1f77b4', alpha=0.7, linewidth=1, label='VST Raw')
+            # Track min and max dates to show data availability
+            min_dates = {}
+            max_dates = {}
             
-            # 2. Temperature data
-            ax2 = fig.add_subplot(gs[1])
+            # 1. Temperature data (first subplot)
+            ax1 = fig.add_subplot(gs[0])
             if proc_data['temperature'] is not None:
                 temp_data = proc_data['temperature'].copy()
                 if not isinstance(temp_data.index, pd.DatetimeIndex):
@@ -344,47 +407,130 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 # Get temperature column name
                 temp_col = [col for col in temp_data.columns if col != 'Date'][0]
                 
-                ax2.plot(temp_data.index, temp_data[temp_col],
-                        color='#d62728', alpha=0.7, linewidth=1, label='Temperature')
+                # PERFORMANCE OPTIMIZATION: Downsample temperature data if needed
+                if len(temp_data) > 10000:
+                    temp_data = temp_data.resample('6H').mean().dropna()
+                
+                # Track date range
+                min_dates['temperature'] = temp_data.index.min()
+                max_dates['temperature'] = temp_data.index.max()
+                
+                ax1.plot(temp_data.index, temp_data[temp_col],
+                        color='#d62728', alpha=0.8, linewidth=1.2, label='Temperature')
+                
+                ax1.set_title('Temperature', fontweight='bold', pad=15)
+                ax1.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
+                ax1.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                
+                # Clean style similar to water_level_plot
+                ax1.spines['top'].set_visible(False)
+                ax1.spines['right'].set_visible(False)
+                ax1.grid(False)
+                
+                # Set x-axis limits for temperature subplot
+                ax1.set_xlim(min_dates['temperature'], max_dates['temperature'])
             
-            # 3. Rainfall data
-            ax3 = fig.add_subplot(gs[2])
+            # 2. Rainfall data (second subplot) - from 2010 onwards
+            ax2 = fig.add_subplot(gs[1])
             if proc_data['rainfall'] is not None:
                 rain_data = proc_data['rainfall'].copy()
                 if not isinstance(rain_data.index, pd.DatetimeIndex):
                     rain_data.set_index('Date', inplace=True)
                 
+                # Filter rainfall data to start from 2010
+                rain_data_filtered = rain_data[rain_data.index >= precip_start_date]
+                
                 # Get rainfall column name
                 rain_col = [col for col in rain_data.columns if col != 'Date'][0]
                 
-                # Plot rainfall directly without resampling
-                ax3.bar(rain_data.index, rain_data[rain_col],
-                       color='#1f77b4', alpha=0.7, width=0.8, label='Rainfall')
+                # PERFORMANCE OPTIMIZATION: For rainfall, resample to daily sum for better visualization
+                if len(rain_data_filtered) > 1000:
+                    rain_data_filtered = rain_data_filtered.resample('D').sum().dropna()
+                
+                # Track date range of filtered data
+                if not rain_data_filtered.empty:
+                    min_dates['rainfall'] = rain_data_filtered.index.min()
+                    max_dates['rainfall'] = rain_data_filtered.index.max()
+                    
+                    # Plot rainfall as bars
+                    ax2.bar(rain_data_filtered.index, rain_data_filtered[rain_col],
+                           color='#1f77b4', alpha=0.7, width=1, label='Rainfall')
+                    
+                    ax2.set_title('Precipitation (2010 onwards)', fontweight='bold', pad=15)
+                    ax2.set_ylabel('Precipitation (mm)', fontweight='bold', labelpad=10)
+                    ax2.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                    
+                    # Clean style similar to water_level_plot
+                    ax2.spines['top'].set_visible(False)
+                    ax2.spines['right'].set_visible(False)
+                    ax2.grid(False)
+                    
+                    # Set x-axis limits specifically for rainfall subplot (2010 onwards)
+                    ax2.set_xlim(precip_start_date, max_dates['rainfall'])
+                else:
+                    ax2.text(0.5, 0.5, 'No precipitation data available from 2010 onwards', 
+                            horizontalalignment='center', verticalalignment='center',
+                            transform=ax2.transAxes, fontsize=14)
             
-            # Set titles and labels
-            axes = [ax1, ax2, ax3]
-            titles = ['Water Level Measurements', 'Temperature', 'Rainfall']
-            ylabels = ['Water Level (mm)', 'Temperature (°C)', 'Precipitation (mm)']
+            # 3. Water level measurements (VST_RAW) - larger subplot at bottom
+            ax3 = fig.add_subplot(gs[2])
+            if orig_data['vst_raw'] is not None:
+                vst_data = orig_data['vst_raw'].copy()
+                if not isinstance(vst_data.index, pd.DatetimeIndex):
+                    vst_data.set_index('Date', inplace=True)
+                
+                # Get the VST column name
+                vst_col = [col for col in vst_data.columns if col != 'Date'][0]
+                
+                # PERFORMANCE OPTIMIZATION: Downsample data if too large
+                if len(vst_data) > 10000:
+                    vst_data = vst_data.resample('6H').mean().dropna()
+                
+                # Track date range
+                min_dates['vst_raw'] = vst_data.index.min()
+                max_dates['vst_raw'] = vst_data.index.max()
+                
+                ax3.plot(vst_data.index, vst_data[vst_col],
+                        color='#1f77b4', alpha=0.8, linewidth=1.2, label='VST Raw')
+                
+                ax3.set_title('Water Level Measurements', fontweight='bold', pad=15)
+                ax3.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+                ax3.set_xlabel('Date', fontweight='bold', labelpad=10)
+                ax3.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                
+                # Clean style similar to water_level_plot
+                ax3.spines['top'].set_visible(False)
+                ax3.spines['right'].set_visible(False)
+                ax3.grid(False)
+                
+                # Set x-axis limits for VST subplot
+                ax3.set_xlim(min_dates['vst_raw'], max_dates['vst_raw'])
             
-            # Format x-axis and style plots
-            for ax in axes:
+            # Format x-axis dates for all subplots
+            for ax in [ax1, ax2, ax3]:
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-                ax.xaxis.set_major_locator(mdates.YearLocator(1))
-                ax.grid(True, alpha=0.3)
+                ax.xaxis.set_major_locator(mdates.YearLocator(2))  # Every 2 years for cleaner view
                 ax.tick_params(axis='x', rotation=45)
             
-            for ax, title, ylabel in zip(axes, titles, ylabels):
-                ax.set_title(title, pad=20, fontsize=14)
-                ax.set_ylabel(ylabel, labelpad=10)
-                ax.legend(loc='upper right')
+            # Generate data availability text for title
+            availability_text = []
+            for data_type in ['temperature', 'rainfall', 'vst_raw']:
+                if data_type in min_dates:
+                    start_year = min_dates[data_type].year
+                    end_year = max_dates[data_type].year
+                    availability_text.append(f"{data_type.capitalize()}: {start_year}-{end_year}")
             
-            # Add main title
-            fig.suptitle(f'Station {station_name} - Data Overview',
-                        fontsize=16, fontweight='bold', y=0.95)
+            # Add main title with data availability
+            fig.suptitle(f'Station {station_name} - Data Overview\n({", ".join(availability_text)})',
+                        fontweight='bold', y=0.95)
             
-            # Save the figure
+            # Format the figure for nice display
+            fig.autofmt_xdate()
+            plt.tight_layout()
+            
+            # PERFORMANCE OPTIMIZATION: Reduce DPI for faster rendering
             plt.savefig(diagnostic_dir / f"{station_name}_data_overview.png",
-                       dpi=300, bbox_inches='tight', facecolor='white')
+                       dpi=200, bbox_inches='tight', facecolor='white')
             plt.close()
 
 def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, original_data: dict = None):
@@ -394,6 +540,20 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
         return
         
     set_plot_style()
+    
+    # Set publication-quality styling similar to create_water_level_plot_png
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 12,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'figure.titlesize': 18
+    })
+    
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
     
@@ -469,14 +629,26 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             print(f"VST EDT range: {vst_edt[vst_edt_col].min():.1f} to {vst_edt[vst_edt_col].max():.1f}")
             print(f"VINGE range: {vinge_data['water_level_mm'].min():.1f} to {vinge_data['water_level_mm'].max():.1f}")
             
+            # PERFORMANCE OPTIMIZATION: Downsample large datasets for plotting
+            if len(vst_raw) > 10000:
+                # Use efficient resampling for VST data (average hourly data points)
+                vst_raw_plot = vst_raw.resample('1H').mean().dropna()
+            else:
+                vst_raw_plot = vst_raw
+                
+            if len(vst_edt) > 10000:
+                vst_edt_plot = vst_edt.resample('1H').mean().dropna()
+            else:
+                vst_edt_plot = vst_edt
+            
             # Plot raw VST data
-            ax1.plot(vst_raw.index, vst_raw[vst_raw_col],
-                    color='#1f77b4', alpha=0.7, linewidth=1.0, 
+            ax1.plot(vst_raw_plot.index, vst_raw_plot[vst_raw_col],
+                    color='#1f77b4', alpha=0.8, linewidth=1.2, 
                     label='VST Raw')
             
             # Plot EDT corrected data
-            ax1.plot(vst_edt.index, vst_edt[vst_edt_col],
-                    color='#2ca02c', alpha=0.8, linewidth=1.5, 
+            ax1.plot(vst_edt_plot.index, vst_edt_plot[vst_edt_col],
+                    color='#2ca02c', alpha=0.8, linewidth=1.2, 
                     label='VST EDT')
             
             # Plot VINGE measurements with larger markers and higher zorder
@@ -494,6 +666,7 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             vinge_dates = []
             closest_vst_values = []
             
+            # Calculate differences for all VINGE measurements
             for date, value in vinge_data.iterrows():
                 # Find closest VST reading within 12 hours
                 window_start = date - pd.Timedelta(hours=12)
@@ -529,30 +702,31 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             ax2.axhline(y=-20, color='#d62728', linestyle='--', alpha=0.8)
             
             # Style the plots
-            ax1.set_ylabel('Water Level (mm)', fontsize=14, labelpad=10)
-            ax2.set_ylabel('Difference (mm)', fontsize=14, labelpad=10)
-            ax2.set_xlabel('Date', fontsize=14, labelpad=10)
+            ax1.set_title('Water Level Measurements Comparison', fontweight='bold', pad=15)
+            ax1.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+            
+            ax2.set_title('Difference Between Manual and Automated Measurements', fontweight='bold', pad=15)
+            ax2.set_ylabel('Difference (mm)', fontweight='bold', labelpad=10)
+            ax2.set_xlabel('Date', fontweight='bold', labelpad=10)
             
             # Create consistent date range and ticks for both plots
             date_range = pd.date_range(start=start_date, end=end_date, freq='6M')
             
+            # Apply consistent styling for both subplots
             for ax in [ax1, ax2]:
+                # Clean styling similar to create_water_level_plot_png
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.grid(False)
+                
                 # Set the same x-axis limits for both plots
                 ax.set_xlim(start_date, end_date)
                 
                 # Set major ticks at 6-month intervals
-                ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-                
-                # Set minor ticks at 1-month intervals
+                ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
                 ax.xaxis.set_minor_locator(mdates.MonthLocator())
-                
-                # Rotate labels
                 ax.tick_params(axis='x', rotation=45)
-                
-                # Ensure the grid aligns with major ticks
-                ax.grid(True, which='major', linestyle='--', alpha=0.7, color='#cccccc')
-                ax.grid(True, which='minor', linestyle=':', alpha=0.3, color='#cccccc')
             
             # Style the legends
             ax1.legend(loc='upper right', frameon=True, framealpha=0.9,
@@ -560,21 +734,15 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             ax2.legend(loc='lower right', frameon=True, framealpha=0.9,
                       edgecolor='#cccccc', fontsize=12)
             
-            # Set a professional background style for all subplots
-            for ax in [ax1, ax2]:
-                ax.set_facecolor('#f8f9fa')
-                for spine in ax.spines.values():
-                    spine.set_color('#cccccc')
-                ax.tick_params(axis='both', which='major', labelsize=12, pad=8)
-                
-                # Add more padding to y-axis
-                y_min, y_max = ax.get_ylim()
-                y_range = y_max - y_min
-                ax.set_ylim(y_min - 0.05 * y_range, y_max + 0.05 * y_range)
+            # Add main title
+            fig.suptitle(f'Manual vs Automated Water Level Measurements - Station {station_name} (Last 4 Years)',
+                        fontweight='bold', y=0.95)
             
-            # Adjust layout to prevent label cutoff
-            plt.subplots_adjust(bottom=0.2)
+            # Format the figure for nice display
+            fig.autofmt_xdate()
+            plt.tight_layout()
             
+            # Save with better quality but reasonable rendering speed
             plt.savefig(diagnostic_dir / f"{station_name}_vst_vinge_comparison.png",
-                       dpi=300, bbox_inches='tight', facecolor='white')
+                       dpi=200, bbox_inches='tight', facecolor='white')
             plt.close()

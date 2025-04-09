@@ -3,314 +3,10 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 from experiments.Improved_model_structure.model import LSTMModel
 from tqdm import tqdm
-
-class DataPreprocessor:
-    def __init__(self, config):
-        self.config = config
-        self.scalers = {}
-        self.is_fitted = False
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        # Initialize feature columns list with base features
-        self.feature_cols = config['feature_cols'].copy()
-        
-        # Add feature station columns dynamically
-        for station in config['feature_stations']:
-            for feature in station['features']:
-                feature_name = f"feature_station_{station['station_id']}_{feature}"
-                self.feature_cols.append(feature_name)
-                
-        self.output_features = config['output_features'][0]
-    
-    def load_and_split_data(self, project_root, station_id):
-        """
-        Load and Split data into features and target.
-        Splits data chronologically with 2024 as test year.
-        """
-        data_dir = project_root / "data_utils" / "Sample data"
-        data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
-
-        # Check if station_id exists in the data dictionary, if not return empty dict
-        station_data = data.get(station_id)
-        if not station_data:
-            raise ValueError(f"Station ID {station_id} not found in the data.")
-
-        # Concatenate all station data columns
-        df = pd.concat(station_data.values(), axis=1)
-
-        # Add feature station data
-        for station in self.config['feature_stations']:
-            feature_station_id = station['station_id']
-            feature_station_data = data.get(feature_station_id)
-            
-            if not feature_station_data:
-                raise ValueError(f"Feature station ID {feature_station_id} not found in the data.")
-            
-            # Add each requested feature from the feature station
-            for feature in station['features']:
-                if feature not in feature_station_data:
-                    raise ValueError(f"Feature {feature} not found in station {feature_station_id}")
-                    
-                feature_data = feature_station_data[feature][feature].rename(
-                    f"feature_station_{feature_station_id}_{feature}"
-                )
-                df = pd.concat([df, feature_data], axis=1)
-
-        # Start_date is first rainfall not nan, End_date is last vst_raw not nan
-        start_date = df['rainfall'].first_valid_index()
-        end_date = df['vst_raw'].last_valid_index()
-        # Cut dataframe
-        data = df[(df.index >= start_date) & (df.index <= end_date)]
-        
-        data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
-        data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
-        data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
-        print(f"  - Filled rainfall Nan with -1")
-
-        # Add cumulative rainfall features
-        data = self._add_cumulative_features(data)
-        print(f"  - Added cumulative rainfall features")
-        
-        # Add time-based features if enabled in config
-        if self.config.get('use_time_features', False):
-            data = self._add_time_features(data)
-            print(f"  - Added cyclical time features")
-
-        feature_cols = self.feature_cols
-        target_feature = self.output_features
-        all_features = list(set(feature_cols + [target_feature]))        
-        #Filter data to only include the features and target feature
-        data = data[all_features]
-
-        # Get the date range of the data
-        print(f"\nData ranges from {data.index.min()} to {data.index.max()}")
-        
-        # Split data based on years
-        test_data = data[(data.index.year >= 2023) & (data.index.year <= 2024)]
-        val_data = data[(data.index.year >= 2021) & (data.index.year <= 2022)]  # Validation is 2022-2023
-        train_data = data[data.index.year < 2021]  # Training is everything before 2022
-        
-        print(f"\nSplit Summary:")
-        print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
-        print(f"Validation period: 2022 - 2023")
-        print(f"Test year: 2024")
-        
-        print(f"\nDetailed date ranges:")
-        print(f"Train data: {train_data.index.min()} to {train_data.index.max()}")
-        print(f"Validation data: {val_data.index.min()} to {val_data.index.max()}")
-        print(f"Test data: {test_data.index.min()} to {test_data.index.max()}")
-        
-        print(f'\nData shapes:')
-        print(f'Total data: {data.shape}')
-        print(f'Train data: {train_data.shape}')
-        print(f'Validation data: {val_data.shape}')
-        print(f'Test data: {test_data.shape}')
-
-        return train_data, val_data, test_data
-    
-    def prepare_data(self, data, is_training=True):
-        """
-        Prepare data for training or validation. Scale data and create sequences.
-        """
-        # Add time-based features if enabled in config
-        if self.config.get('use_time_features', False):
-            data = self._add_time_features(data)
-            
-        # Get features and target
-        feature_cols = self.feature_cols
-        target_col = self.output_features   
-        
-        # Make sure all feature columns are in the data
-        available_features = [col for col in feature_cols if col in data.columns]
-        if len(available_features) != len(feature_cols):
-            missing = set(feature_cols) - set(available_features)
-            print(f"Warning: Missing features in data: {missing}")
-        
-        # Use only available features
-        features = pd.concat([data[col] for col in available_features], axis=1)
-        target = pd.DataFrame(data[target_col])
-
-        # Scale data
-        scaled_features, scaled_target = self.scale_data(features, target)
-        # Create sequences
-        X, y = self._create_sequences(scaled_features, scaled_target)
-        
-        # Only print basic shape info for debugging
-        print(f"{'Training' if is_training else 'Validation'} data: {X.shape[0]} sequences of length {X.shape[1]}")
-        
-        # Convert to tensors and move to device
-        return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)
-
-    def scale_data(self, features, target):
-        """
-        Scale features and target using StandardScaler.
-        """
-        if not self.is_fitted:
-            # Initialize scalers for each feature
-            self.scalers = {
-                'features': {},
-                'target': StandardScaler()
-            }
-            
-            # Fit target scaler
-            self.scalers['target'].fit(target)
-            
-            # Fit feature scalers for each column
-            for col in features.columns:
-                self.scalers['features'][col] = StandardScaler()
-                self.scalers['features'][col].fit(features[[col]])
-                
-            self.is_fitted = True
-        else:
-            # Check if we have new features that weren't present during initialization
-            for col in features.columns:
-                if col not in self.scalers['features']:
-                    # Removed debug print
-                    # print(f"New feature detected during scaling: {col}")
-                    self.scalers['features'][col] = StandardScaler()
-                    self.scalers['features'][col].fit(features[[col]])
-
-        # Scale each feature separately
-        scaled_features_list = []
-        for col in features.columns:
-            scaled_col = self.scalers['features'][col].transform(features[[col]])
-            scaled_features_list.append(scaled_col)
-        
-        # Combine scaled features
-        scaled_features = np.hstack(scaled_features_list)
-
-        # Scale target and ensure correct shape
-        scaled_target = self.scalers['target'].transform(target).flatten()
-        
-        return scaled_features, scaled_target
-
-    def _create_sequences(self, features, targets):
-         """
-         Create sequences using the configured sequence length.
-         """
-         sequence_length = self.config.get('sequence_length', 5000)  # Get from config or default to 5000
-         data_length = len(features)
-         
-         X, y = [], []
- 
-         # Create sequences based on configured sequence length
-         for i in range(0, data_length, sequence_length):
-             end_idx = min(i + sequence_length, data_length)
-             feature_seq = features[i:end_idx]
-             target_seq = targets[i:end_idx]
- 
-             # Pad sequences if needed
-             if end_idx - i < sequence_length:
-                 pad_length = sequence_length - (end_idx - i)
-                 feature_seq = np.pad(feature_seq, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
-                 target_seq = np.pad(target_seq, (0, pad_length), mode='constant', constant_values=np.nan)
- 
-             X.append(feature_seq)
-             y.append(target_seq)
- 
-         X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
-         y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
- 
-         return X, y
-
-    def _add_time_features(self, data):
-        """
-        Add time-based features to better capture temporal patterns.
-        Uses sin/cos encoding for cyclical features (month, day of year).
-        """
-        # Skip if the data already has time features
-        if 'month_sin' in data.columns:
-            return data
-            
-        # Extract datetime components
-        data.loc[:, 'month'] = data.index.month
-        data.loc[:, 'day'] = data.index.day
-        data.loc[:, 'day_of_year'] = data.index.dayofyear
-    
-        
-        # Create cyclical features for month (period = 12)
-        data.loc[:, 'month_sin'] = np.sin(2 * np.pi * data['month'] / 12)
-        data.loc[:, 'month_cos'] = np.cos(2 * np.pi * data['month'] / 12)
-        
-        # Create cyclical features for day of year (period = 365.25)
-        data.loc[:, 'day_of_year_sin'] = np.sin(2 * np.pi * data['day_of_year'] / 365.25)
-        data.loc[:, 'day_of_year_cos'] = np.cos(2 * np.pi * data['day_of_year'] / 365.25)
-        
-        
-        # Add these features to feature_cols (check to avoid duplicates)
-        time_features = ['month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos']
-        for feature in time_features:
-            if feature not in self.feature_cols:
-                self.feature_cols.append(feature)
-        
-        # Remove the raw time features that we don't want to use directly
-        data = data.drop(['month', 'day', 'day_of_year'], axis=1, errors='ignore')
-        
-        return data
-
-    def _add_cumulative_features(self, data):
-        """
-        Add cumulative rainfall features to better capture long-term patterns.
-        
-        Features added:
-        - 1-month (30-day) cumulative rainfall
-        - 3-month (90-day) cumulative rainfall
-        - 6-month (180-day) cumulative rainfall
-        
-        Args:
-            data: DataFrame containing time series data
-            
-        Returns:
-            DataFrame with added cumulative features
-        """
-        # First, convert rainfall -1 values (missing) to 0 for cumulative calculations
-        rainfall_fixed = data['rainfall'].copy()
-        rainfall_fixed[rainfall_fixed == -1] = 0
-        
-        # Similarly for feature stations
-        feature_1_rain = data['feature_station_21006845_rainfall'].copy()
-        feature_1_rain[feature_1_rain == -1] = 0
-        
-        feature_2_rain = data['feature_station_21006847_rainfall'].copy()
-        feature_2_rain[feature_2_rain == -1] = 0
-        
-        # Calculate cumulative rainfall for different windows
-        # Using rolling windows with different sizes
-        data.loc[:, 'rainfall_30day'] = rainfall_fixed.rolling(window=30, min_periods=1).sum()
-        data.loc[:, 'rainfall_90day'] = rainfall_fixed.rolling(window=90, min_periods=1).sum()
-        data.loc[:, 'rainfall_180day'] = rainfall_fixed.rolling(window=180, min_periods=1).sum()
-        
-        
-        # Calculate cumulative rainfall for feature stations as well
-        data.loc[:, 'feature1_rain_30day'] = feature_1_rain.rolling(window=30, min_periods=1).sum()
-        data.loc[:, 'feature2_rain_30day'] = feature_2_rain.rolling(window=30, min_periods=1).sum()
-        
-        # Calculate combined rainfall (average of all stations)
-        combined_rain = (rainfall_fixed + feature_1_rain + feature_2_rain) / 3
-        data.loc[:, 'combined_rain_30day'] = combined_rain.rolling(window=30, min_periods=1).sum()
-        data.loc[:, 'combined_rain_90day'] = combined_rain.rolling(window=90, min_periods=1).sum()
-        
-        # Fill potential NaN values created by rolling operations with forward fill then backward fill
-        cumulative_cols = [
-            'rainfall_30day', 'rainfall_90day', 'rainfall_180day',
-            'feature1_rain_30day', 'feature2_rain_30day',
-            'combined_rain_30day', 'combined_rain_90day'
-        ]
-        
-        for col in cumulative_cols:
-            data.loc[:, col] = data[col].ffill().bfill()
-            
-            # Add new columns to feature_cols list if they're not already there
-            if col not in self.feature_cols:
-                self.feature_cols.append(col)
-        
-        return data
+from _3_lstm_model.objective_functions import get_objective_function
+from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 
 class LSTM_Trainer:
     def __init__(self, config, preprocessor):
@@ -353,61 +49,23 @@ class LSTM_Trainer:
             mode='min', 
             factor=0.5,
             patience=5,
-            verbose=True,
             min_lr=1e-6
         )
         
         # Choose loss function based on configuration
-        if config.get('use_peak_weighted_loss', False):
-            print(f"Using peak weighted loss (weight: {self.peak_weight})")
-            self.criterion = self.peak_weighted_loss
-        else:
-            print("Using standard MSE loss")
-            self.criterion = nn.MSELoss()
+        self.criterion = get_objective_function(config.get('objective_function'))
             
         # Print whether gradient clipping is enabled
         print(f"Using gradient clipping with max norm: {self.grad_clip_value}")
-        print(f"Using learning rate scheduler with patience 5, factor 0.5")
-
-    def peak_weighted_loss(self, outputs, targets):
-        """
-        Custom loss function that gives higher weight to errors during peak water levels
-        and mid-range values where the model tends to struggle.
-        """
-        # Calculate normal MSE
-        mse_loss = nn.functional.mse_loss(outputs, targets, reduction='none')
-        
-        # Create weights based on target values
-        min_val = targets.min()
-        max_val = targets.max()
-        if max_val > min_val:  # Avoid division by zero
-            normalized_targets = (targets - min_val) / (max_val - min_val)
-            
-            # Create tailored weighting function specifically for the water level data pattern
-            # Higher weights for both peaks (>0.7) and troughs (<0.3)
-            peak_weight = torch.pow(normalized_targets, 2) * self.peak_weight
-            
-            # Targeted boost for mid-range values (0.3-0.7) 
-            # Using a Gaussian with max at 0.5 (mid-range)
-            mid_boost = 2.0 * torch.exp(-40.0 * torch.pow(normalized_targets - 0.5, 2))
-            
-            # Combined weights with higher mid-range emphasis
-            weights = 1.0 + peak_weight + mid_boost
-        else:
-            weights = torch.ones_like(targets)
-        
-        # Apply weights to the MSE loss
-        weighted_loss = mse_loss * weights
-        
-        # Return mean of weighted loss
-        return weighted_loss.mean()
+        print(f"Using learning rate scheduler with patience {self.scheduler.patience}, factor {self.scheduler.factor}")
     
+
     def _run_epoch(self, data_loader, training=True):
         """
         Runs an epoch for training or validation 
         """
         self.model.train() if training else self.model.eval()
-        warmup_length = self.config.get('warmup_length', 150)
+        warmup_length = self.config.get('warmup_length', 100)
         total_loss = 0
         
         # Lists to store validation predictions and targets
@@ -562,6 +220,7 @@ class LSTM_Trainer:
         # Add time features if needed - ensure consistency with training
         if self.config.get('use_time_features', False):
             data_copy = self.preprocessor._add_time_features(data_copy)
+            print("Using time features for prediction")
             
         X, y = self.preprocessor.prepare_data(data_copy, is_training=False)
         
@@ -572,7 +231,7 @@ class LSTM_Trainer:
             
             # Preserve temporal order during inverse transform
             predictions_reshaped = predictions.reshape(-1, 1)
-            predictions_original = self.preprocessor.scalers['target'].inverse_transform(predictions_reshaped)
+            predictions_original = self.preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped)
             
             # Apply smoothing if configured
             if self.config.get('use_smoothing', False):
@@ -582,6 +241,23 @@ class LSTM_Trainer:
             
             # Reshape back maintaining temporal order
             predictions_original = predictions_original.reshape(predictions.shape)
+            
+            # Print information about the model and prediction process
+            print("\nPrediction Information:")
+            print(f"Model: LSTM with {self.config['num_layers']} layers, {self.config['hidden_size']} hidden units")
+            print(f"Sequence length: {self.config['sequence_length']}")
+            print(f"Features used: {len(self.preprocessor.feature_cols)}")
+            
+            # Print loss function information
+            if self.config.get('use_dynamic_weighting', False):
+                print(f"Loss function: Dynamic weighted loss")
+            elif self.config.get('use_peak_weighted_loss', False):
+                print(f"Loss function: Peak weighted loss (weight: {self.peak_weight})")
+            else:
+                print(f"Loss function: Standard MSE loss")
+                
+            print(f"Time features: {self.config.get('use_time_features', False)}")
+            print(f"Smoothing: {self.config.get('use_smoothing', False)}")
             
             return predictions_original, predictions, y
     

@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import traceback
 
-from experiments.Improved_model_structure.train_model import DataPreprocessor, LSTM_Trainer
+from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
+from experiments.Improved_model_structure.train_model import LSTM_Trainer
 
 def objective(trial, train_data, val_data, base_config):
     """
