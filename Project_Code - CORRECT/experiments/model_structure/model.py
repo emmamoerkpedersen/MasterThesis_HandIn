@@ -21,9 +21,14 @@ class LSTMModelUpdate(nn.Module):
             batch_first=True,
             dropout=dropout
         )
-
+        
         # Dropout layer
         self.dropout = nn.Dropout(dropout)
+
+        # Layer normalization after first LSTM
+        self.layer_norm1 = nn.LayerNorm(hidden_size)
+
+        
         
         # LSTM layer with dropout
         self.lstm2 = nn.LSTM(
@@ -33,6 +38,9 @@ class LSTMModelUpdate(nn.Module):
             batch_first=True,
             dropout=dropout
         )
+
+        # Layer normalization after second LSTM
+        self.layer_norm2 = nn.LayerNorm(hidden_size)
 
         # LSTM layer with dropout
         self.lstm3 = nn.LSTM(
@@ -46,7 +54,10 @@ class LSTMModelUpdate(nn.Module):
         # Dropout layer
         self.dropout2 = nn.Dropout(dropout)
 
-        
+        # Layer normalization after third LSTM
+        self.layer_norm3 = nn.LayerNorm(hidden_size)
+
+       
         # Fully connected layer to map hidden state to output
         self.fc = nn.Linear(hidden_size, output_size)
    
@@ -66,16 +77,21 @@ class LSTMModelUpdate(nn.Module):
             # First dropout
             lstm1_out = self.dropout(lstm1_out)
             
+        lstm1_out = self.layer_norm1(lstm1_out)
+        
         # Second LSTM
         lstm2_out, _ = self.lstm2(lstm1_out)
- 
+        lstm2_out = self.layer_norm2(lstm2_out)
         
         # Third LSTM
         lstm3_out, _ = self.lstm3(lstm2_out)
+        
 
         if self.training:
             # second dropout
             lstm3_out = self.dropout2(lstm3_out)
+            
+        lstm3_out = self.layer_norm3(lstm3_out)
         
         # Dense layer
         predictions = self.fc(lstm3_out)
