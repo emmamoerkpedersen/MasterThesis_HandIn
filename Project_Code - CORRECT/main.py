@@ -123,38 +123,21 @@ def run_pipeline(
             original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
             preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
             
-            # Check structure of data pickles
-            print(f"Original data structure: {original_data.keys()}")
-            print(f"Preprocessed data structure: {preprocessed_data.keys()}")
-            # Check subkeys of primary keys
-            print(f"Original data subkeys: {original_data[station_id].keys()}")
-            print(f"Preprocessed data subkeys: {preprocessed_data[station_id].keys()}")
-            
-            # PERFORMANCE OPTIMIZATION: Check if plots already exist
-            plot_exists = (
-                (Path(output_path) / "diagnostics" / "preprocessing" / f"{station_id}_preprocessing.png").exists() and
-                (Path(output_path) / "diagnostics" / "preprocessing" / f"{station_id}_data_overview.png").exists() and
-                (Path(output_path) / "diagnostics" / "preprocessing" / f"{station_id}_vst_vinge_comparison.png").exists()
-            )
-            
-            # Only generate plots if they don't already exist or if we force regeneration
-            regenerate_plots = True  # Set to True to force regeneration
-            
-            if not plot_exists or regenerate_plots:
-                if original_data and preprocessed_data:
-                    print("Generating preprocessing plots...")
-                    plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), [])
-                    plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
-                    plot_vst_vinge_comparison(preprocessed_data, Path(output_path), original_data)
-                else:
-                    print(f"Warning: No data found for station {station_id}")
+            # Generate preprocessing plots
+            if original_data and preprocessed_data:
+                print("Generating preprocessing plots...")
+                plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), [])
+                plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
+                plot_vst_vinge_comparison(preprocessed_data, Path(output_path), original_data)
             else:
-                print("Preprocessing plots already exist. Skipping plot generation.")
+                print(f"Warning: No data found for station {station_id}")
                 
         except Exception as e:
             print(f"Error generating preprocessing diagnostics: {str(e)}")
             import traceback
             traceback.print_exc()
+    else:
+        print("Skipping preprocessing diagnostics generation...")
     
     #########################################################
     #    Step 3: Generate synthetic errors                  #
