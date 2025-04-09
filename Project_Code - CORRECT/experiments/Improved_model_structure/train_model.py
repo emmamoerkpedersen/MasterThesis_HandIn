@@ -191,7 +191,7 @@ class LSTM_Trainer:
                     print(f"Callback raised an exception: {e}")
                     break
 
-            # Early stopping based on smoothed validation loss
+            # Early stopping based on validation loss
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 patience_counter = 0
