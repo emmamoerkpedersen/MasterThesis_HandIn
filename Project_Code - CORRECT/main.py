@@ -19,7 +19,7 @@ import numpy as np
 # Add the parent directory to Python path to allow imports from experiments
 sys.path.append(str(Path(__file__).parent))
 
-from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, plot_additional_data, generate_preprocessing_report, plot_station_data_overview
+from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, generate_preprocessing_report, plot_station_data_overview, plot_vst_vinge_comparison
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
@@ -65,6 +65,13 @@ def run_pipeline(
     print(f"Loading, preprocessing and splitting station data for station {station_id}...")
     train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
     
+    # Debug prints to understand data structure
+    print("\nData Structure Analysis:")
+    print("Train data columns:", train_data.columns.tolist())
+    print("\nSample of train_data:")
+    print(train_data.head())
+    print("\nData types:")
+    print(train_data.dtypes)
 
     print("\nData split summary:")
     for feature in train_data.columns:
@@ -104,18 +111,50 @@ def run_pipeline(
     # Generate preprocessing diagnostics if enabled
     if preprocess_diagnostics:
         print("Generating preprocessing diagnostics...")
-        original_data = pd.read_pickle(data_dir / "original_data.pkl")
-        original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
+        data_dir = project_root / "results" / "preprocessing_diagnostics"
+        data_dir.mkdir(parents=True, exist_ok=True)
         
-        if original_data:
-            plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), frost_periods)
-            plot_additional_data(preprocessed_data, Path(output_path), original_data)
-            plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
-        else:
-            print(f"Warning: No original data found for station {station_id}")
-            # Still generate plots that don't require original data
-            plot_additional_data(preprocessed_data, Path(output_path))
-
+        try:
+            # Load the original and preprocessed data directly from pickles
+            original_data = pd.read_pickle(project_root / "data_utils" / "Sample data" / "original_data.pkl")
+            preprocessed_data = pd.read_pickle(project_root / "data_utils" / "Sample data" / "preprocessed_data.pkl")
+            
+            # Filter for just our station
+            original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
+            preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
+            
+            # Check structure of data pickles
+            print(f"Original data structure: {original_data.keys()}")
+            print(f"Preprocessed data structure: {preprocessed_data.keys()}")
+            # Check subkeys of primary keys
+            print(f"Original data subkeys: {original_data[station_id].keys()}")
+            print(f"Preprocessed data subkeys: {preprocessed_data[station_id].keys()}")
+            
+            # PERFORMANCE OPTIMIZATION: Check if plots already exist
+            plot_exists = (
+                (Path(output_path) / "diagnostics" / "preprocessing" / f"{station_id}_preprocessing.png").exists() and
+                (Path(output_path) / "diagnostics" / "preprocessing" / f"{station_id}_data_overview.png").exists() and
+                (Path(output_path) / "diagnostics" / "preprocessing" / f"{station_id}_vst_vinge_comparison.png").exists()
+            )
+            
+            # Only generate plots if they don't already exist or if we force regeneration
+            regenerate_plots = True  # Set to True to force regeneration
+            
+            if not plot_exists or regenerate_plots:
+                if original_data and preprocessed_data:
+                    print("Generating preprocessing plots...")
+                    plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), [])
+                    plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
+                    plot_vst_vinge_comparison(preprocessed_data, Path(output_path), original_data)
+                else:
+                    print(f"Warning: No data found for station {station_id}")
+            else:
+                print("Preprocessing plots already exist. Skipping plot generation.")
+                
+        except Exception as e:
+            print(f"Error generating preprocessing diagnostics: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     #########################################################
     #    Step 3: Generate synthetic errors                  #
@@ -278,9 +317,9 @@ def run_pipeline(
     history, val_predictions, val_targets = trainer.train(
         train_data=train_data,
         val_data=val_data,
-        epochs=LSTM_CONFIG['epochs'],  
-        batch_size=LSTM_CONFIG['batch_size'],
-        patience=LSTM_CONFIG['patience']  
+        epochs=best_config['epochs'],  # Fixed to match tuning
+        batch_size=best_config['batch_size'],
+        patience=best_config['patience']  # Fixed to match tuning
     )
     
     print("\nTraining Results:")
@@ -390,7 +429,7 @@ if __name__ == "__main__":
             project_root=project_root,
             data_path=data_path, 
             output_path=output_path,
-            preprocess_diagnostics=False,
+            preprocess_diagnostics=True,
             synthetic_diagnostics=False,
             run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
             hyperparameter_trials=30,  # Reasonable number for demonstration
