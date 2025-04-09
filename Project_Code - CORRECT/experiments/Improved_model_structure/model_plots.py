@@ -31,6 +31,21 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
     # Get the actual test data with its datetime index
     test_actual = test_data['vst_raw']
     
+    # Get vinge data if available
+    vinge_data = None
+    if 'vinge' in test_data.columns:
+        vinge_data = test_data['vinge']
+        # Debug vinge data
+        print("\nVinge data debug information:")
+        print(f"Vinge data type: {type(vinge_data)}")
+        print(f"Vinge data column contains NaN: {vinge_data.isna().sum()} NaN values out of {len(vinge_data)}")
+        # Print the non-NaN values in vinge data
+        non_nan_vinge = vinge_data.dropna()
+        print(f"Found {len(non_nan_vinge)} non-NaN vinge measurements")
+        if len(non_nan_vinge) > 0:
+            print(f"First 5 vinge values: {non_nan_vinge.head().values}")
+            print(f"First 5 vinge dates: {non_nan_vinge.head().index}")
+    
     # Get rainfall data without resampling
     rainfall_data = None
     if 'rainfall' in test_data.columns:
@@ -39,6 +54,8 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
     # Print lengths for debugging
     print(f"Length of test_actual: {len(test_actual)}")
     print(f"Length of predictions: {len(test_predictions)}")
+    if vinge_data is not None:
+        print(f"Length of vinge data: {len(vinge_data)}")
     
     # Extract predictions values - handle both DataFrame and Series inputs
     if isinstance(test_predictions, pd.DataFrame):
@@ -77,7 +94,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
             vertical_spacing=0.08,
             subplot_titles=subplot_titles,
             specs=specs,
-            row_heights=[0.3, 0.7]  # Give more space to rainfall
+            row_heights=[0.3, 0.7]  # Give more space to water level
         )
         
         # Add rainfall data to first subplot (top)
@@ -114,6 +131,30 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
             ),
             row=2, col=1
         )
+        
+        # Add vinge data if available - as scatter points
+        if vinge_data is not None:
+            # Filter out NaN values
+            non_nan_vinge = vinge_data.dropna()
+            if len(non_nan_vinge) > 0:
+                fig.add_trace(
+                    go.Scatter(
+                        x=non_nan_vinge.index,
+                        y=non_nan_vinge.values,
+                        name="Vinge Measurements",
+                        mode='markers',  # Use markers only (points)
+                        marker=dict(
+                            color='#2ca02c',
+                            size=8,
+                            symbol='circle',
+                            line=dict(width=1, color='#000000')
+                        )
+                    ),
+                    row=2, col=1
+                )
+                print(f"Added {len(non_nan_vinge)} vinge data points to plot")
+            else:
+                print("No valid vinge data points to plot")
         
         # Update y-axes labels and ranges
         fig.update_yaxes(
@@ -170,6 +211,29 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
                 line=dict(color='#d62728', width=1)
             )
         )
+        
+        # Add vinge data if available - as scatter points
+        if vinge_data is not None:
+            # Filter out NaN values
+            non_nan_vinge = vinge_data.dropna()
+            if len(non_nan_vinge) > 0:
+                fig.add_trace(
+                    go.Scatter(
+                        x=non_nan_vinge.index,
+                        y=non_nan_vinge.values,
+                        name="Vinge Measurements",
+                        mode='markers',  # Use markers only (points)
+                        marker=dict(
+                            color='#2ca02c',
+                            size=8,
+                            symbol='circle',
+                            line=dict(width=1, color='#000000')
+                        )
+                    )
+                )
+                print(f"Added {len(non_nan_vinge)} vinge data points to plot")
+            else:
+                print("No valid vinge data points to plot")
     
     # Create model configuration text
     config_text = ""
@@ -214,17 +278,17 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
         fig.add_annotation(
             x=1.15,  # Place it to the right of the plot
             y=0.5,
-                xref="paper", 
-                yref="paper",
-                text=config_text,
-                showarrow=False,
+            xref="paper", 
+            yref="paper",
+            text=config_text,
+            showarrow=False,
             font=dict(size=14),
-                align="left",
-                bgcolor="rgba(255, 255, 255, 0.9)",
+            align="left",
+            bgcolor="rgba(255, 255, 255, 0.9)",
             bordercolor="#000000",
-                borderwidth=1,
+            borderwidth=1,
             borderpad=10
-            )
+        )
         # Adjust margins to make room for config text
         fig.update_layout(margin=dict(r=250))
     
@@ -264,18 +328,26 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
     })
     
     # Create and save PNG version with just water level
-    create_water_level_plot_png(test_actual, predictions_series, station_id, timestamp, model_config, output_dir)
+    create_water_level_plot_png(test_actual, predictions_series, station_id, timestamp, model_config, output_dir, vinge_data)
     
     # Open HTML in browser
     absolute_path = os.path.abspath(html_path)
     print(f"Opening plot in browser: {absolute_path}")
     webbrowser.open('file://' + str(absolute_path))
 
-
-def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None):
+def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, vinge_data=None):
     """
-    Create a publication-quality matplotlib plot with just water level data and save as PNG.
+    Create a publication-quality matplotlib plot with water level data and save as PNG.
     Designed for thesis report with consistent colors and clean styling.
+    
+    Args:
+        actual: Series containing actual values with datetime index
+        predictions: Series containing model predictions with datetime index
+        station_id: ID of the station
+        timestamp: Timestamp string for unique filename
+        model_config: Optional model configuration
+        output_dir: Optional output directory path
+        vinge_data: Optional Series containing vinge measurements
     """
     # Set default output directory if not provided
     if output_dir is None:
@@ -302,8 +374,20 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     ax.plot(actual.index, actual.values, color='#1f77b4', linewidth=1.2, label='Actual')
     ax.plot(predictions.index, predictions.values, color='#d62728', linewidth=1.2, label='Predicted')
     
+    # Add vinge data if available as scatter points (not line)
+    if vinge_data is not None:
+        # Filter out NaN values
+        non_nan_vinge = vinge_data.dropna()
+        if len(non_nan_vinge) > 0:
+            ax.scatter(non_nan_vinge.index, non_nan_vinge.values, 
+                     color='#2ca02c', marker='o', s=40, alpha=0.8,
+                     edgecolors='black', linewidths=0.5,
+                     label='Vinge Measurements', zorder=5)  # Higher zorder to display on top
+            print(f"Added {len(non_nan_vinge)} vinge data points to PNG plot")
+        else:
+            print("No valid vinge data points to add to PNG plot")
+    
     # Clean styling
-    ax.set_title(f'Water Level Predictions - Station {station_id}', fontweight='bold', pad=15)
     ax.set_xlabel('Date', fontweight='bold', labelpad=10)
     ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
     
@@ -327,18 +411,20 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     print(f"Saved water level PNG plot to: {output_path}")
     plt.close()
 
-
-def plot_scaled_predictions(predictions, targets, test_data=None, title="Scaled Predictions vs Targets"):
-    
+def plot_scaled_predictions(predictions, targets, station_id=None, title="Scaled Predictions vs Targets"):
         """
         Plot scaled predictions and targets before inverse transformation.
         
         Args:
-            predictions: Scaled predictions array
-            targets: Scaled targets array
-            test_data: Original DataFrame with datetime index (optional)
+            predictions: Numpy array of scaled predictions
+            targets: Numpy array of scaled targets
+            station_id: Optional station ID for filename
             title: Plot title
         """
+        # Ensure output directory exists
+        output_dir = Path("Project_Code - CORRECT/results/lstm")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
         # Create figure
         fig = go.Figure()
         
@@ -346,13 +432,8 @@ def plot_scaled_predictions(predictions, targets, test_data=None, title="Scaled 
         flat_predictions = predictions.reshape(-1)
         flat_targets = targets.reshape(-1)
         
-        # Create x-axis points - either use dates from test_data or timesteps
-        if test_data is not None and hasattr(test_data, 'index'):
-            x_points = test_data.index[:len(flat_predictions)]
-            x_label = 'Date'
-        else:
-            x_points = np.arange(len(flat_predictions))
-            x_label = 'Timestep'
+        # Create x-axis points
+        x_points = np.arange(len(flat_predictions))
         
         # Add targets
         fig.add_trace(
@@ -377,34 +458,20 @@ def plot_scaled_predictions(predictions, targets, test_data=None, title="Scaled 
         # Update layout
         fig.update_layout(
             title=title,
-            xaxis_title=x_label,
+            xaxis_title='Timestep',
             yaxis_title='Scaled Value',
             width=1200,
             height=600,
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            )
+            showlegend=True
         )
         
-        # Add rangeslider if using dates
-        if test_data is not None and hasattr(test_data, 'index'):
-            fig.update_layout(
-                xaxis=dict(
-                    rangeslider=dict(visible=True),
-                    type="date"  # This will format the x-axis as dates
-                )
-            )
-        
         # Save and open in browser
-        html_path = 'scaled_predictions.html'
-        fig.write_html(html_path)
+        station_suffix = f"_station_{station_id}" if station_id else ""
+        html_path = output_dir / f'scaled_predictions{station_suffix}.html'
+        fig.write_html(str(html_path))
         print(f"Opening scaled predictions plot in browser...")
         webbrowser.open('file://' + os.path.abspath(html_path))
+
 
 def plot_convergence(history, station_id, title=None):
     """
@@ -460,7 +527,6 @@ def plot_convergence(history, station_id, title=None):
 
 
 def create_performance_analysis_plot(actual, predictions, station_id, model_config=None, output_dir=None):
-
     """
     Create a comprehensive performance analysis plot with multiple subplots:
     1. Time series comparison during peak events
@@ -740,115 +806,3 @@ def create_performance_analysis_plot(actual, predictions, station_id, model_conf
         'mean_error': error_mean,
         'std_error': error_std
     }
-
-def plot_scaled_vs_unscaled_features(data, scaled_data, feature_cols, output_dir=None):
-    """
-    Create an interactive HTML plot comparing scaled and unscaled versions of all features and targets.
-    
-    Args:
-        data: DataFrame containing unscaled data with datetime index
-        scaled_data: DataFrame containing scaled data with datetime index
-        feature_cols: List of feature column names to plot
-        output_dir: Optional output directory path
-    """
-    # Set default output directory if not provided
-    if output_dir is None:
-        output_dir = Path("Project_Code - CORRECT/results/lstm")
-        output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate timestamp for unique filename
-    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Create a figure with subplots - one for each feature
-    n_features = len(feature_cols)
-    
-    # Create a subplot figure with Plotly
-    fig = make_subplots(
-        rows=n_features, 
-        cols=2, 
-        vertical_spacing=0.05,
-        horizontal_spacing=0.05
-    )
-    
-    # Plot each feature
-    for i, feature in enumerate(feature_cols):
-        # Unscaled plot
-        fig.add_trace(
-            go.Scatter(
-                x=data.index,
-                y=data[feature],
-                name=f'{feature} (Unscaled)',
-                line=dict(color='#1f77b4', width=1),
-                showlegend=False
-            ),
-            row=i+1, col=1
-        )
-        
-        # Scaled plot
-        fig.add_trace(
-            go.Scatter(
-                x=scaled_data.index,
-                y=scaled_data[feature],
-                name=f'{feature} (Scaled)',
-                line=dict(color='#d62728', width=1),
-                showlegend=False
-            ),
-            row=i+1, col=2
-        )
-        
-        # Add statistics text as annotations
-        unscaled_mean = np.nanmean(data[feature])
-        unscaled_std = np.nanstd(data[feature])
-        scaled_mean = np.nanmean(scaled_data[feature])
-        scaled_std = np.nanstd(scaled_data[feature])
-        
-        stats_text = (
-            f'Unscaled: Mean={unscaled_mean:.2f}, Std={unscaled_std:.2f}<br>'
-            f'Scaled: Mean={scaled_mean:.2f}, Std={scaled_std:.2f}'
-        )
-        
-        # Add text annotation for statistics
-        fig.add_annotation(
-            x=0.05, y=0.95,
-            xref=f'x{i*2+1}', yref=f'y{i*2+1}',
-            text=stats_text,
-            showarrow=False,
-            font=dict(size=10),
-            bgcolor='rgba(255, 255, 255, 0.8)',
-            bordercolor='#cccccc',
-            borderwidth=1,
-            borderpad=4
-        )
-        
-        # Update axes labels
-        fig.update_xaxes(title_text='Date', row=i+1, col=1)
-        fig.update_xaxes(title_text='Date', row=i+1, col=2)
-        fig.update_yaxes(title_text='Value', row=i+1, col=1)
-        fig.update_yaxes(title_text='Scaled Value', row=i+1, col=2)
-    
-    # Update layout
-    fig.update_layout(
-        title='Scaled vs Unscaled Features Comparison',
-        height=300 * n_features,  # Adjust height based on number of features
-        width=1200,
-        showlegend=False,
-        template='plotly_white'
-    )
-    
-    # Set x-axis range for all subplots
-    start_date = pd.Timestamp('2010-01-04')
-    end_date = pd.Timestamp('2020-12-31')
-    
-    # Update the x-axis range for all subplots
-    for i in range(n_features):
-        # Update x-axis range for unscaled plots
-        fig.update_xaxes(range=[start_date, end_date], row=i+1, col=1)
-        # Update x-axis range for scaled plots
-        fig.update_xaxes(range=[start_date, end_date], row=i+1, col=2)
-    
-
-    # Display the plot in the browser without saving
-    fig.show()
-    
-    # Return None since we're not saving the file
-    return None

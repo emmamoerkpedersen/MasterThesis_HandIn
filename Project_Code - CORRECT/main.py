@@ -16,18 +16,27 @@ from pathlib import Path
 import sys
 import numpy as np
 
-from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, plot_additional_data, generate_preprocessing_report, plot_station_data_overview
+# Add the parent directory to Python path to allow imports from experiments
+sys.path.append(str(Path(__file__).parent))
+
+from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, generate_preprocessing_report, plot_station_data_overview, plot_vst_vinge_comparison
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-#from _3_lstm_model.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
+from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
+from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot, plot_scaled_vs_unscaled_features
+from config import SYNTHETIC_ERROR_PARAMS
+from config import LSTM_CONFIG
 
-from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
-#from _3_lstm_model.model import LSTMModel   
-from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
-from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
-from experiments.model_structure.model import LSTMModelUpdate
-from experiments.model_structure.train_model import LSTM_TrainerUpdate
+
+from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
+from experiments.Improved_model_structure.train_model import LSTM_Trainer
+from experiments.Improved_model_structure.model import LSTMModel
+
+
+# from _3_lstm_model.model import LSTMModel
+# from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
+# from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
 
 def run_pipeline(
     project_root: Path,
@@ -36,7 +45,7 @@ def run_pipeline(
     preprocess_diagnostics: bool = False,
     synthetic_diagnostics: bool = False,
     run_hyperparameter_optimization: bool = False,
-    hyperparameter_trials: int = 10,
+    hyperparameter_trials: int = 20,  # Reduced to 20 for faster results
     hyperparameter_diagnostics: bool = False,
     
 ):
@@ -56,9 +65,15 @@ def run_pipeline(
     print(f"Loading, preprocessing and splitting station data for station {station_id}...")
     train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
     
+    # Debug prints to understand data structure
+    print("\nData Structure Analysis:")
+    print("Train data columns:", train_data.columns.tolist())
+    print("\nSample of train_data:")
+    print(train_data.head())
+    print("\nData types:")
+    print(train_data.dtypes)
 
     print("\nData split summary:")
-    print(f"Train data: {train_data.shape}")
     for feature in train_data.columns:
         min_val = train_data[feature].min()
         max_val = train_data[feature].max()
@@ -68,25 +83,61 @@ def run_pipeline(
     print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
     print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
     
-    print(f"Test data: {test_data.shape}")
+    # # Plot scaled vs unscaled features for visualization
+    # print("\nGenerating scaled vs unscaled features plot for control...")
+    
+    # # Get the original data before scaling
+    # original_data = train_data.copy()
+    
+    # # Get the scaled data by applying the scaler
+    # features = pd.concat([train_data[col] for col in preprocessor.feature_cols], axis=1)
+    # target = pd.DataFrame(train_data[preprocessor.output_features])
+    
+    # # Scale the data
+    # scaled_features, scaled_target = preprocessor.feature_scaler.fit_transform(features, target)
+    
+    # # Create a DataFrame with the scaled data
+    # scaled_data = pd.DataFrame(scaled_features, columns=preprocessor.feature_cols, index=train_data.index)
+    # scaled_data[preprocessor.output_features] = scaled_target
+    
+    # # Create the plot
+    # plot_scaled_vs_unscaled_features(
+    #     data=original_data,
+    #     scaled_data=scaled_data,
+    #     feature_cols=preprocessor.feature_cols + [preprocessor.output_features],
+    #     output_dir=Path(output_path) / "lstm"
+    # )
 
     # Generate preprocessing diagnostics if enabled
     if preprocess_diagnostics:
         print("Generating preprocessing diagnostics...")
-        original_data = pd.read_pickle(data_dir / "original_data.pkl")
-        original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
+        data_dir = project_root / "results" / "preprocessing_diagnostics"
+        data_dir.mkdir(parents=True, exist_ok=True)
         
-        if original_data:
-            # Convert freezing_periods to list if it's not already
-            frost_periods = freezing_periods if isinstance(freezing_periods, list) else []
-            plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), frost_periods)
-            plot_additional_data(preprocessed_data, Path(output_path), original_data)
-            plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
-        else:
-            print(f"Warning: No original data found for station {station_id}")
-            # Still generate plots that don't require original data
-            plot_additional_data(preprocessed_data, Path(output_path))
-
+        try:
+            # Load the original and preprocessed data directly from pickles
+            original_data = pd.read_pickle(project_root / "data_utils" / "Sample data" / "original_data.pkl")
+            preprocessed_data = pd.read_pickle(project_root / "data_utils" / "Sample data" / "preprocessed_data.pkl")
+            
+            # Filter for just our station
+            original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
+            preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
+            
+            # Generate preprocessing plots
+            if original_data and preprocessed_data:
+                print("Generating preprocessing plots...")
+                plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), [])
+                plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
+                plot_vst_vinge_comparison(preprocessed_data, Path(output_path), original_data)
+            else:
+                print(f"Warning: No data found for station {station_id}")
+                
+        except Exception as e:
+            print(f"Error generating preprocessing diagnostics: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print("Skipping preprocessing diagnostics generation...")
     
     #########################################################
     #    Step 3: Generate synthetic errors                  #
@@ -145,28 +196,52 @@ def run_pipeline(
         print(f"\nRunning hyperparameter optimization with {hyperparameter_trials} trials...")
         try:
             best_config, study = run_hyperparameter_tuning(
-                split_datasets=split_datasets,
-                stations_results=stations_results,
+                train_data=train_data,
+                val_data=val_data,
                 output_path=Path(output_path),
                 base_config=model_config,
-                n_trials=hyperparameter_trials,
-                diagnostics=hyperparameter_diagnostics,
-                data_sample_ratio=0.3
+                n_trials=hyperparameter_trials
             )
             # Update configuration with optimized parameters
-            model_config.update(best_config)
+            model_config = best_config  # Replace with entire best config
             print("\nUsing optimized hyperparameters:")
             for param, value in best_config.items():
-                print(f"  {param}: {value}")
+                if param in ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 'batch_size']:
+                    print(f"  {param}: {value}")
+            
+            # Generate hyperparameter visualization reports if diagnostics are enabled
+            if hyperparameter_diagnostics:
+                print("\nGenerating hyperparameter tuning diagnostics...")
+                study_path = Path(output_path) / "hyperparameter_tuning" / "all_trials.json"
+                if study_path.exists():
+                    generate_hyperparameter_report(
+                        study_path=study_path,
+                        output_dir=Path(output_path) / "hyperparameter_diagnostics",
+                        top_n=5  # Show top 5 models
+                    )
+                else:
+                    print(f"Could not find hyperparameter trials data at {study_path}")
+            
         except Exception as e:
             print(f"\nError during hyperparameter optimization: {str(e)}")
             print("Continuing with base configuration")
             import traceback
             traceback.print_exc()
     else:
-        print("\nUsing base configuration from config.py:")
-        for param, value in model_config.items():
-            print(f"  {param}: {value}")
+        # Try to load best hyperparameters from previous runs
+        try:
+            loaded_config = load_best_hyperparameters(Path(output_path), model_config)
+            if loaded_config != model_config:
+                model_config = loaded_config
+                print("\nLoaded hyperparameters from previous tuning:")
+                for param, value in model_config.items():
+                    if param in ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 'batch_size']:
+                        print(f"  {param}: {value}")
+            else:
+                print("\nUsing base configuration from config.py")
+        except Exception as e:
+            print(f"\nError loading previous hyperparameters: {str(e)}")
+            print("Using base configuration")
     
     #########################################################
     # Step 5: LSTM training and prediction                  #
@@ -176,29 +251,66 @@ def run_pipeline(
     
     # Initialize model
     print("\nInitializing LSTM model...")
+    
+    # Get input size from feature columns
+    input_size = len(preprocessor.feature_cols)
 
     # Now create the real model with the correct input size
-    model = LSTMModelUpdate(
-        input_size=6, # Hard coded for now
-        sequence_length=None,  
+    model = LSTMModel(
+        input_size=input_size,  # Use dynamically calculated input size
+        sequence_length=model_config['sequence_length'],  
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
         num_layers=model_config['num_layers'],
         dropout=model_config['dropout']
     )
-
-    # Initialize the real trainer with the correct model
-    trainer = LSTM_TrainerUpdate(model_config, preprocessor=preprocessor)
     
-    # Train model on combined data with optimized batch size
-    print("\nTraining model on combined data...")
+    # Load best hyperparameters
+    best_config = load_best_hyperparameters(Path(output_path), model_config)
+    
+    # Verify the loaded parameters match what we expect
+    print("\nVerifying hyperparameters:")
+    expected_params = ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 
+                      'batch_size', 'sequence_length', 'peak_weight', 
+                      'grad_clip_value', 'smoothing_alpha']
+    for param in expected_params:
+        print(f"  {param}: {best_config.get(param)}")
+    
+    # Initialize the trainer with the verified config
+    trainer = LSTM_Trainer(LSTM_CONFIG, preprocessor=preprocessor)
+    
+    # Print model architecture
+    print("\nModel Architecture:")
+    print(f"Input Size: {len(preprocessor.feature_cols)}")
+    print(f"Hidden Size: {best_config['hidden_size']}")
+    print(f"Number of Layers: {best_config['num_layers']}")
+    print(f"Dropout Rate: {best_config['dropout']}")
+    print(f"Learning Rate: {best_config['learning_rate']}")
+    print(f"Batch Size: {best_config['batch_size']}")
+    print(f"Sequence Length: {best_config['sequence_length']}")
+    
+    # Train model with verified parameters
+    print("\nStarting training with verified parameters...")
+    print("Using identical conditions as hyperparameter tuning")
+    print(f"Epochs: {best_config['epochs']}")
+    print(f"Batch size: {best_config['batch_size']}")
+    print(f"Patience: {best_config['patience']}")
+    print(f"Learning rate: {best_config['learning_rate']}")
+    
     history, val_predictions, val_targets = trainer.train(
         train_data=train_data,
         val_data=val_data,
-        epochs=model_config['epochs'],
-        batch_size=model_config['batch_size'], 
-        patience=model_config['patience']
+        epochs=best_config['epochs'],  # Fixed to match tuning
+        batch_size=best_config['batch_size'],
+        patience=best_config['patience']  # Fixed to match tuning
     )
+    
+    print("\nTraining Results:")
+    print(f"Best validation loss: {min(history['val_loss']):.6f}")
+    print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
+    if 'smoothed_val_loss' in history:
+        print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+        print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
 
     # Save final model
     torch.save(model.state_dict(), 'final_model.pth')
@@ -209,7 +321,7 @@ def run_pipeline(
     
     # Preserve temporal order during inverse transform (same as predict function)
     predictions_reshaped = val_predictions.reshape(-1, 1)
-    predictions_original = preprocessor.scalers['target'].inverse_transform(predictions_reshaped)
+    predictions_original = preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
     # Trim predictions to match validation data length
@@ -217,20 +329,67 @@ def run_pipeline(
     
     # Create DataFrame with aligned predictions and targets
     val_predictions_df = pd.DataFrame(
-        predictions_flattened,  # Use trimmed 1D array
+        predictions_flattened,  # Use trimmed 1D array  
         index=val_data.index,
         columns=['vst_raw']
     )
-    # Now plot with aligned data
-    create_full_plot(val_data, val_predictions_df, station_id)  # Pass the Series directly
+    # Now plot with aligned data - make sure station_id is a string
+    create_full_plot(val_data, val_predictions_df, str(station_id), model_config)  # Pass model config
+    
+
+    # Plot scaled predictions to check if they are correct   
+    # print("\nPlotting scaled validation predictions...")
+    # val_predictions, predictions_scaled, target_scaled = trainer.predict(val_data)
+    # plot_scaled_predictions(predictions_scaled, target_scaled, test_data=val_data, title="Scaled Validation Predictions vs Targets")
+
+
+    # # Create comprehensive performance analysis plot
+    # print("\nGenerating comprehensive performance analysis plot...")
+    # test_actual = pd.Series(
+    #     val_data['vst_raw'].values,
+    #     index=val_data.index,
+    #     name='Actual'
+    # )
+    # val_predictions_series = pd.Series(
+    #     predictions_flattened,
+    #     index=val_data.index[:len(predictions_flattened)],
+    #     name='Predicted'
+    #)
+    # performance_metrics = create_performance_analysis_plot(
+    #     test_actual, 
+    #     val_predictions_series, 
+    #     str(station_id), 
+    #     model_config,
+    #     Path(output_path) / "lstm"
+    # )
+    
+    # Print performance metrics
+    # print("\nModel Performance Metrics:")
+    # print(f"RMSE: {performance_metrics['rmse']:.4f} mm")
+    # print(f"MAE: {performance_metrics['mae']:.4f} mm")
+    # print(f"R²: {performance_metrics['r2']:.4f}")
+    # print(f"Mean Error: {performance_metrics['mean_error']:.4f} mm")
+    # print(f"Std Error: {performance_metrics['std_error']:.4f} mm")
     
     # Make and plot test predictions
     print("\nMaking predictions on test set...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
+  
+    
+    # # Convert test predictions to DataFrame for plotting
+    # test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
+    # test_predictions_df = pd.DataFrame(
+    #     test_predictions_reshaped,  # Already flattened
+    #     index=test_data.index[:len(test_predictions_reshaped)],
+    #     columns=['vst_raw']
+    # )
+    
+    # # Plot test results with model config
+    # create_full_plot(test_data, test_predictions_df, str(station_id), model_config)  # Pass model config
     
     # Plot convergence
-    plot_convergence(history, title=f"Training and Validation Loss - Station {station_id}")
-
+    # plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
+    
     return test_predictions, predictions_original, history
 
 
@@ -255,15 +414,18 @@ if __name__ == "__main__":
             output_path=output_path,
             preprocess_diagnostics=False,
             synthetic_diagnostics=False,
-            run_hyperparameter_optimization=False,
-            hyperparameter_trials=10,
-            hyperparameter_diagnostics=False,
+            run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
+            hyperparameter_trials=30,  # Reasonable number for demonstration
+            hyperparameter_diagnostics=False,  # Simplified approach doesn't need diagnostics
         )
 
         print("\nModel run completed!")
         print(f"Results saved to: {output_path}")
         print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
         print(f"Best validation loss: {min(history['val_loss']):.6f}")
+        if 'smoothed_val_loss' in history:
+            print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
+            print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
         
     except Exception as e:
         print(f"\nError running pipeline: {e}")
