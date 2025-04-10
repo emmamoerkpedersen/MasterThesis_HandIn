@@ -119,7 +119,7 @@ LSTM_CONFIG = {
     'num_layers': 2,
     'dropout': 0.25,
     'batch_size': 5,
-    'sequence_length': 5000,
+    'sequence_length': 25000,
     'epochs': 100,
     'patience': 15,
     'warmup_length': 100,
