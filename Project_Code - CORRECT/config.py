@@ -135,7 +135,7 @@ LSTM_CONFIG = {
     'use_time_features': True,
     'use_cumulative_features': True,
     'feature_cols': [
-        'rainfall',
+        'rainfall', 'temperature'
     ],
     'output_features': ['vst_raw'],
 
