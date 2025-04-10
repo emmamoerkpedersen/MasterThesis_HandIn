@@ -334,7 +334,8 @@ def run_pipeline(
         columns=['vst_raw']
     )
     # Now plot with aligned data - make sure station_id is a string
-    create_full_plot(val_data, val_predictions_df, str(station_id), model_config)  # Pass model config
+    best_val_loss = min(history['val_loss'])
+    create_full_plot(val_data, val_predictions_df, str(station_id), model_config, best_val_loss)  # Pass model config and best val loss
     
 
     # Plot scaled predictions to check if they are correct   
