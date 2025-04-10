@@ -96,6 +96,11 @@ class DataPreprocessor:
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
+        #Aggregate temperature to 30 days
+        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
+        print(f"  - Aggregated temperature to 30 days")
+
+       
 
         # Add cumulative rainfall features if enabled in config
         if self.config.get('use_cumulative_features', False):

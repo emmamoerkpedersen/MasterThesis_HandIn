@@ -24,7 +24,7 @@ from diagnostics.split_diagnostics import plot_split_visualization, generate_spl
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot, plot_scaled_vs_unscaled_features
+from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot, plot_scaled_vs_unscaled_features, plot_features_stacked_plots
 from config import SYNTHETIC_ERROR_PARAMS
 from config import LSTM_CONFIG
 
@@ -32,7 +32,6 @@ from config import LSTM_CONFIG
 from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
 from experiments.Improved_model_structure.model import LSTMModel
-
 
 # from _3_lstm_model.model import LSTMModel
 # from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
@@ -83,6 +82,11 @@ def run_pipeline(
     print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
     print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
     
+    
+    # Plot features
+    plot_features_stacked_plots(train_data, preprocessor.feature_cols)
+
+
     # # Plot scaled vs unscaled features for visualization
     # print("\nGenerating scaled vs unscaled features plot for control...")
     
@@ -334,8 +338,7 @@ def run_pipeline(
         columns=['vst_raw']
     )
     # Now plot with aligned data - make sure station_id is a string
-    best_val_loss = min(history['val_loss'])
-    create_full_plot(val_data, val_predictions_df, str(station_id), model_config, best_val_loss)  # Pass model config and best val loss
+    create_full_plot(val_data, val_predictions_df, str(station_id), model_config)  # Pass model config
     
 
     # Plot scaled predictions to check if they are correct   

@@ -335,7 +335,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     print(f"Opening plot in browser: {absolute_path}")
     webbrowser.open('file://' + str(absolute_path))
 
-
 def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None):
     """
     Create a publication-quality matplotlib plot with just water level data and save as PNG.
@@ -806,6 +805,7 @@ def create_performance_analysis_plot(actual, predictions, station_id, model_conf
     }
 
 def plot_scaled_vs_unscaled_features(data, scaled_data, feature_cols, output_dir=None):
+
     """
     Create an interactive HTML plot comparing scaled and unscaled versions of all features and targets.
     
@@ -916,3 +916,65 @@ def plot_scaled_vs_unscaled_features(data, scaled_data, feature_cols, output_dir
     
     # Return None since we're not saving the file
     return None
+
+
+def plot_features_stacked_plots(data, feature_cols):
+    """
+    Create a stacked plot of all feature engineering rainfall data.
+    
+    Args:
+        data: DataFrame containing rainfall data
+        feature_cols: List of feature column names to plot
+        output_dir: Optional output directory path
+    """
+
+    
+    # Generate timestamp for unique filename
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create a figure with subplots - one for each feature
+    n_features = len(feature_cols)
+    
+    # Create subplot titles from feature names
+    subplot_titles = [f"{feature}" for feature in feature_cols]
+    
+    # Create a subplot figure with Plotly
+    fig = make_subplots(
+        rows=n_features, 
+        cols=1, 
+        vertical_spacing=0.05,
+        horizontal_spacing=0.05,
+        subplot_titles=subplot_titles
+    )
+    
+    # Plot each feature
+    for i, feature in enumerate(feature_cols):
+        # Create a line plot for the feature
+        fig.add_trace(
+            go.Scatter(
+                x=data.index,
+                y=data[feature],
+                name=feature,
+                line=dict(color='#1f77b4', width=1),
+               
+            ),  
+            row=i+1, col=1
+        )
+    
+    # Update layout
+    fig.update_layout(
+        title='Stacked Features Comparison',
+        height=200 * n_features,  # Adjust height based on number of features
+        width=1200,
+        showlegend=False,
+        template='plotly_white',
+    )   
+    
+    # Display the plot in the browser without saving
+    fig.show()
+    
+    # Return None since we're not saving the file
+    return None
+    
+    
+
