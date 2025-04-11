@@ -122,6 +122,7 @@ LSTM_CONFIG = {
     'sequence_length': 5500,
     'epochs': 600,
     'patience': 25,
+
     'warmup_length': 100,
     'learning_rate': 0.0001,    
 
@@ -134,10 +135,8 @@ LSTM_CONFIG = {
 
     'use_time_features': True,
     'use_cumulative_features': True,
-    'feature_cols': [
-        'rainfall',
-        'temperature',
-    ],
+    'feature_cols': ['rainfall',
+        'temperature'],
     'output_features': ['vst_raw'],
 
     'feature_stations': [
