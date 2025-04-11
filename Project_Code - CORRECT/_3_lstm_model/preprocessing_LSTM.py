@@ -102,6 +102,10 @@ class DataPreprocessor:
 
        
 
+        # Aggregate temperature to 30 days
+        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
+        print(f"  - Aggregated temperature to 30 days")
+
         # Add cumulative rainfall features if enabled in config
         if self.config.get('use_cumulative_features', False):
             data = self._add_cumulative_features(data)

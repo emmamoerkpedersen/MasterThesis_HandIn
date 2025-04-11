@@ -328,12 +328,25 @@ def run_pipeline(
     predictions_original = preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
-    # Trim predictions to match validation data length
-    predictions_flattened = predictions_flattened[:len(val_data)]
+    # Print diagnostic information about shapes
+    print(f"\nShape diagnostics:")
+    print(f"Validation data length: {len(val_data)}")
+    print(f"Predictions length: {len(predictions_flattened)}")
+    
+    # Ensure predictions match validation data length
+    if len(predictions_flattened) < len(val_data):
+        # If predictions are shorter, pad with NaN values
+        print(f"Padding predictions with NaN values to match validation data length")
+        padding = np.full(len(val_data) - len(predictions_flattened), np.nan)
+        predictions_flattened = np.concatenate([predictions_flattened, padding])
+    elif len(predictions_flattened) > len(val_data):
+        # If predictions are longer, truncate to match validation data length
+        print(f"Truncating predictions to match validation data length")
+        predictions_flattened = predictions_flattened[:len(val_data)]
     
     # Create DataFrame with aligned predictions and targets
     val_predictions_df = pd.DataFrame(
-        predictions_flattened,  # Use trimmed 1D array  
+        predictions_flattened,  # Use adjusted 1D array  
         index=val_data.index,
         columns=['vst_raw']
     )
