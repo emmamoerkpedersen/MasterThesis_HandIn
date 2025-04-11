@@ -12,7 +12,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 
-def create_full_plot(test_data, test_predictions, station_id, model_config=None):
+def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None):
     """
     Create an interactive plot with aligned datetime indices, rainfall data, and model configuration.
     
@@ -21,6 +21,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
         test_predictions: DataFrame or Series containing predictions
         station_id: ID of the station being analyzed
         model_config: Optional dictionary containing model configuration parameters
+        best_val_loss: Optional best validation loss achieved during training
     """
     # Ensure output directory exists
     output_dir = Path("Project_Code - CORRECT/results/lstm")
@@ -174,28 +175,61 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
     # Create model configuration text
     config_text = ""
     if model_config:
-        config_text = (
-            f"Model Configuration:<br>"
-            f"Hidden Size: {model_config.get('hidden_size', 'N/A')}<br>"
-            f"Layers: {model_config.get('num_layers', 'N/A')}<br>"
-            f"Learning Rate: {model_config.get('learning_rate', 0.001):.6f}<br>"
-            f"Batch Size: {model_config.get('batch_size', 'N/A')}<br>"
-            f"Time Features: {model_config.get('use_time_features', False)}<br>"
-            f"Peak Weighted Loss: {model_config.get('use_peak_weighted_loss', False)}"
-        )
+        # Create a comprehensive config text with all important parameters
+        config_lines = [
+            f"Model Configuration:<br>",
+            f"Architecture: LSTM<br>",
+            f"Hidden Size: {model_config.get('hidden_size', 'N/A')}<br>",
+            f"Layers: {model_config.get('num_layers', 'N/A')}<br>",
+            f"Dropout: {model_config.get('dropout', 'N/A')}<br>",
+            f"Batch Size: {model_config.get('batch_size', 'N/A')}<br>",
+            f"Sequence Length: {model_config.get('sequence_length', 'N/A')}<br>",
+            f"Learning Rate: {model_config.get('learning_rate', 0.001):.6f}<br>",
+            f"Epochs: {model_config.get('epochs', 'N/A')}<br>",
+            f"Patience: {model_config.get('patience', 'N/A')}<br>",
+            f"Loss Function: {model_config.get('objective_function', 'N/A')}<br>"
+        ]
+        
+        # Add best validation loss if provided
+        if best_val_loss is not None:
+            config_lines.append(f"Best Val Loss: {best_val_loss:.6f}<br>")
+            
+        # Add optional configuration parameters if they exist
+        if 'peak_weight' in model_config:
+            config_lines.append(f"Peak Weight: {model_config.get('peak_weight', 'N/A')}<br>")
+        
+        if 'grad_clip_value' in model_config:
+            config_lines.append(f"Gradient Clip: {model_config.get('grad_clip_value', 'N/A')}<br>")
+            
+        if 'use_smoothing' in model_config:
+            config_lines.append(f"Use Smoothing: {model_config.get('use_smoothing', False)}<br>")
+            
+        if model_config.get('use_smoothing', False) and 'smoothing_alpha' in model_config:
+            config_lines.append(f"Smoothing Alpha: {model_config.get('smoothing_alpha', 'N/A')}<br>")
+            
+        config_lines.append(f"Time Features: {model_config.get('use_time_features', False)}<br>")
+        config_lines.append(f"Cumulative Features: {model_config.get('use_cumulative_features', False)}<br>")
+        
+        # Feature columns
+        if 'feature_cols' in model_config:
+            features_str = ', '.join(model_config.get('feature_cols', []))
+            config_lines.append(f"Features: {features_str}<br>")
+        
+        # Create final text
+        config_text = ''.join(config_lines)
     
     # Update layout
     fig.update_layout(
         title={
             'text': f'Prediction Analysis for Station {station_id}',
-            'y': 0.98,
+            'y': 0.95,  # Moved down slightly to make room for config
             'x': 0.5,
             'xanchor': 'center',
             'yanchor': 'top',
             'font': {'size': 24}
         },
-        width=1500,  # Increased width
-        height=1000,  # Increased height
+        width=1500,  # Back to reasonable width
+        height=1000,  # Keep height
         showlegend=True,
         legend=dict(
             orientation="h",
@@ -206,27 +240,57 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
         ),
         plot_bgcolor='white',
         paper_bgcolor='white',
-        margin=dict(l=80, r=80, t=100, b=80)
+        margin=dict(l=80, r=80, t=180, b=80)  # Increased top margin for config box
     )
     
-    # Add configuration text as a more visible annotation
+    # Add configuration text in a box at the top of the plot
     if config_text:
+        # Create a more compact version of the config text for the top box
+        compact_lines = []
+        
+        # First row: Architecture, Hidden Size, Layers, Batch Size
+        row1 = f"Architecture: LSTM | Hidden Size: {model_config.get('hidden_size', 'N/A')} | "
+        row1 += f"Layers: {model_config.get('num_layers', 'N/A')} | Dropout: {model_config.get('dropout', 'N/A')} | "
+        row1 += f"Batch: {model_config.get('batch_size', 'N/A')}"
+        compact_lines.append(row1)
+        
+        # Second row: Learning Rate, Sequence Length, Loss Function, Best Val Loss
+        row2 = f"Learning Rate: {model_config.get('learning_rate', 0.001):.6f} | "
+        row2 += f"Sequence Length: {model_config.get('sequence_length', 'N/A')} | "
+        row2 += f"Loss Function: {model_config.get('objective_function', 'N/A')}"
+        if best_val_loss is not None:
+            row2 += f" | Best Val Loss: {best_val_loss:.6f}"
+        compact_lines.append(row2)
+        
+        # Third row: Peak Weight, Gradient Clip, Features
+        row3 = ""
+        if 'peak_weight' in model_config:
+            row3 += f"Peak Weight: {model_config.get('peak_weight', 'N/A')} | "
+        if 'grad_clip_value' in model_config:
+            row3 += f"Grad Clip: {model_config.get('grad_clip_value', 'N/A')} | "
+        row3 += f"Time Features: {model_config.get('use_time_features', False)} | "
+        row3 += f"Cumulative Features: {model_config.get('use_cumulative_features', False)}"
+        compact_lines.append(row3)
+        
+        # Create compact text
+        compact_text = "<br>".join(compact_lines)
+        
+        # Add as annotation at the top of the plot
         fig.add_annotation(
-            x=1.15,  # Place it to the right of the plot
-            y=0.5,
-                xref="paper", 
-                yref="paper",
-                text=config_text,
-                showarrow=False,
-            font=dict(size=14),
-                align="left",
-                bgcolor="rgba(255, 255, 255, 0.9)",
+            x=0.5,  # Center of the plot
+            y=1.05,  # Just above the plot title
+            xref="paper", 
+            yref="paper",
+            text=compact_text,
+            showarrow=False,
+            font=dict(size=12),
+            align="center",
+            bgcolor="rgba(240, 240, 240, 0.9)",
             bordercolor="#000000",
-                borderwidth=1,
-            borderpad=10
-            )
-        # Adjust margins to make room for config text
-        fig.update_layout(margin=dict(r=250))
+            borderwidth=1,
+            borderpad=8,
+            width=1200  # Wide enough for the text
+        )
     
     # Add range selector buttons
     fig.update_xaxes(
@@ -270,7 +334,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None)
     absolute_path = os.path.abspath(html_path)
     print(f"Opening plot in browser: {absolute_path}")
     webbrowser.open('file://' + str(absolute_path))
-
 
 def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None):
     """
@@ -742,6 +805,7 @@ def create_performance_analysis_plot(actual, predictions, station_id, model_conf
     }
 
 def plot_scaled_vs_unscaled_features(data, scaled_data, feature_cols, output_dir=None):
+
     """
     Create an interactive HTML plot comparing scaled and unscaled versions of all features and targets.
     
@@ -852,3 +916,65 @@ def plot_scaled_vs_unscaled_features(data, scaled_data, feature_cols, output_dir
     
     # Return None since we're not saving the file
     return None
+
+
+def plot_features_stacked_plots(data, feature_cols):
+    """
+    Create a stacked plot of all feature engineering rainfall data.
+    
+    Args:
+        data: DataFrame containing rainfall data
+        feature_cols: List of feature column names to plot
+        output_dir: Optional output directory path
+    """
+
+    
+    # Generate timestamp for unique filename
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create a figure with subplots - one for each feature
+    n_features = len(feature_cols)
+    
+    # Create subplot titles from feature names
+    subplot_titles = [f"{feature}" for feature in feature_cols]
+    
+    # Create a subplot figure with Plotly
+    fig = make_subplots(
+        rows=n_features, 
+        cols=1, 
+        vertical_spacing=0.05,
+        horizontal_spacing=0.05,
+        subplot_titles=subplot_titles
+    )
+    
+    # Plot each feature
+    for i, feature in enumerate(feature_cols):
+        # Create a line plot for the feature
+        fig.add_trace(
+            go.Scatter(
+                x=data.index,
+                y=data[feature],
+                name=feature,
+                line=dict(color='#1f77b4', width=1),
+               
+            ),  
+            row=i+1, col=1
+        )
+    
+    # Update layout
+    fig.update_layout(
+        title='Stacked Features Comparison',
+        height=200 * n_features,  # Adjust height based on number of features
+        width=1200,
+        showlegend=False,
+        template='plotly_white',
+    )   
+    
+    # Display the plot in the browser without saving
+    fig.show()
+    
+    # Return None since we're not saving the file
+    return None
+    
+    
+

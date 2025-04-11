@@ -56,7 +56,7 @@ class LSTMModel(nn.Module):
         )
 
         # # Attention mechanism for focusing on important parts of the sequence
-        # self.attention = AttentionLayer(hidden_size)
+        #self.attention = AttentionLayer(hidden_size)
         
         # Dropout layer
         self.dropout = nn.Dropout(dropout)
@@ -72,12 +72,14 @@ class LSTMModel(nn.Module):
         lstm_out, _ = self.lstm(x)
         
         # Apply attention mechanism
-        # attended = self.attention(lstm_out)
+        #attended = self.attention(lstm_out)
         
-        # if self.training:
-        #     attended = self.dropout(attended)
+        #if self.training:
+            #attended = self.dropout(attended)
+
         
         # First dense layer with ReLU activation
+        #fc1_out = self.relu(self.fc1(attended))
         fc1_out = self.relu(self.fc1(lstm_out))
         
         if self.training:

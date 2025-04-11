@@ -96,6 +96,11 @@ class DataPreprocessor:
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
+        #Aggregate temperature to 30 days
+        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
+        print(f"  - Aggregated temperature to 30 days")
+
+       
 
         # Aggregate temperature to 30 days
         data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
@@ -127,9 +132,9 @@ class DataPreprocessor:
         data = data[all_features]
 
         # Split data based on years
-        test_data = data[(data.index.year >= 2022) & (data.index.year <= 2024)]
-        val_data = data[(data.index.year >= 2021) & (data.index.year <= 2022)]  # Validation is 2022-2023
-        train_data = data[data.index.year < 2021]  # Training is everything before 2022
+        test_data = data[(data.index.year == 2024)]
+        val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
+        train_data = data[data.index.year < 2022]  # Training is everything before 2022
         
         print(f"\nSplit Summary:")
         print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
