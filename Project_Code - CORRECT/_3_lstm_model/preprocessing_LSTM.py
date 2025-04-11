@@ -209,7 +209,8 @@ class DataPreprocessor:
         std_val = np.nanstd(scaled_target)
         print(f"Target range after scaling:")
         print(f"  {target_col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
-    
+        print(f"No. of target values: {len(scaled_target)}")
+        print(f"No. of features: {len(feature_cols)}")
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
 
