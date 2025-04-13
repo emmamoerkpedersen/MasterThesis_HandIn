@@ -144,17 +144,30 @@ class DataPreprocessor:
         """
         Prepare data for training or validation. Scale data and create sequences.
         """
-        # Get features and target
-        feature_cols = self.feature_cols
+        # Add time and cumulative features if enabled
+        if self.config.get('use_time_features', False):
+            data = self._add_time_features(data)
+        
+        if self.config.get('use_cumulative_features', False):
+            data = self._add_cumulative_features(data)
+        
+        # Get the most up-to-date feature columns from feature engineer
+        feature_cols = self.feature_engineer.feature_cols
         target_col = self.output_features   
         
-        # Ensure we're using the most up-to-date feature columns
-        if self.config.get('use_time_features', False) or self.config.get('use_cumulative_features', False):
-            # Update feature_cols with the latest from feature_engineer
-            feature_cols = self.feature_engineer.feature_cols.copy()
-            print(f"Using updated feature columns in prepare_data: {feature_cols}")
+        print(f"\nUsing features for model:")
+        print(f"Total features: {len(feature_cols)}")
+        print("Feature list:")
+        for col in feature_cols:
+            print(f"  - {col}")
         
-        features = pd.concat([data[col] for col in feature_cols], axis=1)
+        # Ensure all feature columns exist in data
+        missing_cols = [col for col in feature_cols if col not in data.columns]
+        if missing_cols:
+            raise ValueError(f"Missing columns in data: {missing_cols}")
+        
+        # Extract features and target
+        features = data[feature_cols]
         target = pd.DataFrame(data[target_col])
         
         # Print diagnostic information about NaN values in target
@@ -165,7 +178,6 @@ class DataPreprocessor:
         
         if nan_count == total_count:
             print("  WARNING: All target values are NaN!")
-            # Fill NaN values with a default value (e.g., 0) to allow scaling to proceed
             target[target_col] = target[target_col].fillna(0)
             print("  Filled NaN values with 0 to allow scaling to proceed")
 
@@ -183,7 +195,6 @@ class DataPreprocessor:
         
         if nan_count_scaled == total_count_scaled:
             print("  WARNING: All scaled target values are NaN!")
-            # Fill NaN values with a default value (e.g., 0) to allow model training to proceed
             scaled_target = np.nan_to_num(scaled_target, nan=0)
             print("  Filled NaN values with 0 to allow model training to proceed")
 
@@ -197,14 +208,13 @@ class DataPreprocessor:
             print(f"  {col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
         
         # Print target range after scaling
-        # Use NaN-aware functions to handle the few NaN values
         min_val = np.nanmin(scaled_target)
         max_val = np.nanmax(scaled_target)
         mean_val = np.nanmean(scaled_target)
         std_val = np.nanstd(scaled_target)
         print(f"Target range after scaling:")
         print(f"  {target_col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
-    
+        
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
 

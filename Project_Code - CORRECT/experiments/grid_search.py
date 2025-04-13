@@ -31,7 +31,6 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from _3_lstm_model.model_plots import create_full_plot, plot_convergence
 from _3_lstm_model.objective_functions import get_objective_function
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
-from experiments.Improved_model_structure.model import LSTMModel
 from config import LSTM_CONFIG
 
 def setup_grid_search():
@@ -43,11 +42,11 @@ def setup_grid_search():
     """
     # Set up grid search parameters
     grid_params = {
-        'hidden_size': [32, 64, 128, 256],
+        'hidden_size': [64, 128, 256, 284, 320],
         'num_layers': [1, 2],
-        'sequence_length': [4000, 5000, 10000, 20000],
-        'learning_rate': [0.01, 0.001, 0.0001,],
-        'objective_function': ['peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss']
+        'sequence_length': [3000, 4000, 5000, 10000],
+        'learning_rate': [0.0001,],
+        'objective_function': ['peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'smoothL1_dynamic_weighted_loss']
     }
     
     return grid_params
@@ -96,7 +95,7 @@ def get_config_name(config):
             f"lr{config['learning_rate']}_"
             f"{config['objective_function']}")
 
-def run_single_model(config, train_data, val_data, output_dir, station_id):
+def run_single_model(config, train_data, val_data, output_dir, station_id, preprocessor):
     """
     Train a single model with the given configuration and save results.
     
@@ -106,6 +105,7 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
         val_data: Validation data
         output_dir: Output directory for results
         station_id: Station ID
+        preprocessor: DataPreprocessor object
     
     Returns:
         tuple: (Best validation loss, history dictionary, model object)
@@ -134,12 +134,11 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
                       else v.item() for k, v in config.items()}
         json.dump(json_config, f, indent=4)
     
-    # Initialize preprocessor and trainer
-    preprocessor = DataPreprocessor(config)
+    # Initialize trainer
     trainer = LSTM_Trainer(config, preprocessor=preprocessor)
     
     # Limit epochs for quick results during grid search
-    epochs = 500  # Reduced epochs for grid search
+    epochs = 1000  # Reduced epochs for grid search
     
     # Print model configuration
     print(f"Hidden Size: {config['hidden_size']}")
@@ -149,6 +148,11 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
     print(f"Loss Function: {config['objective_function']}")
     
     try:
+        # Suppress detailed output during training
+        import sys, os
+        original_stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+        
         # Train the model
         start_time = time.time()
         history, val_predictions, val_targets = trainer.train(
@@ -159,6 +163,9 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
             patience=config['patience']
         )
         training_time = time.time() - start_time
+        
+        # Restore stdout
+        sys.stdout = original_stdout
         
         # Get best validation loss
         best_val_loss = min(history['val_loss'])
@@ -176,40 +183,56 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
             columns=['vst_raw']
         )
         
+        # Get performance metrics - use the metrics from history if available
+        if 'metrics' in history:
+            performance_metrics = history['metrics']
+        else:
+            # Fallback: Calculate metrics using the validation data
+            from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+            actual_vals = val_data['vst_raw'].dropna().values
+            pred_vals = val_predictions_df.loc[val_data['vst_raw'].dropna().index, 'vst_raw'].values
+            
+            if len(actual_vals) > 0 and len(pred_vals) > 0:
+                rmse = np.sqrt(mean_squared_error(actual_vals, pred_vals))
+                mae = mean_absolute_error(actual_vals, pred_vals) 
+                r2 = r2_score(actual_vals, pred_vals)
+            else:
+                rmse = float('nan')
+                mae = float('nan')
+                r2 = float('nan')
+                
+            performance_metrics = {
+                'rmse': rmse,
+                'mae': mae,
+                'r2': r2,
+                'mean_error': float('nan'),
+                'std_error': float('nan'),
+                'peak_mae': float('nan'),
+                'peak_rmse': float('nan')
+            }
+            
         # Create plots
         print("Generating plots...")
         
         # Create full prediction plot - save in model directory
-        plot_path = model_dir / f"prediction_plot_{station_id}.html"
-        create_full_plot(
+        # Only generate PNG plots (no HTML)
+        plot_path = create_full_plot(
             val_data, 
             val_predictions_df, 
             str(station_id), 
             config,
-            best_val_loss
+            best_val_loss,
+            create_html=False,
+            open_browser=False,
+            metrics=performance_metrics  # Pass metrics to the plotting function
         )
         
-        # Also save a copy in the all_plots directory
-        all_plots_path = all_plots_dir / f"{model_name}_prediction_plot_{station_id}.html"
-        # Since create_full_plot saves the file based on the path, we need to call it again
-        # But change the output path through a temporary directory change
-        import os
-        original_dir = os.getcwd()
-        try:
-            os.chdir(all_plots_dir)
-            create_full_plot(
-                val_data, 
-                val_predictions_df, 
-                str(station_id), 
-                config,
-                best_val_loss
-            )
-            # Rename the file to include the model name
-            for file in os.listdir():
-                if file.startswith(f"predictions_station_{station_id}") and file.endswith(".html"):
-                    os.rename(file, f"{model_name}_{file}")
-        finally:
-            os.chdir(original_dir)
+        # Copy the PNG file to all_plots directory with model name prefix
+        import shutil
+        if plot_path and plot_path.exists():
+            all_plots_png_path = all_plots_dir / f"{model_name}_{plot_path.name}"
+            shutil.copy(plot_path, all_plots_png_path)
+            print(f"Copied PNG plot to: {all_plots_png_path}")
         
         # Create convergence plot
         convergence_path = model_dir / f"convergence_plot_{station_id}.png"
@@ -220,9 +243,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
         )
         
         # Copy convergence plot to all_plots directory
-        import shutil
-        all_plots_convergence_path = all_plots_dir / f"{model_name}_convergence_plot_{station_id}.png"
         if convergence_path.exists():
+            all_plots_convergence_path = all_plots_dir / f"{model_name}_convergence_plot_{station_id}.png"
             shutil.copy(convergence_path, all_plots_convergence_path)
         
         # Save model state
@@ -233,7 +255,10 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
             # Convert numpy arrays to lists for JSON serialization
             json_history = {}
             for key, value in history.items():
-                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], (np.float32, np.float64)):
+                if key == 'metrics':
+                    # Convert metrics dictionary to json-serializable
+                    json_history[key] = {k: float(v) for k, v in value.items()}
+                elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], (np.float32, np.float64)):
                     json_history[key] = [float(v) for v in value]
                 else:
                     json_history[key] = value
@@ -245,7 +270,12 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
             "final_val_loss": float(history['val_loss'][-1]),
             "training_time_seconds": training_time,
             "epochs_trained": len(history['train_loss']),
-            "early_stopping": len(history['train_loss']) < epochs
+            "early_stopping": len(history['train_loss']) < epochs,
+            "rmse": float(performance_metrics['rmse']),
+            "mae": float(performance_metrics['mae']),
+            "r2": float(performance_metrics['r2']),
+            "peak_rmse": float(performance_metrics['peak_rmse']),
+            "peak_mae": float(performance_metrics['peak_mae'])
         }
         
         with open(model_dir / "metrics.json", "w") as f:
@@ -253,14 +283,37 @@ def run_single_model(config, train_data, val_data, output_dir, station_id):
         
         print(f"Completed training in {training_time:.2f} seconds")
         print(f"Best validation loss: {best_val_loss:.6f}")
+        print(f"RMSE: {metrics['rmse']:.4f}")
+        print(f"MAE: {metrics['mae']:.4f}")
+        print(f"R²: {metrics['r2']:.4f}")
+        if not np.isnan(metrics['peak_rmse']):
+            print(f"Peak RMSE: {metrics['peak_rmse']:.4f}")
+            print(f"Peak MAE: {metrics['peak_mae']:.4f}")
         
-        return best_val_loss, history, trainer.model
+        # Return results with metrics included
+        result = {
+            "best_val_loss": best_val_loss,
+            "rmse": metrics['rmse'],
+            "mae": metrics['mae'],
+            "r2": metrics['r2'],
+            "peak_rmse": metrics['peak_rmse'],
+            "peak_mae": metrics['peak_mae']
+        }
+        
+        return result, history, trainer.model
     
     except Exception as e:
         print(f"Error training model: {str(e)}")
         import traceback
         traceback.print_exc()
-        return float('inf'), None, None
+        return {
+            "best_val_loss": float('inf'),
+            "rmse": float('nan'),
+            "mae": float('nan'),
+            "r2": float('nan'),
+            "peak_rmse": float('nan'),
+            "peak_mae": float('nan')
+        }, None, None
 
 def create_best_models_notebook(results_df, output_dir, station_id):
     """
@@ -486,11 +539,15 @@ def run_grid_search(project_root, output_path, station_id):
     # Start with base configuration from config.py
     base_config = LSTM_CONFIG.copy()
     
+    # Ensure time and cumulative features are enabled
+    base_config['use_time_features'] = True
+    base_config['use_cumulative_features'] = True
+    
     # Set up output directory
     output_dir = Path(output_path) / "grid_search"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Initialize preprocessor
+    # Initialize preprocessor with base config
     preprocessor = DataPreprocessor(base_config)
     
     # Load and preprocess data
@@ -528,27 +585,39 @@ def run_grid_search(project_root, output_path, station_id):
         print(f"\nConfiguration {i+1}/{total_configs} ({progress_pct:.1f}% complete)")
         print(f"Testing: {get_config_name(config)}")
         
-        # Run single model
-        best_val_loss, history, model = run_single_model(
-            config, train_data, val_data, output_dir, station_id
+        # Update base config with grid search parameters while preserving other settings
+        current_config = base_config.copy()
+        current_config.update(config)
+        
+        # Run single model with the complete configuration and preprocessor
+        result, history, model = run_single_model(
+            current_config, train_data, val_data, output_dir, station_id, preprocessor
         )
         
         # Store results
-        result = {
+        result_entry = {
             "config_name": get_config_name(config),
             "hidden_size": config['hidden_size'],
             "num_layers": config['num_layers'],
             "sequence_length": config['sequence_length'],
             "learning_rate": config['learning_rate'],
             "objective_function": config['objective_function'],
-            "best_val_loss": best_val_loss
+            "best_val_loss": result["best_val_loss"],
+            "rmse": result["rmse"],
+            "mae": result["mae"],
+            "r2": result["r2"]
         }
         
-        if history:
-            result["epochs_trained"] = len(history['train_loss'])
-            result["final_val_loss"] = history['val_loss'][-1]
+        # Add peak metrics if available
+        if "peak_rmse" in result and not np.isnan(result["peak_rmse"]):
+            result_entry["peak_rmse"] = result["peak_rmse"]
+            result_entry["peak_mae"] = result["peak_mae"]
         
-        results.append(result)
+        if history:
+            result_entry["epochs_trained"] = len(history['train_loss'])
+            result_entry["final_val_loss"] = history['val_loss'][-1]
+        
+        results.append(result_entry)
         
         # Save intermediate results
         results_df = pd.DataFrame(results)
@@ -593,6 +662,78 @@ def generate_summary_plots(results_df, output_dir):
     all_plots_dir = output_dir / "all_plots"
     all_plots_dir.mkdir(exist_ok=True)
     
+    # Create multi-metric comparison plots of the top loss functions
+    plt.figure(figsize=(14, 10))
+    metrics = ["best_val_loss", "rmse", "mae", "r2"]
+    metric_labels = ["Validation Loss", "RMSE", "MAE", "R²"]
+    
+    # Find best 2 models for each loss function
+    top_models = pd.DataFrame()
+    for loss_func in results_df['objective_function'].unique():
+        df_loss = results_df[results_df['objective_function'] == loss_func]
+        # Get top 2 models by validation loss
+        top_df = df_loss.nsmallest(2, 'best_val_loss')
+        top_models = pd.concat([top_models, top_df])
+    
+    # Multi-plot comparing different metrics
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    axes = axes.flatten()
+    
+    for i, (metric, label) in enumerate(zip(metrics, metric_labels)):
+        ax = axes[i]
+        
+        # For R², higher is better, so negate for consistent sorting
+        if metric == "r2":
+            sort_col = -top_models[metric]
+            top_models_sorted = top_models.iloc[sort_col.argsort()]
+            # Also invert the y-axis for consistent visualization (higher is better)
+            ax.invert_yaxis()
+        else:
+            # For other metrics, lower is better
+            top_models_sorted = top_models.sort_values(metric)
+        
+        # Plot the data
+        bars = ax.barh(
+            range(len(top_models_sorted)), 
+            top_models_sorted[metric],
+            color=[plt.cm.tab10(i) for i in range(len(top_models_sorted))]
+        )
+        
+        # Add objective function as text
+        for j, bar in enumerate(bars):
+            obj_func = top_models_sorted.iloc[j]['objective_function']
+            # Format the obj_func string to be shorter
+            short_name = obj_func.replace('_loss', '').replace('weighted_', 'w_').replace('dynamic_', 'd_')
+            # Format the metric value
+            if metric == "r2":
+                value_text = f"{top_models_sorted.iloc[j][metric]:.3f}"
+            else:
+                value_text = f"{top_models_sorted.iloc[j][metric]:.5f}"
+            
+            ax.text(
+                bar.get_width() * 1.01, 
+                bar.get_y() + bar.get_height()/2,
+                f"{short_name}: {value_text}",
+                va='center', 
+                fontsize=9
+            )
+        
+        # Format x-axis for R²
+        if metric == "r2":
+            ax.set_xlim(0, 1.0)  # R² range is 0 to 1
+            
+        ax.set_title(f'Top Models by {label}')
+        ax.set_xlabel(label)
+        ax.set_ylabel('Model Rank')
+        ax.set_yticks(range(len(top_models_sorted)))
+        ax.set_yticklabels([f"{i+1}" for i in range(len(top_models_sorted))])
+        ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(summary_dir / "multi_metric_comparison.png")
+    plt.savefig(all_plots_dir / "multi_metric_comparison.png")
+    plt.close()
+    
     # Create loss function specific directories for summaries
     for loss_func in results_df['objective_function'].unique():
         loss_func_dir = summary_dir / loss_func
@@ -611,47 +752,83 @@ def generate_summary_plots(results_df, output_dir):
         
         # Create additional parameter-specific summaries
         params_to_summarize = ['hidden_size', 'num_layers', 'sequence_length', 'learning_rate']
+        metrics_to_plot = ['best_val_loss', 'rmse', 'mae']
         
         for param in params_to_summarize:
-            # Group by parameter and calculate mean/std/min validation loss
-            param_summary = df_loss.groupby(param)['best_val_loss'].agg(['mean', 'std', 'min'])
-            
-            # Find the best parameter value
-            best_param_value = param_summary.loc[param_summary['min'].idxmin()]
-            
-            # Save this parameter summary
-            param_summary.to_csv(loss_func_dir / f"{param}_summary.csv")
-            
-            # Plot this parameter's effect on validation loss
-            plt.figure(figsize=(10, 6))
-            plt.errorbar(
-                param_summary.index, 
-                param_summary['mean'], 
-                yerr=param_summary['std'],
-                marker='o', 
-                linestyle='-'
-            )
-            
-            # Highlight the best parameter value
-            best_idx = param_summary['min'].idxmin()
-            plt.scatter([best_idx], [param_summary.loc[best_idx, 'min']], 
-                       color='red', s=100, label=f'Best: {best_idx}')
-            
-            plt.xlabel(param)
-            plt.ylabel('Validation Loss')
-            plt.title(f'Effect of {param} on Validation Loss ({loss_func})')
-            plt.grid(True)
-            if param == 'learning_rate':
-                plt.xscale('log')
-            plt.legend()
-            plt.tight_layout()
-            
-            # Save in loss function directory
-            plt.savefig(loss_func_dir / f"{param}_effect.png")
-            # Also save in all_plots directory
-            plt.savefig(all_plots_dir / f"{loss_func}_{param}_effect.png")
-            
-            plt.close()
+            # Create a separate plot for each metric
+            for metric in metrics_to_plot:
+                # Group by parameter and calculate mean/std/min for this metric
+                if metric in df_loss.columns:
+                    param_summary = df_loss.groupby(param)[metric].agg(['mean', 'std', 'min'])
+                    
+                    plt.figure(figsize=(10, 6))
+                    plt.errorbar(
+                        param_summary.index, 
+                        param_summary['mean'], 
+                        yerr=param_summary['std'],
+                        marker='o', 
+                        linestyle='-',
+                        label=f'Mean ± Std'
+                    )
+                    
+                    # Highlight the best parameter value
+                    best_idx = param_summary['min'].idxmin() if metric != 'r2' else param_summary['min'].idxmax()
+                    best_val = param_summary.loc[best_idx, 'min']
+                    plt.scatter([best_idx], [best_val], 
+                               color='red', s=100, label=f'Best: {best_idx}')
+                    
+                    plt.xlabel(param)
+                    metric_label = "Validation Loss" if metric == "best_val_loss" else metric.upper()
+                    plt.ylabel(metric_label)
+                    plt.title(f'Effect of {param} on {metric_label} ({loss_func})')
+                    plt.grid(True)
+                    if param == 'learning_rate':
+                        plt.xscale('log')
+                    plt.legend()
+                    plt.tight_layout()
+                    
+                    # Save in loss function directory
+                    plt.savefig(loss_func_dir / f"{param}_{metric}_effect.png")
+                    # Also save in all_plots directory
+                    plt.savefig(all_plots_dir / f"{loss_func}_{param}_{metric}_effect.png")
+                    
+                    plt.close()
+        
+        # Create peak metrics plots if available
+        if 'peak_rmse' in df_loss.columns and not df_loss['peak_rmse'].isna().all():
+            for param in params_to_summarize:
+                param_summary = df_loss.groupby(param)['peak_rmse'].agg(['mean', 'std', 'min'])
+                
+                plt.figure(figsize=(10, 6))
+                plt.errorbar(
+                    param_summary.index, 
+                    param_summary['mean'], 
+                    yerr=param_summary['std'],
+                    marker='o', 
+                    linestyle='-',
+                    label=f'Mean ± Std'
+                )
+                
+                # Highlight the best parameter value
+                best_idx = param_summary['min'].idxmin()
+                plt.scatter([best_idx], [param_summary.loc[best_idx, 'min']], 
+                           color='red', s=100, label=f'Best: {best_idx}')
+                
+                plt.xlabel(param)
+                plt.ylabel('Peak RMSE')
+                plt.title(f'Effect of {param} on Peak RMSE ({loss_func})')
+                plt.grid(True)
+                if param == 'learning_rate':
+                    plt.xscale('log')
+                plt.legend()
+                plt.tight_layout()
+                
+                # Save in loss function directory
+                plt.savefig(loss_func_dir / f"{param}_peak_rmse_effect.png")
+                # Also save in all_plots directory
+                plt.savefig(all_plots_dir / f"{loss_func}_{param}_peak_rmse_effect.png")
+                
+                plt.close()
     
     # Plot validation loss by hidden size for each loss function
     plt.figure(figsize=(12, 8))
@@ -680,6 +857,33 @@ def generate_summary_plots(results_df, output_dir):
     # Also save in all_plots directory
     plt.savefig(all_plots_dir / "hidden_size_vs_loss.png")
     plt.close()
+    
+    # Plot RMSE by loss function
+    if 'rmse' in results_df.columns:
+        plt.figure(figsize=(12, 8))
+        for loss_func in results_df['objective_function'].unique():
+            df_loss = results_df[results_df['objective_function'] == loss_func]
+            
+            # Group by sequence length and compute mean RMSE
+            seq_lengths = []
+            mean_rmse = []
+            for seq_len in sorted(df_loss['sequence_length'].unique()):
+                df_seq = df_loss[df_loss['sequence_length'] == seq_len]
+                seq_lengths.append(seq_len)
+                mean_rmse.append(df_seq['rmse'].mean())
+            
+            plt.plot(seq_lengths, mean_rmse, marker='o', label=loss_func)
+        
+        plt.xlabel('Sequence Length')
+        plt.ylabel('Mean RMSE')
+        plt.title('Effect of Sequence Length on RMSE by Loss Function')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(summary_dir / "sequence_length_vs_rmse.png")
+        # Also save in all_plots directory
+        plt.savefig(all_plots_dir / "sequence_length_vs_rmse.png")
+        plt.close()
     
     # Plot validation loss by sequence length for each loss function
     plt.figure(figsize=(12, 8))
@@ -773,14 +977,57 @@ def generate_summary_plots(results_df, output_dir):
         plt.savefig(all_plots_dir / f"heatmap_{loss_func}.png")
         plt.close()
         
+        # If RMSE is available, create a heatmap for it too
+        if 'rmse' in df_loss.columns:
+            plt.figure(figsize=(12, 8))
+            rmse_pivot = pd.pivot_table(
+                df_loss, 
+                values='rmse', 
+                index='hidden_size',
+                columns='sequence_length',
+                aggfunc='mean'
+            )
+            
+            plt.imshow(rmse_pivot, cmap='coolwarm', aspect='auto', interpolation='nearest')
+            plt.colorbar(label='Mean RMSE')
+            
+            # Add value annotations
+            for i in range(len(rmse_pivot.index)):
+                for j in range(len(rmse_pivot.columns)):
+                    plt.text(j, i, f"{rmse_pivot.iloc[i, j]:.4f}", 
+                            ha="center", va="center", color="white" if rmse_pivot.iloc[i, j] > 50 else "black")
+            
+            plt.xticks(range(len(rmse_pivot.columns)), rmse_pivot.columns)
+            plt.yticks(range(len(rmse_pivot.index)), rmse_pivot.index)
+            plt.xlabel('Sequence Length')
+            plt.ylabel('Hidden Size')
+            plt.title(f'RMSE Heatmap - {loss_func}')
+            plt.tight_layout()
+            plt.savefig(summary_dir / f"rmse_heatmap_{loss_func}.png")
+            plt.savefig(summary_dir / loss_func / f"rmse_heatmap.png")
+            plt.savefig(all_plots_dir / f"rmse_heatmap_{loss_func}.png")
+            plt.close()
+        
     # Create summary tables
     summary_tables = {}
     
-    # Best model for each loss function
+    # Best model for each loss function by validation loss
     best_by_loss = results_df.loc[results_df.groupby('objective_function')['best_val_loss'].idxmin()]
     best_by_loss.to_csv(summary_dir / "best_models_by_loss_function.csv", index=False)
     # Also save in all_plots directory
     best_by_loss.to_csv(all_plots_dir / "best_models_by_loss_function.csv", index=False)
+    
+    # Best model for each loss function by RMSE if available
+    if 'rmse' in results_df.columns:
+        best_by_rmse = results_df.loc[results_df.groupby('objective_function')['rmse'].idxmin()]
+        best_by_rmse.to_csv(summary_dir / "best_models_by_rmse.csv", index=False)
+        best_by_rmse.to_csv(all_plots_dir / "best_models_by_rmse.csv", index=False)
+    
+    # Best model for each loss function by peak RMSE if available
+    if 'peak_rmse' in results_df.columns and not results_df['peak_rmse'].isna().all():
+        best_by_peak = results_df.loc[results_df.groupby('objective_function')['peak_rmse'].idxmin()]
+        best_by_peak.to_csv(summary_dir / "best_models_by_peak_rmse.csv", index=False)
+        best_by_peak.to_csv(all_plots_dir / "best_models_by_peak_rmse.csv", index=False)
     
     # Best model for each hidden size
     best_by_hidden = results_df.loc[results_df.groupby('hidden_size')['best_val_loss'].idxmin()]
@@ -794,8 +1041,13 @@ def generate_summary_plots(results_df, output_dir):
     # Also save in all_plots directory
     best_by_seq.to_csv(all_plots_dir / "best_models_by_sequence_length.csv", index=False)
     
-    # Best model overall
+    # Best model overall by validation loss
     best_overall = results_df.loc[results_df['best_val_loss'].idxmin()]
+    
+    # Best model overall by RMSE if available
+    best_by_rmse_overall = None
+    if 'rmse' in results_df.columns:
+        best_by_rmse_overall = results_df.loc[results_df['rmse'].idxmin()]
     
     # Create a comprehensive summary text file
     summary_text_path = summary_dir / "grid_search_summary.txt"
@@ -803,21 +1055,55 @@ def generate_summary_plots(results_df, output_dir):
         f.write("Grid Search Summary\n")
         f.write("=================\n\n")
         
-        f.write("Best Model Overall:\n")
+        f.write("Best Model Overall (by validation loss):\n")
         for col, val in best_overall.items():
             f.write(f"  {col}: {val}\n")
         f.write("\n")
         
-        f.write("Best Models by Loss Function:\n")
+        if best_by_rmse_overall is not None:
+            f.write("Best Model Overall (by RMSE):\n")
+            for col, val in best_by_rmse_overall.items():
+                f.write(f"  {col}: {val}\n")
+            f.write("\n")
+        
+        f.write("Best Models by Loss Function (validation loss):\n")
         for _, row in best_by_loss.iterrows():
-            f.write(f"  {row['objective_function']}: {row['config_name']} (loss: {row['best_val_loss']:.6f})\n")
+            f.write(f"  {row['objective_function']}: {row['config_name']} (loss: {row['best_val_loss']:.6f})")
+            if 'rmse' in row:
+                f.write(f", RMSE: {row['rmse']:.4f}")
+            if 'mae' in row:
+                f.write(f", MAE: {row['mae']:.4f}")
+            if 'r2' in row:
+                f.write(f", R²: {row['r2']:.4f}")
+            f.write("\n")
         f.write("\n")
+        
+        # If we have RMSE data, add a section for best models by RMSE
+        if 'rmse' in results_df.columns:
+            f.write("Best Models by Loss Function (RMSE):\n")
+            for _, row in best_by_rmse.iterrows():
+                f.write(f"  {row['objective_function']}: {row['config_name']} (RMSE: {row['rmse']:.4f}, loss: {row['best_val_loss']:.6f})\n")
+            f.write("\n")
+        
+        # If we have peak RMSE data, add a section for best models by peak RMSE
+        if 'peak_rmse' in results_df.columns and not results_df['peak_rmse'].isna().all():
+            f.write("Best Models by Loss Function (Peak RMSE):\n")
+            for _, row in best_by_peak.iterrows():
+                f.write(f"  {row['objective_function']}: {row['config_name']} (Peak RMSE: {row['peak_rmse']:.4f}, loss: {row['best_val_loss']:.6f})\n")
+            f.write("\n")
         
         # Averages by various parameters
         f.write("Average Performance by Loss Function:\n")
         avg_by_loss = results_df.groupby('objective_function')['best_val_loss'].mean()
         for loss_func, mean_loss in avg_by_loss.items():
-            f.write(f"  {loss_func}: {mean_loss:.6f}\n")
+            f.write(f"  {loss_func}: {mean_loss:.6f}")
+            if 'rmse' in results_df.columns:
+                avg_rmse = results_df[results_df['objective_function'] == loss_func]['rmse'].mean()
+                f.write(f", RMSE: {avg_rmse:.4f}")
+            if 'mae' in results_df.columns:
+                avg_mae = results_df[results_df['objective_function'] == loss_func]['mae'].mean()
+                f.write(f", MAE: {avg_mae:.4f}")
+            f.write("\n")
         f.write("\n")
         
         f.write("Average Performance by Hidden Size:\n")

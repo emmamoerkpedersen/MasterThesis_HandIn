@@ -12,7 +12,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 
-def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None):
+def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None):
     """
     Create an interactive plot with aligned datetime indices, rainfall data, and model configuration.
     
@@ -22,6 +22,9 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         station_id: ID of the station being analyzed
         model_config: Optional dictionary containing model configuration parameters
         best_val_loss: Optional best validation loss achieved during training
+        create_html: Whether to create HTML plot (default: True)
+        open_browser: Whether to open the plot in browser (default: True)
+        metrics: Optional dictionary with additional performance metrics
     """
     # Ensure output directory exists
     output_dir = Path("Project_Code - CORRECT/results/lstm")
@@ -61,285 +64,362 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         name='Predictions'
     )
     
-    # Create subplots - rainfall on top, water level on bottom
-    subplot_rows = 2 if rainfall_data is not None else 1
-    
-    if rainfall_data is not None:
-        specs = [[{"secondary_y": False}] for _ in range(subplot_rows)]
-        subplot_titles = [
-            'Rainfall',
-            f'Water Level - Station {station_id}'
-        ]
-        
-        fig = make_subplots(
-            rows=subplot_rows,
-            cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.08,
-            subplot_titles=subplot_titles,
-            specs=specs,
-            row_heights=[0.3, 0.7]  # Give more space to rainfall
-        )
-        
-        # Add rainfall data to first subplot (top)
-        fig.add_trace(
-            go.Bar(
-                x=rainfall_data.index,
-                y=rainfall_data.values,
-                name="Rainfall",
-                marker_color='rgba(0, 0, 255, 0.6)',  # More visible blue
-                opacity=0.8,
-                width=60*60*1000,  # 1-hour width in milliseconds
-                yaxis="y1"
-            ),
-            row=1, col=1
-        )
-        
-        # Add water level data to second subplot (bottom)
-        fig.add_trace(
-            go.Scatter(
-                x=test_actual.index,
-                y=test_actual.values,
-                name="Actual",
-                line=dict(color='#1f77b4', width=1)
-            ),
-            row=2, col=1
-        )
-        
-        fig.add_trace(
-            go.Scatter(
-                x=predictions_series.index,
-                y=predictions_series.values,
-                name="Predicted",
-                line=dict(color='#d62728', width=1)
-            ),
-            row=2, col=1
-        )
-        
-        # Update y-axes labels and ranges
-        fig.update_yaxes(
-            title_text="Rainfall (mm)",
-            row=1, col=1,
-            autorange=True,
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(128, 128, 128, 0.2)',
-            rangemode='nonnegative'
-        )
-        
-        fig.update_yaxes(
-            title_text="Water Level (mm)",
-            row=2, col=1,
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(128, 128, 128, 0.2)'
-        )
-        
-        # Update x-axes
-        fig.update_xaxes(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(128, 128, 128, 0.2)',
-            rangeslider_visible=False,
-            row=1, col=1
-        )
-        
-        fig.update_xaxes(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(128, 128, 128, 0.2)',
-            rangeslider_visible=True,
-            row=2, col=1
-        )
-        
-    else:
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=test_actual.index,
-                y=test_actual.values,
-                name="Actual",
-                line=dict(color='#1f77b4', width=1)
-            )
-        )
-        
-        fig.add_trace(
-            go.Scatter(
-                x=predictions_series.index,
-                y=predictions_series.values,
-                name="Predicted",
-                line=dict(color='#d62728', width=1)
-            )
-        )
-    
-    # Create model configuration text
-    config_text = ""
-    if model_config:
-        # Create a comprehensive config text with all important parameters
-        config_lines = [
-            f"Model Configuration:<br>",
-            f"Architecture: LSTM<br>",
-            f"Hidden Size: {model_config.get('hidden_size', 'N/A')}<br>",
-            f"Layers: {model_config.get('num_layers', 'N/A')}<br>",
-            f"Dropout: {model_config.get('dropout', 'N/A')}<br>",
-            f"Batch Size: {model_config.get('batch_size', 'N/A')}<br>",
-            f"Sequence Length: {model_config.get('sequence_length', 'N/A')}<br>",
-            f"Learning Rate: {model_config.get('learning_rate', 0.001):.6f}<br>",
-            f"Epochs: {model_config.get('epochs', 'N/A')}<br>",
-            f"Patience: {model_config.get('patience', 'N/A')}<br>",
-            f"Loss Function: {model_config.get('objective_function', 'N/A')}<br>"
-        ]
-        
-        # Add best validation loss if provided
-        if best_val_loss is not None:
-            config_lines.append(f"Best Val Loss: {best_val_loss:.6f}<br>")
-            
-        # Add optional configuration parameters if they exist
-        if 'peak_weight' in model_config:
-            config_lines.append(f"Peak Weight: {model_config.get('peak_weight', 'N/A')}<br>")
-        
-        if 'grad_clip_value' in model_config:
-            config_lines.append(f"Gradient Clip: {model_config.get('grad_clip_value', 'N/A')}<br>")
-            
-        if 'use_smoothing' in model_config:
-            config_lines.append(f"Use Smoothing: {model_config.get('use_smoothing', False)}<br>")
-            
-        if model_config.get('use_smoothing', False) and 'smoothing_alpha' in model_config:
-            config_lines.append(f"Smoothing Alpha: {model_config.get('smoothing_alpha', 'N/A')}<br>")
-            
-        config_lines.append(f"Time Features: {model_config.get('use_time_features', False)}<br>")
-        config_lines.append(f"Cumulative Features: {model_config.get('use_cumulative_features', False)}<br>")
-        
-        # Feature columns
-        if 'feature_cols' in model_config:
-            features_str = ', '.join(model_config.get('feature_cols', []))
-            config_lines.append(f"Features: {features_str}<br>")
-        
-        # Create final text
-        config_text = ''.join(config_lines)
-    
-    # Update layout
-    fig.update_layout(
-        title={
-            'text': f'Prediction Analysis for Station {station_id}',
-            'y': 0.95,  # Moved down slightly to make room for config
-            'x': 0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-            'font': {'size': 24}
-        },
-        width=1500,  # Back to reasonable width
-        height=1000,  # Keep height
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        margin=dict(l=80, r=80, t=180, b=80)  # Increased top margin for config box
-    )
-    
-    # Add configuration text in a box at the top of the plot
-    if config_text:
-        # Create a more compact version of the config text for the top box
-        compact_lines = []
-        
-        # First row: Architecture, Hidden Size, Layers, Batch Size
-        row1 = f"Architecture: LSTM | Hidden Size: {model_config.get('hidden_size', 'N/A')} | "
-        row1 += f"Layers: {model_config.get('num_layers', 'N/A')} | Dropout: {model_config.get('dropout', 'N/A')} | "
-        row1 += f"Batch: {model_config.get('batch_size', 'N/A')}"
-        compact_lines.append(row1)
-        
-        # Second row: Learning Rate, Sequence Length, Loss Function, Best Val Loss
-        row2 = f"Learning Rate: {model_config.get('learning_rate', 0.001):.6f} | "
-        row2 += f"Sequence Length: {model_config.get('sequence_length', 'N/A')} | "
-        row2 += f"Loss Function: {model_config.get('objective_function', 'N/A')}"
-        if best_val_loss is not None:
-            row2 += f" | Best Val Loss: {best_val_loss:.6f}"
-        compact_lines.append(row2)
-        
-        # Third row: Peak Weight, Gradient Clip, Features
-        row3 = ""
-        if 'peak_weight' in model_config:
-            row3 += f"Peak Weight: {model_config.get('peak_weight', 'N/A')} | "
-        if 'grad_clip_value' in model_config:
-            row3 += f"Grad Clip: {model_config.get('grad_clip_value', 'N/A')} | "
-        row3 += f"Time Features: {model_config.get('use_time_features', False)} | "
-        row3 += f"Cumulative Features: {model_config.get('use_cumulative_features', False)}"
-        compact_lines.append(row3)
-        
-        # Create compact text
-        compact_text = "<br>".join(compact_lines)
-        
-        # Add as annotation at the top of the plot
-        fig.add_annotation(
-            x=0.5,  # Center of the plot
-            y=1.05,  # Just above the plot title
-            xref="paper", 
-            yref="paper",
-            text=compact_text,
-            showarrow=False,
-            font=dict(size=12),
-            align="center",
-            bgcolor="rgba(240, 240, 240, 0.9)",
-            bordercolor="#000000",
-            borderwidth=1,
-            borderpad=8,
-            width=1200  # Wide enough for the text
-        )
-    
-    # Add range selector buttons
-    fig.update_xaxes(
-        rangeslider_visible=True,
-        rangeselector=dict(
-            buttons=list([
-                dict(count=7, label="1w", step="day", stepmode="backward"),
-                dict(count=1, label="1m", step="month", stepmode="backward"),
-                dict(count=3, label="3m", step="month", stepmode="backward"),
-                dict(count=6, label="6m", step="month", stepmode="backward"),
-                dict(count=1, label="1y", step="year", stepmode="backward"),
-                dict(step="all", label="all")
-            ]),
-            bgcolor='rgba(150, 200, 250, 0.4)',
-            activecolor='rgba(100, 150, 200, 0.8)'
-        ),
-        row=subplot_rows, col=1
-    )
-    
     # Generate timestamp for unique filenames
     timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     
-    # Save HTML plot
-    html_path = output_dir / f'predictions_station_{station_id}_{timestamp}.html'
-    fig.write_html(str(html_path), include_plotlyjs='cdn', full_html=True, config={
-        'displayModeBar': True,
-        'responsive': True,
-        'toImageButtonOptions': {
-            'format': 'png',
-            'filename': f'station_{station_id}_prediction_{timestamp}',
-            'height': 1000,
-            'width': 1500,
-            'scale': 2
-        }
-    })
+    # Always create the PNG version with config text at the bottom
+    png_path = create_water_level_plot_png(
+        test_actual, 
+        predictions_series, 
+        station_id, 
+        timestamp, 
+        model_config, 
+        output_dir,
+        best_val_loss,
+        metrics=metrics
+    )
     
-    # Create and save PNG version with just water level
-    create_water_level_plot_png(test_actual, predictions_series, station_id, timestamp, model_config, output_dir)
-    
-    # Open HTML in browser
-    absolute_path = os.path.abspath(html_path)
-    print(f"Opening plot in browser: {absolute_path}")
-    webbrowser.open('file://' + str(absolute_path))
+    # Create the HTML version only if requested
+    if create_html:
+        # Create subplots - rainfall on top, water level on bottom
+        subplot_rows = 2 if rainfall_data is not None else 1
+        
+        if rainfall_data is not None:
+            specs = [[{"secondary_y": False}] for _ in range(subplot_rows)]
+            subplot_titles = [
+                'Rainfall',
+                f'Water Level - Station {station_id}'
+            ]
+            
+            fig = make_subplots(
+                rows=subplot_rows,
+                cols=1,
+                shared_xaxes=True,
+                vertical_spacing=0.08,
+                subplot_titles=subplot_titles,
+                specs=specs,
+                row_heights=[0.3, 0.7]  # Give more space to rainfall
+            )
+            
+            # Add rainfall data to first subplot (top)
+            fig.add_trace(
+                go.Bar(
+                    x=rainfall_data.index,
+                    y=rainfall_data.values,
+                    name="Rainfall",
+                    marker_color='rgba(0, 0, 255, 0.6)',  # More visible blue
+                    opacity=0.8,
+                    width=60*60*1000,  # 1-hour width in milliseconds
+                    yaxis="y1"
+                ),
+                row=1, col=1
+            )
+            
+            # Add water level data to second subplot (bottom)
+            fig.add_trace(
+                go.Scatter(
+                    x=test_actual.index,
+                    y=test_actual.values,
+                    name="Actual",
+                    line=dict(color='#1f77b4', width=1)
+                ),
+                row=2, col=1
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=predictions_series.index,
+                    y=predictions_series.values,
+                    name="Predicted",
+                    line=dict(color='#d62728', width=1)
+                ),
+                row=2, col=1
+            )
+            
+            # Update y-axes labels and ranges
+            fig.update_yaxes(
+                title_text="Rainfall (mm)",
+                row=1, col=1,
+                autorange=True,
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)',
+                rangemode='nonnegative'
+            )
+            
+            fig.update_yaxes(
+                title_text="Water Level (mm)",
+                row=2, col=1,
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)'
+            )
+            
+            # Update x-axes
+            fig.update_xaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)',
+                rangeslider_visible=False,
+                row=1, col=1
+            )
+            
+            fig.update_xaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)',
+                rangeslider_visible=True,
+                row=2, col=1
+            )
+            
+        else:
+            fig = go.Figure()
+            fig.add_trace(
+                go.Scatter(
+                    x=test_actual.index,
+                    y=test_actual.values,
+                    name="Actual",
+                    line=dict(color='#1f77b4', width=1)
+                )
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=predictions_series.index,
+                    y=predictions_series.values,
+                    name="Predicted",
+                    line=dict(color='#d62728', width=1)
+                )
+            )
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                'text': f'Prediction Analysis for Station {station_id}',
+                'y': 0.95,  # Moved down slightly to make room for config
+                'x': 0.5,
+                'xanchor': 'center',
+                'yanchor': 'top',
+                'font': {'size': 24}
+            },
+            width=1500,  # Back to reasonable width
+            height=1000,  # Keep height
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            margin=dict(l=80, r=80, t=180, b=80)  # Increased top margin for config box
+        )
+        
+        # Create model configuration text
+        config_text = ""
+        if model_config:
+            # Create a comprehensive config text with all important parameters
+            config_lines = [
+                f"Model Configuration:<br>",
+                f"Architecture: LSTM<br>",
+                f"Hidden Size: {model_config.get('hidden_size', 'N/A')}<br>",
+                f"Layers: {model_config.get('num_layers', 'N/A')}<br>",
+                f"Dropout: {model_config.get('dropout', 'N/A')}<br>",
+                f"Batch Size: {model_config.get('batch_size', 'N/A')}<br>",
+                f"Sequence Length: {model_config.get('sequence_length', 'N/A')}<br>",
+                f"Learning Rate: {model_config.get('learning_rate', 0.001):.6f}<br>",
+                f"Epochs: {model_config.get('epochs', 'N/A')}<br>",
+                f"Patience: {model_config.get('patience', 'N/A')}<br>",
+                f"Loss Function: {model_config.get('objective_function', 'N/A')}<br>"
+            ]
+            
+            # Add best validation loss if provided
+            if best_val_loss is not None:
+                config_lines.append(f"Best Val Loss: {best_val_loss:.6f}<br>")
+                
+            # Add optional configuration parameters if they exist
+            if 'peak_weight' in model_config:
+                config_lines.append(f"Peak Weight: {model_config.get('peak_weight', 'N/A')}<br>")
+            
+            if 'grad_clip_value' in model_config:
+                config_lines.append(f"Gradient Clip: {model_config.get('grad_clip_value', 'N/A')}<br>")
+                
+            if 'use_smoothing' in model_config:
+                config_lines.append(f"Use Smoothing: {model_config.get('use_smoothing', False)}<br>")
+                
+            if model_config.get('use_smoothing', False) and 'smoothing_alpha' in model_config:
+                config_lines.append(f"Smoothing Alpha: {model_config.get('smoothing_alpha', 'N/A')}<br>")
+                
+            config_lines.append(f"Time Features: {model_config.get('use_time_features', False)}<br>")
+            config_lines.append(f"Cumulative Features: {model_config.get('use_cumulative_features', False)}<br>")
+            
+            # Feature columns
+            if 'feature_cols' in model_config:
+                features_str = ', '.join(model_config.get('feature_cols', []))
+                config_lines.append(f"Features: {features_str}<br>")
+            
+            # Create final text
+            config_text = ''.join(config_lines)
+        
+        # Add model configuration text in a box at the top of the plot
+        if model_config:
+            # Create a more compact version of the config text for the top box
+            compact_lines = []
+            
+            # First row: Architecture, Hidden Size, Layers, Batch Size
+            row1 = f"Architecture: LSTM | Hidden Size: {model_config.get('hidden_size', 'N/A')} | "
+            row1 += f"Layers: {model_config.get('num_layers', 'N/A')} | Dropout: {model_config.get('dropout', 'N/A')} | "
+            row1 += f"Batch: {model_config.get('batch_size', 'N/A')}"
+            compact_lines.append(row1)
+            
+            # Second row: Learning Rate, Sequence Length, Loss Function, Best Val Loss
+            row2 = f"Learning Rate: {model_config.get('learning_rate', 0.001):.6f} | "
+            row2 += f"Sequence Length: {model_config.get('sequence_length', 'N/A')} | "
+            row2 += f"Loss Function: {model_config.get('objective_function', 'N/A')}"
+            if best_val_loss is not None:
+                row2 += f" | Best Val Loss: {best_val_loss:.6f}"
+            compact_lines.append(row2)
+            
+            # Third row: Peak Weight, Gradient Clip, Features
+            row3 = ""
+            if 'peak_weight' in model_config:
+                row3 += f"Peak Weight: {model_config.get('peak_weight', 'N/A')} | "
+            if 'grad_clip_value' in model_config:
+                row3 += f"Grad Clip: {model_config.get('grad_clip_value', 'N/A')} | "
+            row3 += f"Time Features: {model_config.get('use_time_features', False)} | "
+            row3 += f"Cumulative Features: {model_config.get('use_cumulative_features', False)}"
+            compact_lines.append(row3)
+            
+            # Create compact text
+            compact_text = "<br>".join(compact_lines)
+            
+            # Add as annotation at the top of the plot
+            fig.add_annotation(
+                x=0.5,  # Center of the plot
+                y=1.05,  # Just above the plot title
+                xref="paper", 
+                yref="paper",
+                text=compact_text,
+                showarrow=False,
+                font=dict(size=12),
+                align="center",
+                bgcolor="rgba(240, 240, 240, 0.9)",
+                bordercolor="#000000",
+                borderwidth=1,
+                borderpad=8,
+                width=1200  # Wide enough for the text
+            )
+        
+        # Add metrics annotation if metrics are provided
+        if metrics and any(not np.isnan(v) for v in metrics.values()):
+            metrics_lines = []
+            
+            # General metrics section
+            general_metrics = []
+            if 'rmse' in metrics and not np.isnan(metrics['rmse']):
+                general_metrics.append(f"RMSE: {metrics['rmse']:.4f} mm")
+            if 'mae' in metrics and not np.isnan(metrics['mae']):
+                general_metrics.append(f"MAE: {metrics['mae']:.4f} mm")
+            if 'r2' in metrics and not np.isnan(metrics['r2']):
+                general_metrics.append(f"R²: {metrics['r2']:.4f}")
+            
+            # Peak metrics section
+            peak_metrics = []
+            if 'peak_rmse' in metrics and not np.isnan(metrics['peak_rmse']):
+                peak_metrics.append(f"Peak RMSE: {metrics['peak_rmse']:.4f} mm")
+            if 'peak_mae' in metrics and not np.isnan(metrics['peak_mae']):
+                peak_metrics.append(f"Peak MAE: {metrics['peak_mae']:.4f} mm")
+            
+            # Create combined text
+            if general_metrics and peak_metrics:
+                metrics_text = (
+                    "<b>Performance Metrics:</b> " + 
+                    ", ".join(general_metrics) + 
+                    " | <b>Peak Performance:</b> " + 
+                    ", ".join(peak_metrics)
+                )
+            elif general_metrics:
+                metrics_text = "<b>Performance Metrics:</b> " + ", ".join(general_metrics)
+            elif peak_metrics:
+                metrics_text = "<b>Peak Performance:</b> " + ", ".join(peak_metrics)
+            else:
+                metrics_text = None
+            
+            if metrics_text:
+                # Add as annotation below the config text
+                fig.add_annotation(
+                    x=0.5,  # Center of the plot
+                    y=0.99,  # Just below the config box
+                    xref="paper", 
+                    yref="paper",
+                    text=metrics_text,
+                    showarrow=False,
+                    font=dict(size=12),
+                    align="center",
+                    bgcolor="rgba(217, 237, 247, 0.9)",  # Light blue background
+                    bordercolor="#31708f",  # Blue border
+                    borderwidth=1,
+                    borderpad=8,
+                    width=1200  # Wide enough for the text
+                )
+        
+        # Add range selector buttons
+        fig.update_xaxes(
+            rangeslider_visible=True,
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=7, label="1w", step="day", stepmode="backward"),
+                    dict(count=1, label="1m", step="month", stepmode="backward"),
+                    dict(count=3, label="3m", step="month", stepmode="backward"),
+                    dict(count=6, label="6m", step="month", stepmode="backward"),
+                    dict(count=1, label="1y", step="year", stepmode="backward"),
+                    dict(step="all", label="all")
+                ]),
+                bgcolor='rgba(150, 200, 250, 0.4)',
+                activecolor='rgba(100, 150, 200, 0.8)'
+            ),
+            row=subplot_rows, col=1
+        )
+        
+        # Save HTML plot
+        html_path = output_dir / f'predictions_station_{station_id}_{timestamp}.html'
+        fig.write_html(str(html_path), include_plotlyjs='cdn', full_html=True, config={
+            'displayModeBar': True,
+            'responsive': True,
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': f'station_{station_id}_prediction_{timestamp}',
+                'height': 1000,
+                'width': 1500,
+                'scale': 2
+            }
+        })
+        
+        # Open HTML in browser if requested
+        if open_browser:
+            absolute_path = os.path.abspath(html_path)
+            print(f"Opening plot in browser: {absolute_path}")
+            webbrowser.open('file://' + str(absolute_path))
+        
+    return png_path
 
 
-def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None):
+def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, best_val_loss=None, metrics=None):
     """
     Create a publication-quality matplotlib plot with just water level data and save as PNG.
     Designed for thesis report with consistent colors and clean styling.
+    
+    Args:
+        actual: Series containing actual values
+        predictions: Series containing predicted values
+        station_id: ID of the station
+        timestamp: Timestamp for filename
+        model_config: Optional model configuration dictionary
+        output_dir: Optional output directory path
+        best_val_loss: Optional best validation loss achieved during training
+        metrics: Optional dictionary with additional performance metrics
     """
     # Set default output directory if not provided
     if output_dir is None:
@@ -360,7 +440,18 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     })
     
     # Create figure with good dimensions for publication
-    fig, ax = plt.subplots(figsize=(12, 6), dpi=300)
+    # Adjusted height for better space utilization
+    fig = plt.figure(figsize=(12, 8.5), dpi=300)
+    
+    # Create a larger figure to accommodate the config text and metrics
+    # Add a third row for metrics if available
+    if metrics and any(not np.isnan(v) for v in metrics.values()):
+        gs = plt.GridSpec(3, 1, height_ratios=[6, 0.8, 0.8], hspace=0.15)  # Reduced spacing
+    else:
+        gs = plt.GridSpec(2, 1, height_ratios=[6, 0.8], hspace=0.15)  # Reduced spacing
+    
+    # Main plot in top section
+    ax = fig.add_subplot(gs[0])
     
     # Plot with consistent colors - blue for actual, red for predicted
     ax.plot(actual.index, actual.values, color='#1f77b4', linewidth=1.2, label='Actual')
@@ -377,12 +468,137 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     # Add clean legend
     ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
     
-    # Format x-axis dates
-    fig.autofmt_xdate()
+    # Format x-axis dates with better spacing
+    fig.autofmt_xdate(bottom=0.2)
     
     # Remove top and right spines for cleaner look
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
+    
+    # Add configuration text in the middle section if model_config is provided
+    if model_config:
+        # Create a new axes for the config text
+        ax_config = fig.add_subplot(gs[1])
+        ax_config.axis('off')  # Hide axes
+        
+        # Prepare configuration text
+        config_lines = []
+        
+        # First row: Architecture, Hidden Size, Layers, Batch Size
+        config_lines.append(f"Architecture: LSTM | Hidden Size: {model_config.get('hidden_size', 'N/A')} | Layers: {model_config.get('num_layers', 'N/A')} | Dropout: {model_config.get('dropout', 'N/A')} | Batch: {model_config.get('batch_size', 'N/A')}")
+        
+        # Second row: Learning Rate, Sequence Length, Loss Function, Best Val Loss
+        row2 = f"Learning Rate: {model_config.get('learning_rate', 0.001):.6f} | Sequence Length: {model_config.get('sequence_length', 'N/A')} | Loss Function: {model_config.get('objective_function', 'N/A')}"
+        if best_val_loss is not None:
+            row2 += f" | Best Val Loss: {best_val_loss:.6f}"
+        config_lines.append(row2)
+        
+        # Third row: Peak Weight, Gradient Clip, Features
+        row3 = ""
+        if 'peak_weight' in model_config:
+            row3 += f"Peak Weight: {model_config.get('peak_weight', 'N/A')} | "
+        if 'grad_clip_value' in model_config:
+            row3 += f"Grad Clip: {model_config.get('grad_clip_value', 'N/A')} | "
+        row3 += f"Time Features: {model_config.get('use_time_features', False)} | Cumulative Features: {model_config.get('use_cumulative_features', False)}"
+        config_lines.append(row3)
+        
+        # Join the lines with newlines and add to the plot
+        config_text = '\n'.join(config_lines)
+        ax_config.text(0.5, 0.5, config_text, 
+                     ha='center', va='center', 
+                     fontsize=10,
+                     transform=ax_config.transAxes,
+                     bbox=dict(boxstyle='round,pad=0.5', 
+                              facecolor='#f0f0f0', 
+                              edgecolor='#cccccc',
+                              alpha=0.9))
+    
+    # Add metrics text in the bottom section if metrics are provided and have values
+    if metrics and any(not np.isnan(v) for v in metrics.values()):
+        # Create a new axes for the metrics text
+        ax_metrics = fig.add_subplot(gs[2])
+        ax_metrics.axis('off')  # Hide axes
+        
+        # Create two columns for different types of metrics
+        general_metrics = []
+        peak_metrics = []
+        
+        # Fix extreme R² value
+        if 'r2' in metrics and not np.isnan(metrics['r2']):
+            # Constrain R² to a reasonable range for display
+            r2_value = metrics['r2']
+            if r2_value < -1:
+                # For very negative values, display as -1 with a note
+                displayed_r2 = -1.0
+                general_metrics.append(f"R²: {displayed_r2:.3f} (very poor fit)")
+            else:
+                general_metrics.append(f"R²: {r2_value:.3f}")
+        
+        # Add standard metrics to general column
+        if 'rmse' in metrics and not np.isnan(metrics['rmse']):
+            general_metrics.append(f"RMSE: {metrics['rmse']:.4f} mm")
+        if 'mae' in metrics and not np.isnan(metrics['mae']):
+            general_metrics.append(f"MAE: {metrics['mae']:.4f} mm")
+        if 'mean_error' in metrics and not np.isnan(metrics['mean_error']):
+            general_metrics.append(f"Mean Error: {metrics['mean_error']:.4f} mm")
+        
+        # Add peak metrics to the peak column
+        if 'peak_rmse' in metrics and not np.isnan(metrics['peak_rmse']):
+            peak_metrics.append(f"Peak RMSE: {metrics['peak_rmse']:.4f} mm")
+        if 'peak_mae' in metrics and not np.isnan(metrics['peak_mae']):
+            peak_metrics.append(f"Peak MAE: {metrics['peak_mae']:.4f} mm")
+        
+        # Create metrics headings
+        general_header = "Performance Metrics:"
+        peak_header = "Peak Performance Metrics:"
+        
+        # Display the metrics
+        if general_metrics and peak_metrics:
+            # Two column layout with both general and peak metrics
+            general_text = general_header + "\n" + "\n".join(general_metrics)
+            peak_text = peak_header + "\n" + "\n".join(peak_metrics)
+            
+            # Left column - general metrics
+            ax_metrics.text(0.25, 0.5, general_text, 
+                         ha='center', va='center', 
+                         fontsize=10,
+                         transform=ax_metrics.transAxes,
+                         bbox=dict(boxstyle='round,pad=0.5', 
+                                  facecolor='#e6f2ff', 
+                                  edgecolor='#3399ff',
+                                  alpha=0.9))
+            
+            # Right column - peak metrics
+            ax_metrics.text(0.75, 0.5, peak_text, 
+                         ha='center', va='center', 
+                         fontsize=10,
+                         transform=ax_metrics.transAxes,
+                         bbox=dict(boxstyle='round,pad=0.5', 
+                                  facecolor='#ffe6e6', 
+                                  edgecolor='#ff6666',
+                                  alpha=0.9))
+        elif general_metrics:
+            # Single column with just general metrics
+            general_text = general_header + "\n" + "\n".join(general_metrics)
+            ax_metrics.text(0.5, 0.5, general_text, 
+                         ha='center', va='center', 
+                         fontsize=10,
+                         transform=ax_metrics.transAxes,
+                         bbox=dict(boxstyle='round,pad=0.5', 
+                                  facecolor='#e6f2ff', 
+                                  edgecolor='#3399ff',
+                                  alpha=0.9))
+        elif peak_metrics:
+            # Single column with just peak metrics
+            peak_text = peak_header + "\n" + "\n".join(peak_metrics)
+            ax_metrics.text(0.5, 0.5, peak_text, 
+                         ha='center', va='center', 
+                         fontsize=10,
+                         transform=ax_metrics.transAxes,
+                         bbox=dict(boxstyle='round,pad=0.5', 
+                                  facecolor='#ffe6e6', 
+                                  edgecolor='#ff6666',
+                                  alpha=0.9))
     
     # Tight layout and save with high quality
     plt.tight_layout()
@@ -390,6 +606,8 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     plt.savefig(output_path, dpi=600, bbox_inches='tight', facecolor='white')
     print(f"Saved water level PNG plot to: {output_path}")
     plt.close()
+    
+    return output_path
 
 
 def plot_scaled_predictions(predictions, targets, test_data=None, title="Scaled Predictions vs Targets"):
@@ -653,12 +871,21 @@ def create_performance_analysis_plot(actual, predictions, station_id, model_conf
     ax2.plot([min_val-margin, max_val+margin], [min_val-margin, max_val+margin], 
            'k--', alpha=0.8, linewidth=1, label='Perfect Prediction')
     
-    # Add metrics text box
-    metrics_text = (
-        f'RMSE: {rmse:.2f} mm\n'
-        f'MAE: {mae:.2f} mm\n'
-        f'R²: {r2:.3f}'
-    )
+    # Add metrics text
+    metrics_text = "Model Performance:<br>"
+    if metrics:
+        for key, value in metrics.items():
+            # Handle extreme R² values with a special case
+            if key == 'r2' and value == -1 and 'r2_original' in metrics:
+                metrics_text += f"{key}: -1 (capped from {metrics['r2_original']:.4f})<br>"
+            elif key == 'r2_original':
+                # Skip this as we're displaying it with r2
+                continue
+            elif isinstance(value, (int, float)) and not np.isnan(value):
+                metrics_text += f"{key}: {value:.4f}<br>"
+            else:
+                metrics_text += f"{key}: {value}<br>"
+    
     ax2.text(0.05, 0.95, metrics_text, transform=ax2.transAxes,
            verticalalignment='top', 
            fontsize=12,

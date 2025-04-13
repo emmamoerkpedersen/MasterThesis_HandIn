@@ -31,10 +31,10 @@ from config import LSTM_CONFIG
 
 from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
-from experiments.Improved_model_structure.model import LSTMModel
+#from experiments.Improved_model_structure.model import LSTMModel
 
 
-# from _3_lstm_model.model import LSTMModel
+from _3_lstm_model.model import LSTMModel
 # from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
 # from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
 
@@ -335,7 +335,19 @@ def run_pipeline(
     )
     # Now plot with aligned data - make sure station_id is a string
     best_val_loss = min(history['val_loss'])
-    create_full_plot(val_data, val_predictions_df, str(station_id), model_config, best_val_loss)  # Pass model config and best val loss
+    
+    # Get metrics to display in plot
+    metrics = history.get('metrics', {})
+    
+    # Create plot with metrics included
+    create_full_plot(
+        val_data, 
+        val_predictions_df, 
+        str(station_id), 
+        model_config, 
+        best_val_loss,
+        metrics=metrics
+    )  # Pass metrics to display in a separate box
     
 
     # Plot scaled predictions to check if they are correct   

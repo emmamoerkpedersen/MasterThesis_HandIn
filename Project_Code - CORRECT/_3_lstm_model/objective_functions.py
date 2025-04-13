@@ -102,6 +102,51 @@ def peak_weighted_loss(outputs, targets, peak_weight=1.5):
     # Return mean of weighted loss
     return weighted_loss.mean()
 
+@register_objective('smoothL1_dynamic_weighted_loss')
+def smoothL1_dynamic_weighted_loss(outputs, targets, beta=1.0, weight_factor=1.5):
+    """
+    Combined loss function that uses smoothL1 loss with dynamic weighting.
+    This provides the robustness of smoothL1 loss against outliers while
+    still giving higher weights to peaks and troughs.
+    
+    Args:
+        outputs: Model predictions
+        targets: Target values
+        beta: smoothL1 beta parameter (default: 1.0)
+        weight_factor: Controls the strength of dynamic weighting (default: 1.5)
+        
+    Returns:
+        Tensor: Mean of the dynamically weighted smoothL1 loss
+    """
+    # Calculate smoothL1 loss with reduction='none' to keep per-element losses
+    smooth_l1 = nn.functional.smooth_l1_loss(outputs, targets, reduction='none', beta=beta)
+    
+    # Calculate the dynamic weighting based on the magnitude of target values
+    min_val = targets.min()
+    max_val = targets.max()
+    
+    if max_val > min_val:  # Avoid division by zero
+        normalized_targets = (targets - min_val) / (max_val - min_val)
+        
+        # Create weighting that increases with target magnitude
+        # Using a sigmoid-like scaling to keep values in a reasonable range
+        scaled_weighting = weight_factor * torch.sigmoid(normalized_targets * 2 - 1.0)
+        
+        # Enhance weights specifically for peaks (upper quartile)
+        peak_mask = normalized_targets > 0.75
+        scaled_weighting = torch.where(peak_mask, scaled_weighting * 1.5, scaled_weighting)
+        
+        # Enhance weights for troughs (lower quartile) as well
+        trough_mask = normalized_targets < 0.25
+        scaled_weighting = torch.where(trough_mask, scaled_weighting * 1.3, scaled_weighting)
+        
+        # Multiply the loss by the dynamic weighting
+        weighted_loss = smooth_l1 * (1.0 + scaled_weighting)
+    else:
+        weighted_loss = smooth_l1
+    
+    return weighted_loss.mean()
+
 def get_objective_function(name):
     """
     Get an objective function by name.

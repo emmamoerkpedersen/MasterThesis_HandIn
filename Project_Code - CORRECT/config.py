@@ -115,11 +115,11 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'hidden_size': 128,
-    'num_layers': 1,
-    'dropout': 0.3,
-    'batch_size': 64,
-    'sequence_length': 5500,
+    'hidden_size': 178,
+    'num_layers': 3,
+    'dropout': 0.4,
+    'batch_size': 6,
+    'sequence_length': 10000,
     'epochs': 600,
     'patience': 25,
     'warmup_length': 100,
@@ -136,7 +136,7 @@ LSTM_CONFIG = {
     'use_cumulative_features': True,
     'feature_cols': [
         'rainfall',
-        'temperature',
+        #'temperature',
     ],
     'output_features': ['vst_raw'],
 
@@ -151,4 +151,3 @@ LSTM_CONFIG = {
         }
     ]
 }
-
