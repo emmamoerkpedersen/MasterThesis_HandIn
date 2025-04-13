@@ -122,11 +122,12 @@ LSTM_CONFIG = {
     'sequence_length': 10000,
     'epochs': 600,
     'patience': 25,
+
     'warmup_length': 100,
     'learning_rate': 0.0001,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 
-    'objective_function': 'smoothL1_loss',
+    'objective_function': 'peak_weighted_loss',
     'peak_weight': 1.5,
     'grad_clip_value': 1.148,
     'use_smoothing': False,

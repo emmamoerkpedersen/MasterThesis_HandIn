@@ -24,14 +24,14 @@ from diagnostics.split_diagnostics import plot_split_visualization, generate_spl
 from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot, plot_scaled_vs_unscaled_features
+from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot, plot_scaled_vs_unscaled_features, plot_features_stacked_plots
 from config import SYNTHETIC_ERROR_PARAMS
 from config import LSTM_CONFIG
 
 
 from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
-#from experiments.Improved_model_structure.model import LSTMModel
+from experiments.Improved_model_structure.model import LSTMModel
 
 
 from _3_lstm_model.model import LSTMModel
@@ -83,6 +83,11 @@ def run_pipeline(
     print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
     print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
     
+    
+    # Plot features
+    plot_features_stacked_plots(train_data, preprocessor.feature_cols)
+
+
     # # Plot scaled vs unscaled features for visualization
     # print("\nGenerating scaled vs unscaled features plot for control...")
     
@@ -324,30 +329,31 @@ def run_pipeline(
     predictions_original = preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
-    # Trim predictions to match validation data length
-    predictions_flattened = predictions_flattened[:len(val_data)]
+    # Print diagnostic information about shapes
+    print(f"\nShape diagnostics:")
+    print(f"Validation data length: {len(val_data)}")
+    print(f"Predictions length: {len(predictions_flattened)}")
+    
+    # Ensure predictions match validation data length
+    if len(predictions_flattened) < len(val_data):
+        # If predictions are shorter, pad with NaN values
+        print(f"Padding predictions with NaN values to match validation data length")
+        padding = np.full(len(val_data) - len(predictions_flattened), np.nan)
+        predictions_flattened = np.concatenate([predictions_flattened, padding])
+    elif len(predictions_flattened) > len(val_data):
+        # If predictions are longer, truncate to match validation data length
+        print(f"Truncating predictions to match validation data length")
+        predictions_flattened = predictions_flattened[:len(val_data)]
     
     # Create DataFrame with aligned predictions and targets
     val_predictions_df = pd.DataFrame(
-        predictions_flattened,  # Use trimmed 1D array  
+        predictions_flattened,  # Use adjusted 1D array  
         index=val_data.index,
         columns=['vst_raw']
     )
     # Now plot with aligned data - make sure station_id is a string
     best_val_loss = min(history['val_loss'])
-    
-    # Get metrics to display in plot
-    metrics = history.get('metrics', {})
-    
-    # Create plot with metrics included
-    create_full_plot(
-        val_data, 
-        val_predictions_df, 
-        str(station_id), 
-        model_config, 
-        best_val_loss,
-        metrics=metrics
-    )  # Pass metrics to display in a separate box
+    create_full_plot(val_data, val_predictions_df, str(station_id), model_config, best_val_loss)  # Pass model config and best val loss
     
 
     # Plot scaled predictions to check if they are correct   
