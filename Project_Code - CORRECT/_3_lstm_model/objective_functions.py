@@ -147,6 +147,163 @@ def smoothL1_dynamic_weighted_loss(outputs, targets, beta=1.0, weight_factor=1.5
     
     return weighted_loss.mean()
 
+@register_objective('adaptive_smoothL1_loss')
+def adaptive_smoothL1_loss(outputs, targets):
+    """
+    SmoothL1 loss with adaptive beta based on target magnitude.
+    Uses different sensitivity for peak vs normal values to improve peak predictions.
+    
+    Args:
+        outputs: Model predictions
+        targets: Target values
+        
+    Returns:
+        Tensor: Weighted mean of the adaptive smoothL1 loss
+    """
+    # Calculate target percentiles for adaptive thresholds
+    peak_threshold = torch.quantile(targets, 0.9)  # 90th percentile
+    
+    # Use smaller beta for peaks (more L1-like) and larger beta for normal values (more MSE-like)
+    beta_peaks = 0.2  # More sensitive to peaks
+    beta_normal = 1.0  # Standard smoothing
+    
+    # Create peak mask
+    peak_mask = targets > peak_threshold
+    
+    # Initialize combined loss
+    combined_loss = torch.zeros_like(targets)
+    
+    # Calculate losses separately for peaks and normal values
+    if peak_mask.any():
+        combined_loss[peak_mask] = nn.functional.smooth_l1_loss(
+            outputs[peak_mask], 
+            targets[peak_mask], 
+            beta=beta_peaks,
+            reduction='none'
+        ) * 2.0  # Higher weight for peaks
+    
+    if (~peak_mask).any():
+        combined_loss[~peak_mask] = nn.functional.smooth_l1_loss(
+            outputs[~peak_mask], 
+            targets[~peak_mask], 
+            beta=beta_normal,
+            reduction='none'
+        )
+    
+    return combined_loss.mean()
+
+@register_objective('momentum_smoothL1_loss')
+def momentum_smoothL1_loss(outputs, targets):
+    """
+    SmoothL1 loss that considers the momentum of changes to better capture rapid changes
+    in water levels. This helps reduce prediction lag during sudden level changes.
+    
+    Args:
+        outputs: Model predictions
+        targets: Target values
+        
+    Returns:
+        Tensor: Combined loss incorporating both value and change-rate errors
+    """
+    # Basic smoothL1 loss
+    base_loss = nn.functional.smooth_l1_loss(outputs, targets, reduction='none')
+    
+    # Ensure tensors are properly shaped for diff operation
+    if len(targets.shape) == 1:
+        targets = targets.unsqueeze(0)
+        outputs = outputs.unsqueeze(0)
+    
+    # Calculate momentum terms (rate of change)
+    target_diff = torch.diff(targets, n=1, dim=-1)
+    output_diff = torch.diff(outputs, n=1, dim=-1)
+    
+    # Pad the diff tensors to match original size
+    target_diff = torch.cat([target_diff, target_diff[:,-1:]], dim=-1)
+    output_diff = torch.cat([output_diff, output_diff[:,-1:]], dim=-1)
+    
+    # Momentum loss (helps with predicting changes)
+    momentum_loss = nn.functional.smooth_l1_loss(
+        output_diff,
+        target_diff,
+        reduction='none'
+    )
+    
+    # Calculate adaptive weights based on rate of change
+    change_magnitude = torch.abs(target_diff)
+    max_change = torch.max(change_magnitude)
+    if max_change > 0:  # Avoid division by zero
+        momentum_weight = change_magnitude / max_change
+        momentum_weight = torch.clamp(momentum_weight, min=0.5, max=2.0)  # Limit weight range
+    else:
+        momentum_weight = torch.ones_like(change_magnitude)
+    
+    # Combine losses with momentum getting higher weight during rapid changes
+    combined_loss = base_loss + momentum_weight * momentum_loss
+    
+    return combined_loss.mean()
+
+@register_objective('peak_focused_loss')
+def peak_focused_loss(outputs, targets):
+    """
+    Highly specialized loss function focused on accurate peak prediction.
+    Uses extremely aggressive weighting for peaks and rapid changes.
+    
+    Args:
+        outputs: Model predictions
+        targets: Target values
+        
+    Returns:
+        Tensor: Mean of the combined loss with strong peak emphasis
+    """
+    # Calculate the basic smooth L1 loss
+    basic_loss = nn.functional.smooth_l1_loss(outputs, targets, reduction='none')
+    
+    # Identify peaks using a higher threshold (top 20%)
+    min_val = targets.min()
+    max_val = targets.max()
+    if max_val <= min_val:  # Handle edge case
+        return basic_loss.mean()
+    
+    # Normalize targets to 0-1 range
+    normalized_targets = (targets - min_val) / (max_val - min_val)
+    
+    # Create peak mask for top 20% of values
+    peak_threshold = 0.8
+    peak_mask = normalized_targets > peak_threshold
+    
+    # Calculate the rate of change in target values
+    if len(targets.shape) == 1:
+        targets_temp = targets.unsqueeze(0)
+    else:
+        targets_temp = targets
+        
+    target_diffs = torch.cat([
+        torch.zeros_like(targets_temp[:,:1]), 
+        torch.diff(targets_temp, dim=1)
+    ], dim=1)
+    
+    # Identify rapid changes using the rate of change
+    change_threshold = torch.quantile(torch.abs(target_diffs), 0.9)  # Top 10% of changes
+    rapid_change_mask = torch.abs(target_diffs) > change_threshold
+    
+    # Create the final weight matrix based on different conditions:
+    weights = torch.ones_like(targets)
+    
+    # Extreme weight for peaks (5x)
+    weights = torch.where(peak_mask, 5.0 * torch.ones_like(weights), weights)
+    
+    # High weight for rapid changes (3x)
+    weights = torch.where(rapid_change_mask, 3.0 * torch.ones_like(weights), weights)
+    
+    # Enhanced weights for "approach to peak" (values in upper half)
+    approach_mask = (normalized_targets > 0.5) & (~peak_mask)
+    weights = torch.where(approach_mask, 2.0 * torch.ones_like(weights), weights)
+    
+    # Apply weights to the basic loss
+    weighted_loss = basic_loss * weights
+    
+    return weighted_loss.mean()
+
 def get_objective_function(name):
     """
     Get an objective function by name.

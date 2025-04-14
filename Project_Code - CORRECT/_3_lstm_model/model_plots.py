@@ -405,7 +405,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         
     return png_path
 
-
 def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, best_val_loss=None, metrics=None):
     """
     Create a publication-quality matplotlib plot with just water level data and save as PNG.
@@ -454,11 +453,14 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     ax = fig.add_subplot(gs[0])
     
     # Plot with consistent colors - blue for actual, red for predicted
-    ax.plot(actual.index, actual.values, color='#1f77b4', linewidth=1.2, label='Actual')
-    ax.plot(predictions.index, predictions.values, color='#d62728', linewidth=1.2, label='Predicted')
+    ax.plot(actual.index, actual.values, color='#1f77b4', linewidth=0.8, label='Actual')
+    ax.plot(predictions.index, predictions.values, color='#d62728', linewidth=0.8, label='Predicted')
     
     # Clean styling
-    ax.set_title(f'Water Level Predictions - Station {station_id}', fontweight='bold', pad=15)
+    if isinstance(timestamp, str):
+        ax.set_title(f'Water Level Predictions - Station {station_id}', fontweight='bold', pad=15)
+    else:
+        ax.set_title(f'Water Level Predictions - Station {station_id}\n{timestamp.strftime("%Y-%m-%d")}', fontweight='bold', pad=15)
     ax.set_xlabel('Date', fontweight='bold', labelpad=10)
     ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
     
