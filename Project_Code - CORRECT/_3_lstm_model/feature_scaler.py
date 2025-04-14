@@ -135,17 +135,24 @@ class FeatureScaler:
         For target variables, NaN values are excluded from scaling calculations.
         """
         if not self.is_fitted:
+            # Ensure we have all feature columns
+            missing_cols = [col for col in self.feature_cols if col not in features.columns]
+            if missing_cols:
+                raise ValueError(f"Missing feature columns: {missing_cols}")
+            
+            # Create a single scaler for all features
             self.scalers = {
-                'features': {col: StandardScaler() for col in self.feature_cols},
+                'features': StandardScaler(),
                 'target': StandardScaler()
             }
             
-            # Fit each feature scaler
-            for col in self.feature_cols:
-                self.scalers['features'][col].fit(features[[col]])
+            # Extract features in the correct order
+            feature_matrix = features[self.feature_cols].values
+            
+            # Fit the feature scaler on all features at once
+            self.scalers['features'].fit(feature_matrix)
             
             # Fit target scaler - exclude NaN values
-            # Convert target to numpy array if it's a DataFrame
             target_array = target.values if isinstance(target, pd.DataFrame) else target
             
             # Create a mask for non-NaN values
@@ -160,13 +167,9 @@ class FeatureScaler:
                 
             self.is_fitted = True
 
-        # Scale features
-        scaled_features_list = []
-        for col in self.feature_cols:
-            scaled_feature = self.scalers['features'][col].transform(features[[col]])
-            scaled_features_list.append(scaled_feature)
-        
-        scaled_features = np.hstack(scaled_features_list)
+        # Scale features - ensure we scale all features in the correct order
+        feature_matrix = features[self.feature_cols].values
+        scaled_features = self.scalers['features'].transform(feature_matrix)
 
         # Scale target - handle NaN values
         target_array = target.values if isinstance(target, pd.DataFrame) else target

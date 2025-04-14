@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
-from experiments.Improved_model_structure.model import LSTMModel
+#from experiments.Improved_model_structure.model import LSTMModel
+from _3_lstm_model.model import LSTMModel
 from tqdm import tqdm
 from _3_lstm_model.objective_functions import get_objective_function
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
@@ -73,7 +74,9 @@ class LSTM_Trainer:
         all_targets = []
 
         with torch.set_grad_enabled(training):
-            for batch_idx, (batch_X, batch_y) in enumerate(tqdm(data_loader, desc="Training" if training else "Validating", leave=False)):
+            # Use tqdm only for training and disable it for validation to avoid nested progress bars
+            iterable = tqdm(data_loader, desc="Batches", leave=False, disable=not training) if training else data_loader
+            for batch_idx, (batch_X, batch_y) in enumerate(iterable):
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
                 # Create warm-up mask
@@ -97,6 +100,10 @@ class LSTM_Trainer:
                     # Apply gradient clipping to prevent exploding gradients
                     nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_value)
                     self.optimizer.step()
+                    
+                    # Update progress bar with batch loss
+                    if batch_idx % 10 == 0:  # Update less frequently to reduce overhead
+                        iterable.set_postfix({'batch_loss': f'{loss.item():.6f}'})
                 
                 total_loss += loss.item()
 
@@ -112,6 +119,105 @@ class LSTM_Trainer:
             val_targets = torch.cat(all_targets, dim=0)
             return total_loss / len(data_loader), val_predictions, val_targets
 
+    def evaluate_predictions(self, predictions, targets, data_index=None):
+        """
+        Calculate performance metrics for model predictions.
+        
+        Args:
+            predictions: Model predictions (numpy array)
+            targets: Target values (numpy array)
+            data_index: Optional pandas DatetimeIndex for calculating peak metrics
+            
+        Returns:
+            dict: Dictionary of performance metrics
+        """
+        from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+        
+        # Remove NaN values for metric calculation
+        valid_mask = (~np.isnan(targets)) & (~np.isnan(predictions))
+        valid_targets = targets[valid_mask]
+        valid_predictions = predictions[valid_mask]
+        
+        if len(valid_targets) == 0:
+            return {
+                'rmse': float('nan'),
+                'mae': float('nan'),
+                'r2': float('nan'),
+                'mean_error': float('nan'),
+                'std_error': float('nan'),
+                'peak_mae': float('nan'),
+                'peak_rmse': float('nan')
+            }
+        
+        # Calculate standard metrics
+        rmse = np.sqrt(mean_squared_error(valid_targets, valid_predictions))
+        mae = mean_absolute_error(valid_targets, valid_predictions)
+        
+        # Calculate and validate R² score (can be extremely negative for poor models)
+        r2 = r2_score(valid_targets, valid_predictions)
+        r2_original = r2  # Store original value for reporting
+        
+        # Provide more informative message about the R² value quality
+        if r2 < -1.0:
+            # Different warning messages based on how negative the R² is
+            if r2 < -10.0:
+                print(f"Warning: R² value is extremely negative ({r2:.4f}). Model predictions are very poor and may need significant improvement.")
+            elif r2 < -5.0:
+                print(f"Warning: R² value is highly negative ({r2:.4f}). The model may be struggling with this dataset.")
+            else:
+                print(f"Warning: R² value is negative ({r2:.4f}). This indicates the model performs worse than a simple mean baseline.")
+                
+            # Calculate mean of target to understand baseline
+            target_mean = np.mean(valid_targets)
+            print(f"Target mean: {target_mean:.4f}, Target std: {np.std(valid_targets):.4f}")
+            
+            # Optional: explain what R² means
+            print("Note: R² < 0 means the model performs worse than predicting the mean value for all points.")
+            print("      R² = 0 means the model performs as well as predicting the mean.")
+            print("      R² = 1 means perfect predictions.")
+            
+            # Constrain the value to -1.0 for reporting
+            r2 = -1.0
+        
+        # Calculate error statistics
+        errors = valid_predictions - valid_targets
+        mean_error = np.mean(errors)
+        std_error = np.std(errors)
+        
+        # Calculate peak-specific metrics (if we have indices)
+        peak_mae = float('nan')
+        peak_rmse = float('nan')
+        
+        if data_index is not None and len(valid_targets) > 0:
+            try:
+                # Identify peaks (top 10% of values)
+                peak_threshold = np.percentile(valid_targets, 90)
+                peak_mask = valid_targets >= peak_threshold
+                
+                if np.sum(peak_mask) > 0:
+                    peak_mae = mean_absolute_error(
+                        valid_targets[peak_mask], 
+                        valid_predictions[peak_mask]
+                    )
+                    peak_rmse = np.sqrt(mean_squared_error(
+                        valid_targets[peak_mask], 
+                        valid_predictions[peak_mask]
+                    ))
+            except Exception as e:
+                print(f"Error calculating peak metrics: {e}")
+        
+        # Add the original R² value for debugging
+        return {
+            'rmse': rmse,
+            'mae': mae,
+            'r2': r2,
+            'r2_original': r2_original,  # Store the original unconstrained value
+            'mean_error': mean_error,
+            'std_error': std_error,
+            'peak_mae': peak_mae,
+            'peak_rmse': peak_rmse
+        }
+        
     def train(self, train_data, val_data, epochs, batch_size, patience, epoch_callback=None):
         """
         Train the LSTM model with improved efficiency.
@@ -160,9 +266,13 @@ class LSTM_Trainer:
         beta = 0.7  # Weight for previous smoothed value (higher = more smoothing)
         print(f"Using validation loss EMA smoothing with beta={beta}")
 
-        # Training loop with progress bar
-        for epoch in range(epochs):
+        # Training loop with progress bar for epochs
+        epoch_pbar = tqdm(range(epochs), desc="Training", unit="epoch")
+        for epoch in epoch_pbar:
+            # Run training epoch
             train_loss = self._run_epoch(train_loader, training=True)
+            
+            # Run validation epoch
             val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
 
             # Calculate smoothed validation loss using exponential moving average
@@ -175,12 +285,20 @@ class LSTM_Trainer:
             self.history['train_loss'].append(train_loss)
             self.history['val_loss'].append(val_loss)
             self.history['smoothed_val_loss'].append(smoothed_val_loss)
-            self.history['learning_rates'].append(self.optimizer.param_groups[0]['lr'])
+            current_lr = self.optimizer.param_groups[0]['lr']
+            self.history['learning_rates'].append(current_lr)
             
             # Step the learning rate scheduler based on smoothed validation loss
             self.scheduler.step(smoothed_val_loss)
 
-            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}, Smoothed Val Loss: {smoothed_val_loss:.6f}")
+            # Update progress bar with current metrics
+            epoch_pbar.set_postfix({
+                'Train Loss': f'{train_loss:.6f}',
+                'Val Loss': f'{val_loss:.6f}',
+                'LR': f'{current_lr:.6f}',
+                'Smooth Val': f'{smoothed_val_loss:.6f}',
+                'Patience': f'{patience_counter}/{patience}'
+            })
             
             # Call epoch callback if provided (for hyperparameter tuning)
             if epoch_callback is not None:
@@ -195,15 +313,59 @@ class LSTM_Trainer:
                 best_val_loss = smoothed_val_loss
                 patience_counter = 0
                 best_model_state = self.model.state_dict().copy()
+                epoch_pbar.set_postfix({
+                    'Train Loss': f'{train_loss:.6f}',
+                    'Val Loss': f'{val_loss:.6f}',
+                    'LR': f'{current_lr:.6f}',
+                    'Smooth Val': f'{smoothed_val_loss:.6f}',
+                    'Patience': f'{patience_counter}/{patience}',
+                    'Best Model': '✓'
+                })
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
-                    print(f"Early stopping triggered! No improvement in smoothed validation loss for {patience} epochs.")
+                    epoch_pbar.set_description(f"Early stopping triggered after {epoch+1} epochs")
                     break
+
+        # After training is complete, print a summary
+        print(f"\nTraining completed: {epoch+1}/{epochs} epochs")
+        print(f"Best smoothed validation loss: {best_val_loss:.6f}")
 
         # Restore best model
         if best_model_state:
             self.model.load_state_dict(best_model_state)
+            
+        # Calculate additional metrics for validation predictions
+        # Convert predictions to numpy and reshape for metrics calculation
+        val_predictions_np = val_predictions.cpu().numpy()
+        val_targets_np = val_targets.cpu().numpy()
+        
+        # Reshape to match expected format
+        predictions_reshaped = val_predictions_np.reshape(-1, 1)
+        targets_reshaped = val_targets_np.reshape(-1, 1)
+        
+        # Convert back to original scale for meaningful metrics
+        predictions_original = self.preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped).flatten()
+        targets_original = val_targets_np.flatten()  # Targets are already in the right scale for comparison
+        
+        # Calculate additional performance metrics
+        performance_metrics = self.evaluate_predictions(
+            predictions_original, 
+            targets_original,
+            data_index=val_data.index if hasattr(val_data, 'index') else None
+        )
+        
+        # Add metrics to history
+        self.history['metrics'] = performance_metrics
+        
+        # Print metrics summary
+        print("\nValidation Performance Metrics:")
+        print(f"RMSE: {performance_metrics['rmse']:.4f}")
+        print(f"MAE: {performance_metrics['mae']:.4f}")
+        print(f"R²: {performance_metrics['r2']:.4f}")
+        if not np.isnan(performance_metrics['peak_rmse']):
+            print(f"Peak RMSE: {performance_metrics['peak_rmse']:.4f}")
+            print(f"Peak MAE: {performance_metrics['peak_mae']:.4f}")
 
         return self.history, val_predictions, val_targets
 
@@ -232,12 +394,6 @@ class LSTM_Trainer:
             predictions_reshaped = predictions.reshape(-1, 1)
             predictions_original = self.preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped)
             
-            # Apply smoothing if configured
-            if self.config.get('use_smoothing', False):
-                alpha = self.config.get('smoothing_alpha', 0.2)  # EMA alpha parameter
-                print(f"Applying exponential smoothing with alpha={alpha}")
-                predictions_original = self._apply_exponential_smoothing(predictions_original, alpha)
-            
             # Reshape back maintaining temporal order
             predictions_original = predictions_original.reshape(predictions.shape)
             
@@ -260,43 +416,3 @@ class LSTM_Trainer:
             
             return predictions_original, predictions, y
     
-    def _apply_exponential_smoothing(self, predictions, alpha=0.2):
-        """
-        Apply exponential moving average smoothing to predictions.
-        Uses an adaptive approach that maintains more detail in mid-range values.
-        
-        Args:
-            predictions: Raw predictions array
-            alpha: Smoothing factor (0-1). Lower values = more smoothing.
-            
-        Returns:
-            Smoothed predictions
-        """
-        # Reshape to handle multidimensional arrays
-        original_shape = predictions.shape
-        predictions_1d = predictions.flatten()
-        
-        # Initialize smoothed array with first prediction
-        smoothed = np.zeros_like(predictions_1d)
-        smoothed[0] = predictions_1d[0]
-        
-        # Determine mid-range values (using percentiles to be robust)
-        valid_values = predictions_1d[~np.isnan(predictions_1d)]
-        low_threshold = np.percentile(valid_values, 33)
-        high_threshold = np.percentile(valid_values, 67)
-        
-        # Apply EMA formula with adaptive alpha
-        for i in range(1, len(predictions_1d)):
-            if np.isnan(predictions_1d[i]):
-                smoothed[i] = smoothed[i-1]  # Propagate last valid prediction if current is NaN
-            else:
-                # Use higher alpha (less smoothing) for mid-range values
-                current_alpha = alpha
-                if low_threshold <= predictions_1d[i] <= high_threshold:
-                    # Apply up to 50% more alpha in mid-range for better detail
-                    current_alpha = min(0.9, alpha * 1.5)
-                    
-                smoothed[i] = current_alpha * predictions_1d[i] + (1 - current_alpha) * smoothed[i-1]
-        
-        # Reshape back to original dimensions
-        return smoothed.reshape(original_shape)

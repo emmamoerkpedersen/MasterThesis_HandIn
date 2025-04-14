@@ -31,9 +31,10 @@ from config import LSTM_CONFIG
 
 from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
-from experiments.Improved_model_structure.model import LSTMModel
+#from experiments.Improved_model_structure.model import LSTMModel
 
-# from _3_lstm_model.model import LSTMModel
+
+from _3_lstm_model.model import LSTMModel
 # from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
 # from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
 
@@ -84,7 +85,7 @@ def run_pipeline(
     
     
     # Plot features
-    plot_features_stacked_plots(train_data, preprocessor.feature_cols)
+    #plot_features_stacked_plots(train_data, preprocessor.feature_cols)
 
 
     # # Plot scaled vs unscaled features for visualization
@@ -351,7 +352,8 @@ def run_pipeline(
         columns=['vst_raw']
     )
     # Now plot with aligned data - make sure station_id is a string
-    create_full_plot(val_data, val_predictions_df, str(station_id), model_config)  # Pass model config
+    best_val_loss = min(history['val_loss'])
+    create_full_plot(val_data, val_predictions_df, str(station_id), model_config, best_val_loss)  # Pass model config and best val loss
     
 
     # Plot scaled predictions to check if they are correct   
@@ -393,16 +395,16 @@ def run_pipeline(
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
   
     
-    # # Convert test predictions to DataFrame for plotting
-    # test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
-    # test_predictions_df = pd.DataFrame(
-    #     test_predictions_reshaped,  # Already flattened
-    #     index=test_data.index[:len(test_predictions_reshaped)],
-    #     columns=['vst_raw']
-    # )
+    # Convert test predictions to DataFrame for plotting
+    test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
+    test_predictions_df = pd.DataFrame(
+        test_predictions_reshaped,  # Already flattened
+        index=test_data.index[:len(test_predictions_reshaped)],
+        columns=['vst_raw']
+    )
     
-    # # Plot test results with model config
-    # create_full_plot(test_data, test_predictions_df, str(station_id), model_config)  # Pass model config
+    # Plot test results with model config
+    create_full_plot(test_data, test_predictions_df, str(station_id), model_config)  # Pass model config
     
     # Plot convergence
     # plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
