@@ -116,10 +116,10 @@ PHYSICAL_LIMITS = {
 # LSTM Configuration
 LSTM_CONFIG = {
     'hidden_size': 384,         # Increased from 256 to handle more features
-    'num_layers': 1,            # Increased from 2 to add more capacity
+    'num_layers': 2,            # Increased from 2 to add more capacity
     'dropout': 0.3,             # Reduced slightly to allow better generalization with more layers
     'batch_size': 16,
-    'sequence_length': 5000,
+    'sequence_length': 25000,
     'epochs': 600,
     'patience': 40,             # Increased to give more time to learn with increased complexity
 
