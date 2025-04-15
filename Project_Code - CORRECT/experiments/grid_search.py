@@ -43,11 +43,11 @@ def setup_grid_search():
     # Set up grid search parameters - this is a sample configuration
     # Modify these parameters based on your specific research needs
     grid_params = {
-        'hidden_size': [128, 256, 512],
+        'hidden_size': [24, 64, 128, 256],
         'num_layers': [2],
-        'sequence_length': [25000, 35000, 45000, 55000],
-        'learning_rate': [0.001, 0.0001, 0.00001],
-        'objective_function': ['smoothL1_loss', 'momentum_smoothL1_loss']
+        'sequence_length': [5000, 10000, 20000, 35000],
+        'learning_rate': [0.001, 0.0001],
+        'objective_function': ['smoothL1_loss']
     }
     return grid_params
 
@@ -138,7 +138,7 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
     trainer = LSTM_Trainer(config, preprocessor=preprocessor)
     
     # Limit epochs for quick results during grid search
-    epochs = 1000  # Reduced epochs for grid search
+    epochs = 500  # Reduced epochs for grid search
     
     # Print model configuration
     print(f"Hidden Size: {config['hidden_size']}")
