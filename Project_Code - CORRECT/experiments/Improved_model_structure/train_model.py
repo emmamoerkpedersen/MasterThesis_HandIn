@@ -163,12 +163,17 @@ class LSTM_Trainer:
                 'mean_error': float('nan'),
                 'std_error': float('nan'),
                 'peak_mae': float('nan'),
-                'peak_rmse': float('nan')
+                'peak_rmse': float('nan'),
+                'nse': float('nan')
             }
         
         # Calculate standard metrics
         rmse = np.sqrt(mean_squared_error(valid_targets, valid_predictions))
         mae = mean_absolute_error(valid_targets, valid_predictions)
+        
+        # Calculate Nash-Sutcliffe Efficiency (NSE)
+        nse = 1 - (np.sum((valid_targets - valid_predictions) ** 2) / 
+                   np.sum((valid_targets - np.mean(valid_targets)) ** 2))
         
         # Calculate and validate R² score (can be extremely negative for poor models)
         r2 = r2_score(valid_targets, valid_predictions)
@@ -232,7 +237,8 @@ class LSTM_Trainer:
             'mean_error': mean_error,
             'std_error': std_error,
             'peak_mae': peak_mae,
-            'peak_rmse': peak_rmse
+            'peak_rmse': peak_rmse,
+            'nse': nse  # Add NSE to the returned metrics
         }
         
     def train(self, train_data, val_data, epochs, batch_size, patience, epoch_callback=None):

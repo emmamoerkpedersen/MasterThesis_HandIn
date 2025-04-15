@@ -23,6 +23,7 @@ import time
 import matplotlib.pyplot as plt
 from datetime import datetime
 from tqdm import tqdm
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 # Import from project modules
 sys.path.append(str(Path(__file__).parent.parent))
@@ -188,7 +189,6 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             performance_metrics = history['metrics']
         else:
             # Fallback: Calculate metrics using the validation data
-            from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
             actual_vals = val_data['vst_raw'].dropna().values
             pred_vals = val_predictions_df.loc[val_data['vst_raw'].dropna().index, 'vst_raw'].values
             
@@ -208,7 +208,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
                 'mean_error': float('nan'),
                 'std_error': float('nan'),
                 'peak_mae': float('nan'),
-                'peak_rmse': float('nan')
+                'peak_rmse': float('nan'),
+                'nse': float('nan')
             }
             
         # Create plots
@@ -275,7 +276,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             "mae": float(performance_metrics['mae']),
             "r2": float(performance_metrics['r2']),
             "peak_rmse": float(performance_metrics['peak_rmse']),
-            "peak_mae": float(performance_metrics['peak_mae'])
+            "peak_mae": float(performance_metrics['peak_mae']),
+            "nse": float(performance_metrics['nse'])
         }
         
         with open(model_dir / "metrics.json", "w") as f:
@@ -297,7 +299,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             "mae": metrics['mae'],
             "r2": metrics['r2'],
             "peak_rmse": metrics['peak_rmse'],
-            "peak_mae": metrics['peak_mae']
+            "peak_mae": metrics['peak_mae'],
+            "nse": metrics['nse']
         }
         
         return result, history, trainer.model
@@ -312,7 +315,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             "mae": float('nan'),
             "r2": float('nan'),
             "peak_rmse": float('nan'),
-            "peak_mae": float('nan')
+            "peak_mae": float('nan'),
+            "nse": float('nan')
         }, None, None
 
 
