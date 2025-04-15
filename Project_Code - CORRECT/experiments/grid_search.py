@@ -43,10 +43,10 @@ def setup_grid_search():
     # Set up grid search parameters - this is a sample configuration
     # Modify these parameters based on your specific research needs
     grid_params = {
-        'hidden_size': [128, 256, 512, 1024],
-        'num_layers': [2,3,4],
-        'sequence_length': [10000, 15000, 25000, 30000, 40000, 50000],
-        'learning_rate': [0.001],
+        'hidden_size': [128, 256, 512],
+        'num_layers': [2],
+        'sequence_length': [25000, 35000, 45000, 55000],
+        'learning_rate': [0.001, 0.0001, 0.00001],
         'objective_function': ['smoothL1_loss', 'momentum_smoothL1_loss']
     }
     return grid_params

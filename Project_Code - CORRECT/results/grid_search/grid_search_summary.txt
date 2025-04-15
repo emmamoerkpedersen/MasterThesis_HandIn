@@ -1,11 +1,11 @@
 Grid Search Summary
 =================
 
-Total configurations: 384
+Total configurations: 72
 
 Parameters:
-  hidden_size: [32, 64, 128, 256]
-  num_layers: [1, 2]
-  sequence_length: [4000, 5000, 10000, 20000]
-  learning_rate: [0.01, 0.001, 0.0001]
-  objective_function: ['peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss']
+  hidden_size: [128, 256, 512]
+  num_layers: [2]
+  sequence_length: [25000, 35000, 45000, 55000]
+  learning_rate: [0.001, 0.0001, 1e-05]
+  objective_function: ['smoothL1_loss', 'momentum_smoothL1_loss']

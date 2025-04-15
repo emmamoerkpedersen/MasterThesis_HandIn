@@ -40,6 +40,59 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     if 'rainfall' in test_data.columns:
         rainfall_data = test_data['rainfall']
     
+    # Get vinge data if available in test_data
+    vinge_data = None
+    if 'vinge' in test_data.columns:
+        vinge_data = test_data[['vinge']].copy()
+        print(f"Found vinge data with {len(vinge_data[~vinge_data['vinge'].isna()])} non-null values")
+    
+    # If no vinge data in test_data, try to load from preprocessed data
+    if vinge_data is None or (isinstance(vinge_data, pd.DataFrame) and vinge_data['vinge'].count() == 0):
+        try:
+            print("Vinge data not found in test_data or has no valid entries, loading from original data...")
+            data_dir = Path("Project_Code - CORRECT/data_utils/Sample data")
+            preprocessed_data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
+            
+            if station_id in preprocessed_data:
+                station_data = preprocessed_data[station_id]
+                
+                # Check if vinge data exists for this station
+                if 'vinge' in station_data:
+                    # Handle different structures - could be Series or DataFrame
+                    vinge_raw = station_data['vinge']
+                    if isinstance(vinge_raw, pd.DataFrame):
+                        vinge_data = vinge_raw
+                        print(f"Vinge data is already a DataFrame with columns: {vinge_data.columns}")
+                    else:
+                        # Convert to DataFrame if it's a Series
+                        vinge_data = pd.DataFrame({'vinge': vinge_raw})
+                    
+                    print(f"Loaded vinge data for station {station_id}: {len(vinge_data)} records")
+                    
+                    # Filter vinge data to match test data time range if test_actual has dates
+                    if len(test_actual) > 0:
+                        start_date = test_actual.index.min()
+                        end_date = test_actual.index.max()
+                        vinge_data = vinge_data[
+                            (vinge_data.index >= start_date) & 
+                            (vinge_data.index <= end_date)
+                        ]
+                        print(f"Filtered vinge data to match test period: {len(vinge_data)} records")
+                    
+                    # Check if we have any non-null vinge values
+                    if 'vinge' in vinge_data.columns:
+                        non_null_count = vinge_data['vinge'].count()
+                        print(f"Found {non_null_count} non-null vinge measurements")
+                else:
+                    print(f"No vinge data found for station {station_id}")
+            else:
+                print(f"Station {station_id} not found in preprocessed data")
+        except Exception as e:
+            print(f"Error loading vinge data: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            vinge_data = None
+    
     # Print lengths for debugging
     print(f"Length of test_actual: {len(test_actual)}")
     print(f"Length of predictions: {len(test_predictions)}")
@@ -76,7 +129,8 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         model_config, 
         output_dir,
         best_val_loss,
-        metrics=metrics
+        metrics=metrics,
+        vinge_data=vinge_data
     )
     
     # Create the HTML version only if requested
@@ -136,6 +190,59 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
                 row=2, col=1
             )
             
+            # Add vinge (manual board) data to the water level subplot if available
+            if vinge_data is not None:
+                try:
+                    # Get the vinge column (could be 'vinge', 'water_level_mm', or 'W.L [cm]')
+                    vinge_column = None
+                    
+                    # Try to identify the correct column to use
+                    possible_columns = ['vinge', 'water_level_mm', 'W.L [cm]']
+                    for col in possible_columns:
+                        if col in vinge_data.columns:
+                            vinge_column = col
+                            break
+                    
+                    # If we couldn't find a recognized column but have only one column, use that
+                    if vinge_column is None and len(vinge_data.columns) == 1:
+                        vinge_column = vinge_data.columns[0]
+                        print(f"Using unrecognized column '{vinge_column}' for vinge data in HTML plot")
+                    
+                    if vinge_column is not None:
+                        # Filter out NaN values
+                        vinge_no_nan = vinge_data.dropna(subset=[vinge_column])
+                        
+                        if not vinge_no_nan.empty:
+                            # Convert to numeric if needed
+                            if not pd.api.types.is_numeric_dtype(vinge_no_nan[vinge_column]):
+                                vinge_no_nan[vinge_column] = pd.to_numeric(vinge_no_nan[vinge_column], errors='coerce')
+                                vinge_no_nan = vinge_no_nan.dropna(subset=[vinge_column])
+                            
+                            # Add vinge data to the water level subplot (row 2)
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=vinge_no_nan.index,
+                                    y=vinge_no_nan[vinge_column].values,
+                                    name="Manual Board",
+                                    mode='markers',
+                                    marker=dict(
+                                        color='#2ca02c',  # Green color
+                                        size=8,
+                                        symbol='circle'
+                                    )
+                                ),
+                                row=2, col=1  # Add to water level subplot (row 2)
+                            )
+                            print(f"Added {len(vinge_no_nan)} manual board measurements to the rainfall+waterlevel subplot plot")
+                        else:
+                            print("No valid vinge data points for HTML plot")
+                    else:
+                        print(f"Could not find a usable column in vinge data for HTML plot. Available columns: {vinge_data.columns}")
+                except Exception as e:
+                    print(f"Error adding vinge data to single-plot HTML: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+            
             # Update y-axes labels and ranges
             fig.update_yaxes(
                 title_text="Rainfall (mm)",
@@ -191,6 +298,58 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
                     line=dict(color='#d62728', width=1)
                 )
             )
+            
+            # Add vinge (manual board) data to the plot if available
+            if vinge_data is not None:
+                try:
+                    # Get the vinge column (could be 'vinge', 'water_level_mm', or 'W.L [cm]')
+                    vinge_column = None
+                    
+                    # Try to identify the correct column to use
+                    possible_columns = ['vinge', 'water_level_mm', 'W.L [cm]']
+                    for col in possible_columns:
+                        if col in vinge_data.columns:
+                            vinge_column = col
+                            break
+                    
+                    # If we couldn't find a recognized column but have only one column, use that
+                    if vinge_column is None and len(vinge_data.columns) == 1:
+                        vinge_column = vinge_data.columns[0]
+                        print(f"Using unrecognized column '{vinge_column}' for vinge data in HTML plot")
+                    
+                    if vinge_column is not None:
+                        # Filter out NaN values
+                        vinge_no_nan = vinge_data.dropna(subset=[vinge_column])
+                        
+                        if not vinge_no_nan.empty:
+                            # Convert to numeric if needed
+                            if not pd.api.types.is_numeric_dtype(vinge_no_nan[vinge_column]):
+                                vinge_no_nan[vinge_column] = pd.to_numeric(vinge_no_nan[vinge_column], errors='coerce')
+                                vinge_no_nan = vinge_no_nan.dropna(subset=[vinge_column])
+                            
+                            # In the simple figure case (no rainfall)
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=vinge_no_nan.index,
+                                    y=vinge_no_nan[vinge_column].values,
+                                    name="Manual Board",
+                                    mode='markers',
+                                    marker=dict(
+                                        color='#2ca02c',  # Green color
+                                        size=8,
+                                        symbol='circle'
+                                    )
+                                )
+                            )
+                            print(f"Added {len(vinge_no_nan)} manual board measurements to the simple HTML plot")
+                        else:
+                            print("No valid vinge data points for HTML plot")
+                    else:
+                        print(f"Could not find a usable column in vinge data for HTML plot. Available columns: {vinge_data.columns}")
+                except Exception as e:
+                    print(f"Error adding vinge data to single-plot HTML: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
         
         # Update layout
         fig.update_layout(
@@ -405,7 +564,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         
     return png_path
 
-def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, best_val_loss=None, metrics=None):
+def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, best_val_loss=None, metrics=None, vinge_data=None):
     """
     Create a publication-quality matplotlib plot with just water level data and save as PNG.
     Designed for thesis report with consistent colors and clean styling.
@@ -419,11 +578,49 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
         output_dir: Optional output directory path
         best_val_loss: Optional best validation loss achieved during training
         metrics: Optional dictionary with additional performance metrics
+        vinge_data: Optional DataFrame containing manual board (VINGE) measurements
     """
     # Set default output directory if not provided
     if output_dir is None:
         output_dir = Path("Project_Code - CORRECT/results/lstm")
         output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # If vinge data is not provided, try to load it from the preprocessed data
+    if vinge_data is None or vinge_data.empty:
+        try:
+            print(f"Vinge data not provided, attempting to load from preprocessed data...")
+            data_dir = Path("Project_Code - CORRECT/data_utils/Sample data")
+            preprocessed_data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
+            
+            if station_id in preprocessed_data:
+                station_data = preprocessed_data[station_id]
+                
+                # Check if vinge data exists for this station
+                if 'vinge' in station_data:
+                    # Handle different structures - could be Series or DataFrame
+                    vinge_raw = station_data['vinge']
+                    if isinstance(vinge_raw, pd.DataFrame):
+                        vinge_data = vinge_raw
+                        print(f"Vinge data is already a DataFrame with columns: {vinge_data.columns}")
+                    else:
+                        # Convert to DataFrame if it's a Series
+                        vinge_data = pd.DataFrame({'vinge': vinge_raw})
+                    
+                    print(f"Loaded vinge data for station {station_id}: {len(vinge_data)} records")
+                    
+                    # Check if we have any non-null vinge values
+                    if 'vinge' in vinge_data.columns:
+                        non_null_count = vinge_data['vinge'].count()
+                        print(f"Found {non_null_count} non-null vinge measurements")
+                else:
+                    print(f"No vinge data found for station {station_id}")
+            else:
+                print(f"Station {station_id} not found in preprocessed data")
+        except Exception as e:
+            print(f"Error loading vinge data: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            vinge_data = None
     
     # Set publication-quality styling
     plt.rcParams.update({
@@ -456,6 +653,75 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     ax.plot(actual.index, actual.values, color='#1f77b4', linewidth=0.8, label='Actual')
     ax.plot(predictions.index, predictions.values, color='#d62728', linewidth=0.8, label='Predicted')
     
+    # Add VINGE measurements if provided (similar to preprocessing_diagnostics.py)
+    if vinge_data is not None and not vinge_data.empty:
+        try:
+            # Check if vinge data is properly formatted
+            if isinstance(vinge_data, pd.DataFrame):
+                # Get the vinge column (could be 'vinge', 'water_level_mm', or 'W.L [cm]')
+                vinge_column = None
+                
+                # Try to identify the correct column to use
+                possible_columns = ['vinge', 'water_level_mm', 'W.L [cm]']
+                for col in possible_columns:
+                    if col in vinge_data.columns:
+                        vinge_column = col
+                        break
+                
+                # If we couldn't find a recognized column but have only one column, use that
+                if vinge_column is None and len(vinge_data.columns) == 1:
+                    vinge_column = vinge_data.columns[0]
+                    print(f"Using unrecognized column '{vinge_column}' for vinge data")
+                    
+                if vinge_column is not None:
+                    # Ensure data is properly indexed with datetime
+                    if not isinstance(vinge_data.index, pd.DatetimeIndex):
+                        if 'Date' in vinge_data.columns:
+                            vinge_data.set_index('Date', inplace=True)
+                    
+                    # Filter to match the time range of actual data
+                    vinge_filtered = vinge_data[
+                        (vinge_data.index >= actual.index.min()) & 
+                        (vinge_data.index <= actual.index.max())
+                    ]
+                    
+                    # Drop NaN values
+                    vinge_filtered = vinge_filtered.dropna(subset=[vinge_column])
+                    
+                    if not vinge_filtered.empty:
+                        try:
+                            # Convert to numeric if needed
+                            if not pd.api.types.is_numeric_dtype(vinge_filtered[vinge_column]):
+                                vinge_filtered[vinge_column] = pd.to_numeric(vinge_filtered[vinge_column], errors='coerce')
+                                vinge_filtered = vinge_filtered.dropna(subset=[vinge_column])
+                            
+                            # Plot VINGE measurements with larger markers and higher zorder
+                            ax.scatter(
+                                vinge_filtered.index, 
+                                vinge_filtered[vinge_column],
+                                color='#2ca02c',  # Green color
+                                alpha=0.8, 
+                                s=50,  # Larger point size
+                                label='Manual Board',
+                                zorder=5,  # Ensure points are drawn on top
+                                marker='o'
+                            )
+                            print(f"Added {len(vinge_filtered)} manual board measurements to the plot")
+                        except Exception as e:
+                            print(f"Error plotting vinge data points: {str(e)}")
+                            import traceback
+                            traceback.print_exc()
+                    else:
+                        print("No vinge data points within the plot time range")
+                else:
+                    print(f"Could not find a usable column in vinge data. Available columns: {vinge_data.columns}")
+            else:
+                print(f"Vinge data is not a DataFrame, it's a {type(vinge_data)}")
+        except Exception as e:
+            print(f"Error processing vinge data for plotting: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
     # Clean styling
     if isinstance(timestamp, str):
         ax.set_title(f'Water Level Predictions - Station {station_id}', fontweight='bold', pad=15)
@@ -468,9 +734,9 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     ax.grid(False)
     
     # Add clean legend
-    ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+    ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc')
     
-    # Format x-axis dates with better spacing
+    # Format the date axis
     fig.autofmt_xdate(bottom=0.2)
     
     # Remove top and right spines for cleaner look
@@ -1148,63 +1414,473 @@ def plot_scaled_vs_unscaled_features(data, scaled_data, feature_cols, output_dir
     return None
 
 
-def plot_features_stacked_plots(data, feature_cols):
+def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_show=3):
     """
-    Create a stacked plot of all feature engineering rainfall data.
+    Create a publication-quality plot of engineered features, organized by station.
+    Each station has its own subplot showing its rainfall-related features.
+    Temperature and water level data are shown in separate subplots.
     
     Args:
-        data: DataFrame containing rainfall data
-        feature_cols: List of feature column names to plot
-        output_dir: Optional output directory path
+        data: DataFrame containing feature data
+        feature_cols: List of feature column names
+        output_dir: Optional output directory path (default: saves to Project_Code - CORRECT/results/feature_plots)
+        years_to_show: Number of most recent years to display (default: 3)
+    
+    Returns:
+        Path to the saved PNG file
     """
-
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path("Project_Code - CORRECT/results/feature_plots")
+        output_dir.mkdir(parents=True, exist_ok=True)
+    elif isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate timestamp for unique filename
     timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     
-    # Create a figure with subplots - one for each feature
-    n_features = len(feature_cols)
+    # Filter data to only show the most recent years
+    if years_to_show > 0 and isinstance(data.index, pd.DatetimeIndex):
+        end_date = data.index.max()
+        start_date = end_date - pd.DateOffset(years=years_to_show)
+        filtered_data = data[data.index >= start_date].copy()
+        
+        # Only use filtered data if it's not empty
+        if not filtered_data.empty:
+            print(f"Limiting plot to the most recent {years_to_show} years: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            data = filtered_data
+        else:
+            print(f"Warning: No data in the last {years_to_show} years. Using all available data.")
     
-    # Create subplot titles from feature names
-    subplot_titles = [f"{feature}" for feature in feature_cols]
+    # Organize features by station and type
+    station_features = {
+        'Main Station': [],
+        'Station 21006845': [],
+        'Station 21006847': []
+    }
     
-    # Create a subplot figure with Plotly
-    fig = make_subplots(
-        rows=n_features, 
-        cols=1, 
-        vertical_spacing=0.05,
-        horizontal_spacing=0.05,
-        subplot_titles=subplot_titles
+    # Special groups for separate plotting
+    temperature_features = []
+    water_level_features = []
+    time_features = []
+    
+    # Group features by station and type
+    for feature in feature_cols:
+        # Check for special feature types
+        if any(x in feature for x in ['sin', 'cos']):
+            time_features.append(feature)
+            continue
+        elif 'temperature' in feature.lower() or 'temp' in feature.lower():
+            temperature_features.append(feature)
+            continue
+        elif 'vst_raw' in feature.lower() or 'water_level' in feature.lower():
+            water_level_features.append(feature)
+            continue
+            
+        # Identify station-specific rainfall features
+        if 'feature_station_21006845' in feature or 'feature1' in feature:
+            station_features['Station 21006845'].append(feature)
+        elif 'feature_station_21006847' in feature or 'feature2' in feature:
+            station_features['Station 21006847'].append(feature)
+        else:
+            station_features['Main Station'].append(feature)
+    
+    # Add special feature groups if they have features
+    special_groups = {}
+    if time_features:
+        special_groups['Time Features'] = time_features
+    if temperature_features:
+        special_groups['Temperature'] = temperature_features
+    if water_level_features:
+        special_groups['Water Level'] = water_level_features
+    
+    # Remove empty stations
+    station_features = {k: v for k, v in station_features.items() if v}
+    
+    # Combine all groups for plotting
+    all_plot_groups = {**station_features, **special_groups}
+    
+    # If no features, show message and return
+    if not all_plot_groups:
+        print("No features found for plotting.")
+        return None
+    
+    # Set high-quality styling for matplotlib
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 12,
+        'axes.titlesize': 14,
+        'axes.labelsize': 12,
+        'xtick.labelsize': 10,
+        'ytick.labelsize': 10,
+        'legend.fontsize': 10,
+        'figure.titlesize': 16,
+        'figure.dpi': 300,
+        'savefig.dpi': 300,
+        'savefig.bbox': 'tight',
+        'savefig.pad_inches': 0.1
+    })
+    
+    # Number of subplots needed
+    n_plots = len(all_plot_groups)
+    
+    # Adjust height based on number of plots
+    fig_height = min(4 * n_plots, 16)  # Cap height at 16 inches
+    
+    # Create figure with subplots (one per group)
+    fig, axes = plt.subplots(
+        n_plots, 
+        1, 
+        figsize=(12, fig_height), 
+        dpi=300,
+        gridspec_kw={'height_ratios': [1] * n_plots}
     )
     
-    # Plot each feature
-    for i, feature in enumerate(feature_cols):
-        # Create a line plot for the feature
-        fig.add_trace(
+    # Handle the case where there's only one group
+    if n_plots == 1:
+        axes = [axes]
+    
+    # Define a color palette for different feature types
+    colors = {
+        '30day': '#219ebc',    # Light blue for 30-day features
+        '180day': '#023047',   # Dark blue for 180-day features
+        '365day': '#8ecae6',   # Medium blue for 365-day features
+        'rainfall': '#2a9d8f', # Teal for direct rainfall
+        'temperature': '#fb8500',  # Orange for temperature
+        'water_level': '#e63946',  # Red for water level
+        'month_sin': '#ffb703', # Yellow for month sin
+        'month_cos': '#fd9e02', # Gold for month cos
+        'day_sin': '#06d6a0',   # Green for day sin
+        'day_cos': '#118ab2',   # Blue-green for day cos
+        'default': '#073b4c'    # Dark teal for other features
+    }
+    
+    # Plot each group's features
+    for i, (group_name, features) in enumerate(all_plot_groups.items()):
+        ax = axes[i]
+        
+        # Handle different types of feature groups
+        if group_name == 'Time Features':
+            # Group time features by type
+            sin_features = sorted([f for f in features if 'sin' in f])
+            cos_features = sorted([f for f in features if 'cos' in f])
+            
+            # Define line styles
+            line_styles = {
+                'sin': '-',
+                'cos': '--'
+            }
+            
+            # Plot each sin/cos pair
+            for sin_f, cos_f in zip(sin_features, cos_features):
+                feature_type = 'month' if 'month' in sin_f else 'day'
+                
+                # Format labels nicely
+                sin_label = f"{'Month' if 'month' in sin_f else 'Day of Year'} (sin)"
+                cos_label = f"{'Month' if 'month' in cos_f else 'Day of Year'} (cos)"
+                
+                # Plot sin curve
+                ax.plot(
+                    data.index, 
+                    data[sin_f], 
+                    label=sin_label,
+                    color=colors[f'{feature_type}_sin'],
+                    linestyle=line_styles['sin'],
+                    linewidth=1.8,
+                    alpha=0.9
+                )
+                
+                # Plot corresponding cos curve
+                ax.plot(
+                    data.index, 
+                    data[cos_f], 
+                    label=cos_label,
+                    color=colors[f'{feature_type}_cos'],
+                    linestyle=line_styles['cos'],
+                    linewidth=1.5,
+                    alpha=0.8
+                )
+                
+            # Add horizontal line at 0 for reference in time features
+            ax.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
+                
+        elif group_name == 'Temperature':
+            # Plot each temperature feature
+            for feature in features:
+                ax.plot(
+                    data.index, 
+                    data[feature], 
+                    label='Temperature',
+                    color=colors['temperature'],
+                    linewidth=1.8,
+                    alpha=0.9
+                )
+                
+        elif group_name == 'Water Level':
+            # Plot each water level feature
+            for feature in features:
+                station_label = 'Main Station'
+                if 'feature1' in feature or 'feature_station_21006845' in feature:
+                    station_label = 'Station 21006845'
+                elif 'feature2' in feature or 'feature_station_21006847' in feature:
+                    station_label = 'Station 21006847'
+                
+                ax.plot(
+                    data.index, 
+                    data[feature], 
+                    label=f'Water Level ({station_label})',
+                    color=colors['water_level'],
+                    linewidth=1.8,
+                    alpha=0.9
+                )
+                
+        else:  # Regular station features (rainfall and cumulative rainfall)
+            # Group features by type for better organization
+            feature_groups = {}
+            
+            for feature in features:
+                # Determine feature type
+                if '30day' in feature:
+                    feature_type = '30day'
+                elif '180day' in feature:
+                    feature_type = '180day'
+                elif '365day' in feature:
+                    feature_type = '365day'
+                elif 'rainfall' in feature.lower():
+                    feature_type = 'rainfall'
+                else:
+                    feature_type = 'default'
+                
+                
+                if feature_type not in feature_groups:
+                    feature_groups[feature_type] = []
+                feature_groups[feature_type].append(feature)
+            
+            # Plot each feature group
+            for feature_type, feats in feature_groups.items():
+                # Create friendly label
+                if feature_type == '30day':
+                    label = "30-Day Cumulative Rainfall"
+                elif feature_type == '180day':
+                    label = "180-Day Cumulative Rainfall"
+                elif feature_type == '365day':
+                    label = "365-Day Cumulative Rainfall"
+                elif feature_type == 'rainfall':
+                    label = "Rainfall"
+                else:
+                    # For unknown feature types, use the raw name
+                    label = feats[0].replace('_', ' ').replace('feature station', '').title()
+                
+                for feat in feats:
+                    ax.plot(
+                        data.index, 
+                        data[feat], 
+                        label=label,
+                        color=colors[feature_type],
+                        linewidth=1.8,
+                        alpha=0.9
+                    )
+        
+        # Set title and format axes
+        ax.set_title(group_name, fontweight='bold', pad=10)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.grid(True, linestyle='--', alpha=0.3)
+        
+        # Format x-axis dates
+        if years_to_show <= 4:
+            # For shorter time ranges, show more detailed x-ticks (monthly)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # Quarterly
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+        else:
+            # For longer time ranges, use quarterly ticks
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))  # Semi-annually
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+        
+        # Only show x-axis label on bottom subplot
+        if i == n_plots - 1:
+            ax.set_xlabel('Date', fontweight='bold', labelpad=10)
+        else:
+            # Hide x-tick labels for all but the bottom subplot
+            plt.setp(ax.get_xticklabels(), visible=False)
+        
+        # Set y-label based on group/feature types
+        if group_name == 'Time Features':
+            ax.set_ylabel('Value', fontweight='bold', labelpad=10)
+        elif group_name == 'Temperature':
+            ax.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
+        elif group_name == 'Water Level':
+            ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+        elif any('rainfall' in f.lower() for f in features):
+            ax.set_ylabel('Rainfall (mm)', fontweight='bold', labelpad=10)
+        else:
+            ax.set_ylabel('Value', fontweight='bold', labelpad=10)
+        
+        # Add proper legends with distinct entries
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax.legend(
+            by_label.values(), 
+            by_label.keys(),
+            loc='upper right', 
+            frameon=True, 
+            framealpha=0.9, 
+            edgecolor='#cccccc',
+            ncol=2 if group_name == 'Time Features' else 1
+        )
+    
+    # Adjust spacing between subplots
+    plt.tight_layout()
+    fig.subplots_adjust(hspace=0.3)
+    
+    # Add a main title with date range information
+    period_str = ""
+    if isinstance(data.index, pd.DatetimeIndex) and not data.empty:
+        period_str = f" ({data.index.min().strftime('%b %Y')} to {data.index.max().strftime('%b %Y')})"
+    
+    fig.suptitle(f'Station Features Overview{period_str}', fontweight='bold', y=1.02)
+    
+    # Save the figure with high resolution
+    output_path = output_dir / f'station_features_{timestamp}.png'
+    plt.savefig(output_path, bbox_inches='tight', facecolor='white')
+    print(f"Saved station features plot to: {output_path}")
+    
+    # Close the figure to free memory
+    plt.close(fig)
+    
+    return output_path
+
+def create_interactive_feature_plot(data, feature_groups, output_dir, timestamp):
+    """Helper function to create an interactive plotly version of the feature plot"""
+    # Create a subplot figure with Plotly
+    fig_html = make_subplots(
+        rows=len(feature_groups), 
+        cols=1, 
+        vertical_spacing=0.1,
+        subplot_titles=list(feature_groups.keys())
+    )
+    
+    # Define a color palette for consistency
+    plotly_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
+    
+    # Plot each feature group
+    for i, (group_name, features) in enumerate(feature_groups.items()):
+        # Group features by station for better organization
+        if 'Time Features' in group_name:
+            # For time features, organize by month/day rather than station
+            sin_features = sorted([f for f in features if 'sin' in f])
+            cos_features = sorted([f for f in features if 'cos' in f])
+            
+            # Plot sin features
+            for j, feature in enumerate(sin_features):
+                name = feature.replace('_sin', '').replace('month', 'Month').replace('day_of_year', 'Day of Year')
+                fig_html.add_trace(
             go.Scatter(
                 x=data.index,
                 y=data[feature],
-                name=feature,
-                line=dict(color='#1f77b4', width=1),
-               
+                        name=f"{name} (sin)",
+                        line=dict(width=1.5, color=plotly_colors[j % len(plotly_colors)]),
+                        legendgroup=name,
+                    ),  
+                    row=i+1, col=1
+                )
+            
+            # Plot cos features
+            for j, feature in enumerate(cos_features):
+                name = feature.replace('_cos', '').replace('month', 'Month').replace('day_of_year', 'Day of Year')
+                fig_html.add_trace(
+                    go.Scatter(
+                        x=data.index,
+                        y=data[feature],
+                        name=f"{name} (cos)",
+                        line=dict(width=1.5, color=plotly_colors[j % len(plotly_colors)], dash='dash'),
+                        legendgroup=name,
+                    ),  
+                    row=i+1, col=1
+                )
+        else:
+            # For cumulative features, group by station
+            station_features = {}
+            for feature in features:
+                # Extract station name
+                if 'feature1' in feature:
+                    station = 'Station 21006845'
+                elif 'feature2' in feature:
+                    station = 'Station 21006847'
+                else:
+                    station = 'Main Station'
+                
+                if station not in station_features:
+                    station_features[station] = []
+                station_features[station].append(feature)
+            
+            # Plot each station's features
+            for j, (station, feats) in enumerate(station_features.items()):
+                for feat in feats:
+                    fig_html.add_trace(
+                        go.Scatter(
+                            x=data.index,
+                            y=data[feat],
+                            name=station,
+                            line=dict(width=1.5, color=plotly_colors[j % len(plotly_colors)]),
+                            legendgroup=station,
             ),  
             row=i+1, col=1
         )
     
     # Update layout
-    fig.update_layout(
-        title='Stacked Features Comparison',
-        height=200 * n_features,  # Adjust height based on number of features
-        width=1200,
-        showlegend=False,
+    fig_html.update_layout(
+        title='Engineered Features Overview',
+        height=275 * len(feature_groups),  # Adjust height based on number of groups
+        width=1000,
         template='plotly_white',
-    )   
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
     
-    # Display the plot in the browser without saving
-    fig.show()
+    # Update all y-axes
+    for i in range(1, len(feature_groups) + 1):
+        fig_html.update_yaxes(
+            title_text=list(feature_groups.keys())[i-1],
+            row=i, col=1,
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128, 128, 128, 0.2)'
+        )
     
-    # Return None since we're not saving the file
-    return None
+    # Update x-axes
+    for i in range(1, len(feature_groups) + 1):
+        if i == len(feature_groups):
+            fig_html.update_xaxes(
+                title_text="Date",
+                row=i, col=1,
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)'
+            )
+        else:
+            fig_html.update_xaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)',
+                row=i, col=1
+            )
+    
+    # Save the HTML file
+    html_path = output_dir / f'engineered_features_{timestamp}.html'
+    fig_html.write_html(str(html_path), include_plotlyjs='cdn')
+    print(f"Saved interactive HTML plots to: {html_path}")
+    
+    return fig_html
     
     
 

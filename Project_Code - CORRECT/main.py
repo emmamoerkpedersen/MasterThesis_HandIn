@@ -86,7 +86,7 @@ def run_pipeline(
     
     # Plot features
     #plot_features_stacked_plots(train_data, preprocessor.feature_cols)
-
+    
 
     # # Plot scaled vs unscaled features for visualization
     # print("\nGenerating scaled vs unscaled features plot for control...")
@@ -397,9 +397,24 @@ def run_pipeline(
     
     # Convert test predictions to DataFrame for plotting
     test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
+    
+    # Ensure predictions match test data length
+    print(f"Test data length: {len(test_data)}")
+    print(f"Test predictions length: {len(test_predictions_reshaped)}")
+    
+    if len(test_predictions_reshaped) > len(test_data):
+        # If predictions are longer, truncate to match test data length
+        print(f"Truncating test predictions to match test data length")
+        test_predictions_reshaped = test_predictions_reshaped[:len(test_data)]
+    elif len(test_predictions_reshaped) < len(test_data):
+        # If predictions are shorter, pad with NaN values
+        print(f"Padding test predictions with NaN values to match test data length")
+        padding = np.full(len(test_data) - len(test_predictions_reshaped), np.nan)
+        test_predictions_reshaped = np.concatenate([test_predictions_reshaped, padding])
+    
     test_predictions_df = pd.DataFrame(
-        test_predictions_reshaped,  # Already flattened
-        index=test_data.index[:len(test_predictions_reshaped)],
+        test_predictions_reshaped,
+        index=test_data.index,
         columns=['vst_raw']
     )
     
@@ -431,7 +446,7 @@ if __name__ == "__main__":
             project_root=project_root,
             data_path=data_path, 
             output_path=output_path,
-            preprocess_diagnostics=False,
+            preprocess_diagnostics=True,
             synthetic_diagnostics=False,
             run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
             hyperparameter_trials=30,  # Reasonable number for demonstration
