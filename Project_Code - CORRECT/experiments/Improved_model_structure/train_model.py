@@ -22,8 +22,28 @@ class LSTM_Trainer:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.preprocessor = preprocessor  # Use preprocessor for data handling
         
-        # Initialize history dictionary for tracking during training
-        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': [], 'smoothed_val_loss': []}
+        # Load the objective function
+        from _3_lstm_model.objective_functions import get_objective_function
+        obj_func_name = config.get('objective_function', 'smoothL1_loss')
+        self.objective_function = get_objective_function(obj_func_name)
+        print(f"Using loss function: {obj_func_name}")
+
+        # Initialize LSTM Model using parameters from config
+        self.model = LSTMModel(
+            input_size=len(preprocessor.feature_cols),
+            sequence_length=config.get('sequence_length', None),
+            hidden_size=config['hidden_size'],
+            output_size=len(config['output_features']),
+            num_layers=config['num_layers'],
+            dropout=config['dropout']
+        ).to(self.device)
+        #Print device
+        print(f"Model device: {self.model.device}")
+        # Initialize optimizer and loss function
+        self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate', 0.001))
+        
+        # Initialize history
+        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': []}
         
         # Get peak weight for the custom loss function (default to 2.0 if not specified)
         self.peak_weight = config.get('peak_weight', 2.0)
@@ -31,19 +51,6 @@ class LSTM_Trainer:
         # Get gradient clipping value (default to 1.0 if not specified)
         self.grad_clip_value = config.get('grad_clip_value', 1.0)
 
-        # Initialize LSTM Model using parameters from config
-        self.model = LSTMModel(
-            input_size=len(preprocessor.feature_cols),
-            sequence_length=config['sequence_length'],
-            hidden_size=config['hidden_size'],
-            output_size=len(config['output_features']),
-            num_layers=config['num_layers'],
-            dropout=config['dropout']
-        ).to(self.device)
-        
-        # Initialize optimizer and loss function
-        self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate', 0.001))
-        
         # Initialize learning rate scheduler
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, 
@@ -53,9 +60,6 @@ class LSTM_Trainer:
             min_lr=1e-6
         )
         
-        # Choose loss function based on configuration
-        self.criterion = get_objective_function(config.get('objective_function'))
-            
         # Print whether gradient clipping is enabled
         print(f"Using gradient clipping with max norm: {self.grad_clip_value}")
         print(f"Using learning rate scheduler with patience {self.scheduler.patience}, factor {self.scheduler.factor}")
@@ -63,10 +67,17 @@ class LSTM_Trainer:
 
     def _run_epoch(self, data_loader, training=True):
         """
-        Runs an epoch for training or validation 
+        Runs an epoch for training or validation.
+        
+        Args:
+            data_loader: DataLoader for batch iteration
+            training: Whether this is a training or validation epoch
+            
+        Returns:
+            float: Mean loss for this epoch
+            Optional: For validation, also returns predictions and targets
         """
         self.model.train() if training else self.model.eval()
-        warmup_length = self.config.get('warmup_length', 100)
         total_loss = 0
         
         # Lists to store validation predictions and targets
@@ -74,36 +85,42 @@ class LSTM_Trainer:
         all_targets = []
 
         with torch.set_grad_enabled(training):
-            # Use tqdm only for training and disable it for validation to avoid nested progress bars
-            iterable = tqdm(data_loader, desc="Batches", leave=False, disable=not training) if training else data_loader
-            for batch_idx, (batch_X, batch_y) in enumerate(iterable):
+            for batch_X, batch_y in tqdm(data_loader, desc="Training" if training else "Validating", leave=False):
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
+
                 # Create warm-up mask
-                warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
-                warmup_mask[:, :warmup_length, :] = False
+                warmup_length = self.config.get('warmup_length', 0)
+                if warmup_length > 0:
+                    warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
+                    warmup_mask[:, :warmup_length, :] = False
+                else:
+                    warmup_mask = torch.ones_like(batch_y, dtype=torch.bool)
 
                 # Combine warm-up mask with NaN mask
                 non_nan_mask = ~torch.isnan(batch_y)
                 valid_mask = non_nan_mask & warmup_mask
 
                 valid_outputs = outputs[valid_mask]
-                valid_target = batch_y[valid_mask]
-                if valid_target.size(0) == 0:
+                valid_targets = batch_y[valid_mask]
+                
+                if valid_targets.size(0) == 0:
                     continue
 
-                # Use the selected loss function (either MSE or peak_weighted_loss)
-                loss = self.criterion(valid_outputs, valid_target)
+                # Use the configured objective function
+                loss = self.objective_function(valid_outputs, valid_targets)
                 
                 if training:
                     loss.backward()
-                    # Apply gradient clipping to prevent exploding gradients
-                    nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_value)
-                    self.optimizer.step()
                     
-                    # Update progress bar with batch loss
-                    if batch_idx % 10 == 0:  # Update less frequently to reduce overhead
-                        iterable.set_postfix({'batch_loss': f'{loss.item():.6f}'})
+                    # Apply gradient clipping if enabled
+                    if 'grad_clip_value' in self.config and self.config['grad_clip_value'] > 0:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), 
+                            self.config['grad_clip_value']
+                        )
+                    
+                    self.optimizer.step()
                 
                 total_loss += loss.item()
 

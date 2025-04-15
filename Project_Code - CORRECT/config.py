@@ -115,26 +115,26 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'hidden_size': 256,         # Increased from 256 to handle more features
-    'num_layers': 4,            # Increased from 2 to add more capacity
-    'dropout': 0.3,             # Reduced slightly to allow better generalization
+    'hidden_size': 384,         # Increased from 256 to handle more features
+    'num_layers': 2,            # Increased from 2 to add more capacity
+    'dropout': 0.3,             # Reduced slightly to allow better generalization with more layers
     'batch_size': 16,
-    'sequence_length': 10000,
+    'sequence_length': 25000,
     'epochs': 600,
-    'patience': 15,             # Increased to give more time to learn
+    'patience': 40,             # Increased to give more time to learn with increased complexity
 
     'warmup_length': 100,
-    'learning_rate': 0.0005,    # Reduced to allow more stable learning with many features
+    'learning_rate': 0.0002,    # Slightly reduced for stability with more complex model
 
-    # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 
-    'objective_function': 'smoothL1_loss',  # Use our new peak-focused loss
-    'peak_weight': 3.0,         # Increased peak weight
-    'grad_clip_value': 1.0,     # Slightly reduced to prevent exploding gradients
-    'use_smoothing': True,      # Enable validation loss smoothing
-    'smoothing_alpha': 0.5,     # Equal weight to old and new values
+    # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
+    'objective_function': 'smoothL1_loss',  # Changed to better handle peaks
+    #'peak_weight': 4.0,         # Increased peak weight
+    'grad_clip_value': 1.0,     # Maintained to prevent exploding gradients
+    #'use_smoothing': True,      # Enable validation loss smoothing
+   # 'smoothing_alpha': 0.5,     # Equal weight to old and new values
 
     'use_time_features': True,
-    'use_cumulative_features': True,
+    'use_cumulative_features': True, # Explicitly enable to use our new short-term features
     'feature_cols': [
         'rainfall',
         'temperature',
