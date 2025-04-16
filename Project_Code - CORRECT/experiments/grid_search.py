@@ -23,6 +23,7 @@ import time
 import matplotlib.pyplot as plt
 from datetime import datetime
 from tqdm import tqdm
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 # Import from project modules
 sys.path.append(str(Path(__file__).parent.parent))
@@ -43,11 +44,11 @@ def setup_grid_search():
     # Set up grid search parameters - this is a sample configuration
     # Modify these parameters based on your specific research needs
     grid_params = {
-        'hidden_size': [128, 256, 512],
-        'num_layers': [2],
-        'sequence_length': [25000, 35000, 45000, 55000],
-        'learning_rate': [0.001, 0.0001, 0.00001],
-        'objective_function': ['smoothL1_loss', 'momentum_smoothL1_loss']
+        'hidden_size': [24, 64, 128, 256],
+        'num_layers': [1,2,3],
+        'sequence_length': [5000, 10000, 20000, 35000],
+        'learning_rate': [0.001, 0.0001],
+        'objective_function': ['smoothL1_loss']
     }
     return grid_params
 
@@ -183,34 +184,67 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             columns=['vst_raw']
         )
         
-        # Get performance metrics - use the metrics from history if available
-        if 'metrics' in history:
-            performance_metrics = history['metrics']
-        else:
-            # Fallback: Calculate metrics using the validation data
-            from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-            actual_vals = val_data['vst_raw'].dropna().values
-            pred_vals = val_predictions_df.loc[val_data['vst_raw'].dropna().index, 'vst_raw'].values
+        # --- Calculate Performance Metrics Here ---
+        performance_metrics = {
+            'rmse': float('nan'), 'mae': float('nan'), 'r2': float('nan'),
+            'mean_error': float('nan'), 'std_error': float('nan'),
+            'peak_mae': float('nan'), 'peak_rmse': float('nan')
+        }
+        
+        # Get original target values from validation data
+        target_col = config.get('output_features', ['vst_raw'])[0]
+        if target_col in val_data.columns:
+            target_series = val_data[target_col]
             
-            if len(actual_vals) > 0 and len(pred_vals) > 0:
-                rmse = np.sqrt(mean_squared_error(actual_vals, pred_vals))
-                mae = mean_absolute_error(actual_vals, pred_vals) 
-                r2 = r2_score(actual_vals, pred_vals)
+            # Align predictions and targets based on index
+            aligned_targets, aligned_predictions = target_series.align(val_predictions_df['vst_raw'], join='inner')
+            
+            # Ensure we have valid data after alignment
+            valid_mask = (~aligned_targets.isna()) & (~aligned_predictions.isna())
+            valid_targets = aligned_targets[valid_mask].values
+            valid_predictions = aligned_predictions[valid_mask].values
+            valid_index = aligned_targets[valid_mask].index
+            
+            if len(valid_targets) > 0:
+                try:
+                    # Calculate standard metrics
+                    rmse = np.sqrt(mean_squared_error(valid_targets, valid_predictions))
+                    mae = mean_absolute_error(valid_targets, valid_predictions)
+                    r2 = r2_score(valid_targets, valid_predictions)
+                    errors = valid_predictions - valid_targets
+                    mean_error = np.mean(errors)
+                    std_error = np.std(errors)
+                    
+                    performance_metrics['rmse'] = rmse
+                    performance_metrics['mae'] = mae
+                    performance_metrics['r2'] = r2
+                    performance_metrics['mean_error'] = mean_error
+                    performance_metrics['std_error'] = std_error
+
+                    # Calculate peak metrics (top 10%)
+                    peak_threshold = np.percentile(valid_targets, 90)
+                    peak_mask = valid_targets >= peak_threshold
+                    
+                    if np.sum(peak_mask) > 0:
+                        peak_mae = mean_absolute_error(
+                            valid_targets[peak_mask], 
+                            valid_predictions[peak_mask]
+                        )
+                        peak_rmse = np.sqrt(mean_squared_error(
+                            valid_targets[peak_mask], 
+                            valid_predictions[peak_mask]
+                        ))
+                        performance_metrics['peak_mae'] = peak_mae
+                        performance_metrics['peak_rmse'] = peak_rmse
+                        
+                except Exception as e:
+                    print(f"Warning: Error calculating metrics: {e}")
             else:
-                rmse = float('nan')
-                mae = float('nan')
-                r2 = float('nan')
-                
-            performance_metrics = {
-                'rmse': rmse,
-                'mae': mae,
-                'r2': r2,
-                'mean_error': float('nan'),
-                'std_error': float('nan'),
-                'peak_mae': float('nan'),
-                'peak_rmse': float('nan')
-            }
-            
+                print("Warning: No overlapping valid targets and predictions found for metric calculation.")
+        else:
+            print(f"Warning: Target column '{target_col}' not found in validation data for metric calculation.")
+        # --- End Metric Calculation ---
+        
         # Create plots
         print("Generating plots...")
         
@@ -224,7 +258,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             best_val_loss,
             create_html=False,
             open_browser=False,
-            metrics=performance_metrics  # Pass metrics to the plotting function
+            metrics=performance_metrics,  # Pass metrics to the plotting function
+            show_config=True
         )
         
         # Copy the PNG file to all_plots directory with model name prefix
@@ -788,7 +823,7 @@ def generate_summary_plots(results_df, output_dir):
                     if num_layers_values and mean_rmse:
                         ax.plot(num_layers_values, mean_rmse, marker='o', label=loss_func)
                         has_valid_rmse = True
-                
+            
                 if has_valid_rmse:
                     ax.set_xlabel('Number of Layers')
                     ax.set_ylabel('Mean RMSE')
