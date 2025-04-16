@@ -34,7 +34,7 @@ SYNTHETIC_ERROR_PARAMS = {
     'use_context_aware': False,
     
     'spike': {
-        'frequency': 0.00003,
+        'frequency': 0.0000,
         # Wider range to allow for more subtle spikes
         'magnitude_range': (0.1, 1.0),  # Changed from (0.4, 0.8)
         'negative_positiv_ratio': 0.5,
@@ -51,9 +51,9 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     'drift': {
-        'frequency': 0.00003,
+        'frequency': 0.0000,
         # Wider range for drift durations
-        'duration_range': [12, 168],  # Changed from [24, 168]
+        'duration_range': [500, 1168],  # Changed from [24, 168]
         # More varied magnitude range
         'magnitude_range': [5, 50],   # Changed from [10, 50]
         'negative_positive_ratio': 0.5,
@@ -65,14 +65,14 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     'flatline': {
-        'frequency': 0.00003,
+        'frequency': 0.000,
         # More varied durations
         'duration_range': (10, 200),  # Changed from (20, 200)
         'value_method': 'first_value'
     },
     
     'offset': {
-        'frequency': 0.00003,
+        'frequency': 0.0000,
         # Wider range for offset magnitudes
         'magnitude_range': (20, 500),  # Changed from (50, 500)
         'negative_positiv_ratio': 0.7,
@@ -87,7 +87,7 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     'noise': {
-        'frequency': 0,  # Still disabled
+        'frequency': 0.0000,  # Still disabled
         'duration_range': (4, 24),
         'intensity_range': (1, 4)  # Changed from (2, 4)
     },
@@ -115,21 +115,21 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'hidden_size': 384,         # Increased from 256 to handle more features
-    'num_layers': 2,            # Increased from 2 to add more capacity
-    'dropout': 0.3,             # Reduced slightly to allow better generalization with more layers
+    'hidden_size': 128,         # Increased from 256 to handle more features
+    'num_layers': 1,            # Increased from 2 to add more capacity
+    'dropout': 0.2,             # Reduced slightly to allow better generalization with more layers
     'batch_size': 16,
-    'sequence_length': 25000,
+    'sequence_length': 10000,
     'epochs': 600,
-    'patience': 40,             # Increased to give more time to learn with increased complexity
+    'patience': 15,             # Increased to give more time to learn with increased complexity
 
     'warmup_length': 100,
-    'learning_rate': 0.0002,    # Slightly reduced for stability with more complex model
+    'learning_rate': 0.001,    # Slightly reduced for stability with more complex model
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
     'objective_function': 'smoothL1_loss',  # Changed to better handle peaks
     #'peak_weight': 4.0,         # Increased peak weight
-    'grad_clip_value': 1.0,     # Maintained to prevent exploding gradients
+    'grad_clip_value': 1.148,     # Maintained to prevent exploding gradients
     #'use_smoothing': True,      # Enable validation loss smoothing
    # 'smoothing_alpha': 0.5,     # Equal weight to old and new values
 

@@ -451,7 +451,7 @@ def run_all_synthetic_diagnostics(
     Run all synthetic error diagnostics in one function.
     
     Args:
-        split_datasets: Dictionary of split datasets
+        split_datasets: Dictionary of split datasets (can be in different formats)
         stations_results: Dictionary of station results with synthetic data
         output_dir: Output directory for saving plots
         
@@ -466,70 +466,90 @@ def run_all_synthetic_diagnostics(
     total_errors = 0
     errors_by_type = {}
     
-    # Process each station-year
-    for year, stations in split_datasets['windows'].items():
-        for station in stations:
-            station_key = f"{station}_{year}"
-            if station_key in stations_results:
-                total_stations += 1
+    # Process each station in the results
+    for station_key, result_data in stations_results.items():
+        if not result_data.get('error_periods'):
+            continue
+            
+        total_stations += 1
+        
+        # Count errors by type
+        station_errors = result_data['error_periods']
+        total_errors += len(station_errors)
+        
+        # Group by type
+        for error in station_errors:
+            error_type = error.error_type
+            if error_type not in errors_by_type:
+                errors_by_type[error_type] = 0
+            errors_by_type[error_type] += 1
+        
+        try:
+            # Find the original data (either in split_datasets structure)
+            original_data = None
+            station_id = station_key.split('_')[0]  # Extract station ID from the key
+            
+            # Handle different split_datasets structures
+            if 'windows' in split_datasets:
+                # Original structure with years and stations
+                for year, stations in split_datasets['windows'].items():
+                    if station_id in stations:
+                        original_data = stations[station_id]
+                        break
+            else:
+                # New structure with direct test data
+                original_data = split_datasets.get(station_id, None)
                 
-                # Count errors by type
-                station_errors = stations_results[station_key]['error_periods']
-                total_errors += len(station_errors)
+            # If we couldn't find it in expected locations, try to use a direct reference
+            if original_data is None and isinstance(split_datasets, pd.DataFrame):
+                original_data = split_datasets
                 
-                # Group by type
-                for error in station_errors:
-                    error_type = error.error_type
-                    if error_type not in errors_by_type:
-                        errors_by_type[error_type] = 0
-                    errors_by_type[error_type] += 1
+            if original_data is None:
+                print(f"Warning: Could not find original data for {station_key}")
+                continue
                 
-                try:
-                    # Plot synthetic errors
-                    static_plot = plot_synthetic_errors(
-                        original_data=stations[station]['vst_raw'],
-                        modified_data=stations_results[station_key]['modified_data'],
-                        error_periods=stations_results[station_key]['error_periods'],
-                        station_name=station_key,
-                        output_dir=output_dir
-                    )
-                    
-                    # Create interactive plot
-                    interactive_plot = create_interactive_plot(
-                        original_data=stations[station]['vst_raw'],
-                        modified_data=stations_results[station_key]['modified_data'],
-                        error_periods=stations_results[station_key]['error_periods'],
-                        station_name=station_key,
-                        output_dir=output_dir
-                    )
-                    
-                    # Plot synthetic vs actual errors
-                    comparison_plot = plot_synthetic_vs_actual(
-                        original_data=stations[station]['vst_raw'],
-                        modified_data=stations_results[station_key]['modified_data'],
-                        error_periods=stations_results[station_key]['error_periods'],
-                        station_name=station_key,
-                        output_dir=output_dir
-                    )
-                    
-                    plot_synthetic_vs_actual(
-                        original_data=stations[station]['vst_raw'],
-                        modified_data=stations_results[station_key]['modified_data'],
-                        error_periods=stations_results[station_key]['error_periods'],
-                        station_name=station_key,
-                        output_dir=output_dir
-                    )
-                    # Store results
-                    diagnostic_results[station_key] = {
-                        'static_plot': static_plot,
-                        'interactive_plot': interactive_plot,
-                        'comparison_plot': comparison_plot,
-                        'error_count': len(station_errors)
-                    }
-                except Exception as e:
-                    print(f"Error generating diagnostics for {station_key}: {e}")
-                    import traceback
-                    traceback.print_exc()
+            # For DataFrame, we need to create a DataFrame with just vst_raw
+            if isinstance(original_data, pd.DataFrame):
+                original_data = pd.DataFrame({'vst_raw': original_data['vst_raw']})
+            
+            # Plot synthetic errors
+            static_plot = plot_synthetic_errors(
+                original_data=original_data,
+                modified_data=result_data['modified_data'],
+                error_periods=result_data['error_periods'],
+                station_name=station_key,
+                output_dir=output_dir
+            )
+            
+            # Create interactive plot
+            interactive_plot = create_interactive_plot(
+                original_data=original_data,
+                modified_data=result_data['modified_data'],
+                error_periods=result_data['error_periods'],
+                station_name=station_key,
+                output_dir=output_dir
+            )
+            
+            # Plot synthetic vs actual errors
+            comparison_plot = plot_synthetic_vs_actual(
+                original_data=original_data,
+                modified_data=result_data['modified_data'],
+                error_periods=result_data['error_periods'],
+                station_name=station_key,
+                output_dir=output_dir
+            )
+            
+            # Store results
+            diagnostic_results[station_key] = {
+                'static_plot': static_plot,
+                'interactive_plot': interactive_plot,
+                'comparison_plot': comparison_plot,
+                'error_count': len(station_errors)
+            }
+        except Exception as e:
+            print(f"Error generating diagnostics for {station_key}: {e}")
+            import traceback
+            traceback.print_exc()
     
     # Generate the report for all results
     report_path = generate_synthetic_report(stations_results, output_dir)

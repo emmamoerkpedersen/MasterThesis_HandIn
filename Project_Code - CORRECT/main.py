@@ -15,21 +15,23 @@ import torch
 from pathlib import Path
 import sys
 import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 # Add the parent directory to Python path to allow imports from experiments
 sys.path.append(str(Path(__file__).parent))
 
 from diagnostics.preprocessing_diagnostics import plot_preprocessing_comparison, generate_preprocessing_report, plot_station_data_overview, plot_vst_vinge_comparison
 from diagnostics.split_diagnostics import plot_split_visualization, generate_split_report
-from diagnostics.hyperparameter_diagnostics import generate_hyperparameter_report, save_hyperparameter_results
 from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence, create_performance_analysis_plot, plot_scaled_vs_unscaled_features, plot_features_stacked_plots
+from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence,  plot_features_stacked_plots
 from config import SYNTHETIC_ERROR_PARAMS
 from config import LSTM_CONFIG
+from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
 
 
-from experiments.Improved_model_structure.hyperparameter_tuning import run_hyperparameter_tuning, load_best_hyperparameters
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
 #from experiments.Improved_model_structure.model import LSTMModel
 
@@ -38,19 +40,35 @@ from _3_lstm_model.model import LSTMModel
 # from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
 # from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
 
+# Function to calculate NSE (Nash-Sutcliffe Efficiency)
+def calculate_nse(observed, predicted):
+    return 1 - (np.sum((observed - predicted) ** 2) / np.sum((observed - np.mean(observed)) ** 2))
+
 def run_pipeline(
     project_root: Path,
     data_path: str, 
     output_path: str, 
     preprocess_diagnostics: bool = False,
     synthetic_diagnostics: bool = False,
-    run_hyperparameter_optimization: bool = False,
-    hyperparameter_trials: int = 20,  # Reduced to 20 for faster results
-    hyperparameter_diagnostics: bool = False,
-    
+    inject_synthetic_errors: bool = False,
+    model_diagnostics: bool = True,
+    error_frequency: float = 0.1,  # Added parameter to control error frequency
 ):
     """
     Run the complete error detection and imputation pipeline using yearly windows.
+    
+    Args:
+        project_root: Path to the project root directory
+        data_path: Path to the data file
+        output_path: Path to save outputs
+        preprocess_diagnostics: Whether to generate preprocessing diagnostics
+        synthetic_diagnostics: Whether to generate synthetic error diagnostics
+        inject_synthetic_errors: Whether to inject synthetic errors
+        model_diagnostics: Whether to generate model diagnostic plots
+        error_frequency: Frequency of synthetic errors to inject (0-1)
+    
+    Returns:
+        dict: Dictionary containing performance metrics
     """
     # Start with base configuration from config.py
     model_config = LSTM_CONFIG.copy()
@@ -66,27 +84,28 @@ def run_pipeline(
     train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
     
     # Debug prints to understand data structure
-    print("\nData Structure Analysis:")
-    print("Train data columns:", train_data.columns.tolist())
-    print("\nSample of train_data:")
-    print(train_data.head())
-    print("\nData types:")
-    print(train_data.dtypes)
+    #print("\nData Structure Analysis:")
+    #print("Train data columns:", train_data.columns.tolist())
+    #print("\nSample of train_data:")
+    #print(train_data.head())
+    #print("\nData types:")
+    #print(train_data.dtypes)
 
-    print("\nData split summary:")
-    for feature in train_data.columns:
-        min_val = train_data[feature].min()
-        max_val = train_data[feature].max()
-        print(f"{feature}: Min = {min_val}, Max = {max_val}")
-    print(f"Validation data: {val_data.shape}")
-    print(f'Percentage of vst_raw NaN in train target data: {np.round((train_data["vst_raw"].isna().sum() / len(train_data["vst_raw"]))*100, 2)}%')
-    print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
-    print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
-    
+    #print("\nData split summary:")
+    #for feature in train_data.columns:
+    #    min_val = train_data[feature].min()
+    #    max_val = train_data[feature].max()
+    #    print(f"{feature}: Min = {min_val}, Max = {max_val}")
+    #print(f"Validation data: {val_data.shape}")
+    #print(f'Percentage of vst_raw NaN in train target data: {np.round((train_data["vst_raw"].isna().sum() / len(train_data["vst_raw"]))*100, 2)}%')
+    #print(f'Percentage of vst_raw NaN in val target data: {np.round((val_data["vst_raw"].isna().sum() / len(val_data["vst_raw"]))*100, 2)}%')
+    #print(f'Percentage of vst_raw NaN in test target data: {np.round((test_data["vst_raw"].isna().sum() / len(test_data["vst_raw"]))*100, 2)}%')
     
     # Plot features
-    #plot_features_stacked_plots(train_data, preprocessor.feature_cols)
-    
+    if model_diagnostics:
+        feature_plot_dir = Path(output_path) / "feature_plots"
+        feature_plot_dir.mkdir(parents=True, exist_ok=True)
+        plot_features_stacked_plots(train_data, preprocessor.feature_cols, output_dir=feature_plot_dir)
 
     # # Plot scaled vs unscaled features for visualization
     # print("\nGenerating scaled vs unscaled features plot for control...")
@@ -145,114 +164,147 @@ def run_pipeline(
         print("Skipping preprocessing diagnostics generation...")
     
     #########################################################
-    #    Step 3: Generate synthetic errors                  #
+    #    Step 2: Generate synthetic errors                  #
     #########################################################
     
-    print("\nStep 3: Generating synthetic errors... Does not work for now, is not update for new code")
+    print("\nStep 2: Generating synthetic errors...")
     
     # Dictionary to store results for each station/year
     stations_results = {}
     # Create synthetic error generator
     error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
     
-    # Process only test data
-    print("\nProcessing test data...")
-    for station, station_data in test_data.items():
+    # Track whether we successfully created data with errors
+    train_data_with_errors = None
+    val_data_with_errors = None
+    
+    if inject_synthetic_errors:
+        print(f"\nInjecting synthetic errors with frequency {error_frequency*100:.1f}% into TRAINING and VALIDATION data...")
         try:
-            print(f"Generating synthetic errors for {station} (Test)...")
-            test_data_synthetic = station_data['vst_raw']
+            # Modify the error config to use our error_frequency parameter
+            error_config = SYNTHETIC_ERROR_PARAMS.copy()
             
-            if test_data_synthetic is None or test_data_synthetic.empty:
-                print(f"No test data available for station {station}")
-                continue
+            # Set error frequencies based on the error_frequency parameter
+            # Distribute the total error frequency across different error types
+            error_config['offset']['frequency'] = error_frequency * 0.3  # 30% of errors are offsets
+            error_config['drift']['frequency'] = error_frequency * 0.2   # 20% of errors are drifts
+            error_config['flatline']['frequency'] = error_frequency * 0.2  # 20% of errors are flatlines
+            error_config['spike']['frequency'] = error_frequency * 0.15   # 15% of errors are spikes
+            error_config['noise']['frequency'] = error_frequency * 0.15   # 15% of errors are noise
             
-            # Generate synthetic errors
-            modified_data, ground_truth = error_generator.inject_all_errors(test_data_synthetic)
+            print(f"Error frequencies by type:")
+            print(f"  Offset: {error_config['offset']['frequency']:.5f}")
+            print(f"  Drift: {error_config['drift']['frequency']:.5f}")
+            print(f"  Flatline: {error_config['flatline']['frequency']:.5f}")
+            print(f"  Spike: {error_config['spike']['frequency']:.5f}")
+            print(f"  Noise: {error_config['noise']['frequency']:.5f}")
             
-            # Store results
-            station_key = f"{station}_test"
-            stations_results[station_key] = {
+            # Create a new error generator with the modified config
+            error_generator = SyntheticErrorGenerator(error_config)
+            
+            # Identify which columns contain water level data that should have errors
+            water_level_cols = ['feature_station_21006845_vst_raw', 'feature_station_21006847_vst_raw']
+            feature_cols_with_errors = [col for col in water_level_cols if col in train_data.columns]
+            
+            print(f"Injecting errors into these water level columns: {feature_cols_with_errors}")
+            
+            # Make copies of train and validation data to modify
+            train_data_with_errors = train_data.copy()
+            val_data_with_errors = val_data.copy()
+            
+            # First process training data
+            print("\nProcessing TRAINING data...")
+            for column in feature_cols_with_errors:
+                print(f"\nProcessing training {column}...")
+                
+                # Create a single-column DataFrame for the error generator
+                column_data = pd.DataFrame({
+                    'vst_raw': train_data[column]  # Error generator expects 'vst_raw' column
+                })
+                
+                # Skip if column contains only NaN values
+                if column_data['vst_raw'].isna().all():
+                    print(f"Column {column} contains only NaN values, skipping")
+                    continue
+                    
+                # Generate synthetic errors
+                print(f"Generating synthetic errors for training {column}...")
+                modified_data, ground_truth = error_generator.inject_all_errors(column_data)
+                
+                # Store the error periods
+                station_key = f"{station_id}_train_{column}"
+                stations_results[station_key] = {
+                    'modified_data': modified_data,
+                    'ground_truth': ground_truth,
+                    'error_periods': error_generator.error_periods.copy()  # Important to copy!
+                }
+                
+                print(f"Injected {len(error_generator.error_periods)} error periods into training {column}")
+                
+                # Update the training data with errors
+                train_data_with_errors[column] = modified_data['vst_raw']
+            
+            # Reset error generator for validation data
+            error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
+            
+            # Then process validation data
+            print("\nProcessing VALIDATION data...")
+            for column in feature_cols_with_errors:
+                print(f"\nProcessing validation {column}...")
+                
+                # Create a single-column DataFrame for the error generator
+                column_data = pd.DataFrame({
+                    'vst_raw': val_data[column]  # Error generator expects 'vst_raw' column
+                })
+                
+                # Skip if column contains only NaN values
+                if column_data['vst_raw'].isna().all():
+                    print(f"Column {column} contains only NaN values, skipping")
+                    continue
+                    
+                # Generate synthetic errors
+                print(f"Generating synthetic errors for validation {column}...")
+                modified_data, ground_truth = error_generator.inject_all_errors(column_data)
+                
+                # Store the error periods
+                station_key = f"{station_id}_val_{column}"
+                stations_results[station_key] = {
                 'modified_data': modified_data,
                 'ground_truth': ground_truth,
-                'error_periods': error_generator.error_periods
-            }
+                    'error_periods': error_generator.error_periods.copy()  # Important to copy!
+                }
+                
+                print(f"Injected {len(error_generator.error_periods)} error periods into validation {column}")
+                
+                # Update the validation data with errors
+                val_data_with_errors[column] = modified_data['vst_raw']
+            
+            print("\nSynthetic error injection complete.")
+            print(f"Created training and validation datasets with synthetic errors in {len(feature_cols_with_errors)} feature columns")
             
         except Exception as e:
-            print(f"Error processing station {station}: {str(e)}")
-            continue
+            print(f"Error processing synthetic errors: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     # Generate synthetic error diagnostics if enabled
     if synthetic_diagnostics:
         from diagnostics.synthetic_diagnostics import run_all_synthetic_diagnostics
         
+        print("\nGenerating synthetic error diagnostics...")
         synthetic_diagnostic_results = run_all_synthetic_diagnostics(
-            split_datasets=test_data,
+            split_datasets={'windows': {'train': {station_id: train_data}, 'val': {station_id: val_data}}},
             stations_results=stations_results,
             output_dir=Path(output_path)
         )
-    
-    #########################################################
-    # Step 4: Hyperparameter tuning for LSTM                #
-    #########################################################
-    print("\nStep 4: Hyperparameter tuning for LSTM...")
-    
-    # Run hyperparameter optimization if enabled
-    if run_hyperparameter_optimization:
-        print(f"\nRunning hyperparameter optimization with {hyperparameter_trials} trials...")
-        try:
-            best_config, study = run_hyperparameter_tuning(
-                train_data=train_data,
-                val_data=val_data,
-                output_path=Path(output_path),
-                base_config=model_config,
-                n_trials=hyperparameter_trials
-            )
-            # Update configuration with optimized parameters
-            model_config = best_config  # Replace with entire best config
-            print("\nUsing optimized hyperparameters:")
-            for param, value in best_config.items():
-                if param in ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 'batch_size']:
-                    print(f"  {param}: {value}")
-            
-            # Generate hyperparameter visualization reports if diagnostics are enabled
-            if hyperparameter_diagnostics:
-                print("\nGenerating hyperparameter tuning diagnostics...")
-                study_path = Path(output_path) / "hyperparameter_tuning" / "all_trials.json"
-                if study_path.exists():
-                    generate_hyperparameter_report(
-                        study_path=study_path,
-                        output_dir=Path(output_path) / "hyperparameter_diagnostics",
-                        top_n=5  # Show top 5 models
-                    )
-                else:
-                    print(f"Could not find hyperparameter trials data at {study_path}")
-            
-        except Exception as e:
-            print(f"\nError during hyperparameter optimization: {str(e)}")
-            print("Continuing with base configuration")
-            import traceback
-            traceback.print_exc()
     else:
-        # Try to load best hyperparameters from previous runs
-        try:
-            loaded_config = load_best_hyperparameters(Path(output_path), model_config)
-            if loaded_config != model_config:
-                model_config = loaded_config
-                print("\nLoaded hyperparameters from previous tuning:")
-                for param, value in model_config.items():
-                    if param in ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 'batch_size']:
-                        print(f"  {param}: {value}")
-            else:
-                print("\nUsing base configuration from config.py")
-        except Exception as e:
-            print(f"\nError loading previous hyperparameters: {str(e)}")
-            print("Using base configuration")
+        print("Skipping synthetic error diagnostics generation...")
     
     #########################################################
-    # Step 5: LSTM training and prediction                  #
+    # Step 3: LSTM training and prediction                  #
     #########################################################
     
-    print("\nStep 5: Training LSTM models with Station-Specific Approach...")
+    print("\nStep 3: Training LSTM models with Station-Specific Approach...")
     
     # Initialize model
     print("\nInitializing LSTM model...")
@@ -270,44 +322,51 @@ def run_pipeline(
         dropout=model_config['dropout']
     )
     
-    # Load best hyperparameters
-    best_config = load_best_hyperparameters(Path(output_path), model_config)
-    
     # Verify the loaded parameters match what we expect
     print("\nVerifying hyperparameters:")
     expected_params = ['hidden_size', 'num_layers', 'dropout', 'learning_rate', 
                       'batch_size', 'sequence_length', 'peak_weight', 
                       'grad_clip_value', 'smoothing_alpha']
     for param in expected_params:
-        print(f"  {param}: {best_config.get(param)}")
+        print(f"  {param}: {model_config.get(param)}")
     
     # Initialize the trainer with the verified config
-    trainer = LSTM_Trainer(LSTM_CONFIG, preprocessor=preprocessor)
+    trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
     
     # Print model architecture
-    print("\nModel Architecture:")
-    print(f"Input Size: {len(preprocessor.feature_cols)}")
-    print(f"Hidden Size: {best_config['hidden_size']}")
-    print(f"Number of Layers: {best_config['num_layers']}")
-    print(f"Dropout Rate: {best_config['dropout']}")
-    print(f"Learning Rate: {best_config['learning_rate']}")
-    print(f"Batch Size: {best_config['batch_size']}")
-    print(f"Sequence Length: {best_config['sequence_length']}")
+    #print("\nModel Architecture:")
+    #print(f"Input Size: {len(preprocessor.feature_cols)}")
+    #print(f"Hidden Size: {model_config['hidden_size']}")
+    #print(f"Number of Layers: {model_config['num_layers']}")
+    #print(f"Dropout Rate: {model_config['dropout']}")
+    #print(f"Learning Rate: {model_config['learning_rate']}")
+    #print(f"Batch Size: {model_config['batch_size']}")
+    #print(f"Sequence Length: {model_config['sequence_length']}")
     
     # Train model with verified parameters
-    print("\nStarting training with verified parameters...")
-    print("Using identical conditions as hyperparameter tuning")
-    print(f"Epochs: {best_config['epochs']}")
-    print(f"Batch size: {best_config['batch_size']}")
-    print(f"Patience: {best_config['patience']}")
-    print(f"Learning rate: {best_config['learning_rate']}")
+    #print("\nStarting training with verified parameters...")
+    #print("Using identical conditions as hyperparameter tuning")
+    #print(f"Epochs: {model_config['epochs']}")
+    #print(f"Batch size: {model_config['batch_size']}")
+    #print(f"Patience: {model_config['patience']}")
+    #print(f"Learning rate: {model_config['learning_rate']}")
+    
+    # Determine which data to use for training and validation
+    if inject_synthetic_errors and train_data_with_errors is not None and val_data_with_errors is not None:
+        print("\nUsing TRAINING and VALIDATION data with synthetic errors for model training")
+        training_data = train_data_with_errors
+        validation_data = val_data_with_errors
+    else:
+        print("\nUsing clean training and validation data (no synthetic errors)")
+        training_data = train_data
+        validation_data = val_data
     
     history, val_predictions, val_targets = trainer.train(
-        train_data=train_data,
-        val_data=val_data,
-        epochs=best_config['epochs'],  # Fixed to match tuning
-        batch_size=best_config['batch_size'],
-        patience=best_config['patience']  # Fixed to match tuning
+        train_data=training_data,
+        val_data=validation_data,
+        epochs=model_config['epochs'],
+        batch_size=model_config['batch_size'],
+        patience=model_config['patience']
     )
     
     print("\nTraining Results:")
@@ -330,104 +389,599 @@ def run_pipeline(
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
     # Print diagnostic information about shapes
-    print(f"\nShape diagnostics:")
-    print(f"Validation data length: {len(val_data)}")
-    print(f"Predictions length: {len(predictions_flattened)}")
+    #print(f"\nShape diagnostics:")
+    #print(f"Validation data length: {len(validation_data)}")
+    #print(f"Predictions length: {len(predictions_flattened)}")
     
     # Ensure predictions match validation data length
-    if len(predictions_flattened) < len(val_data):
+    if len(predictions_flattened) < len(validation_data):
         # If predictions are shorter, pad with NaN values
         print(f"Padding predictions with NaN values to match validation data length")
-        padding = np.full(len(val_data) - len(predictions_flattened), np.nan)
+        padding = np.full(len(validation_data) - len(predictions_flattened), np.nan)
         predictions_flattened = np.concatenate([predictions_flattened, padding])
-    elif len(predictions_flattened) > len(val_data):
+    elif len(predictions_flattened) > len(validation_data):
         # If predictions are longer, truncate to match validation data length
         print(f"Truncating predictions to match validation data length")
-        predictions_flattened = predictions_flattened[:len(val_data)]
+        predictions_flattened = predictions_flattened[:len(validation_data)]
     
     # Create DataFrame with aligned predictions and targets
     val_predictions_df = pd.DataFrame(
-        predictions_flattened,  # Use adjusted 1D array  
-        index=val_data.index,
+        predictions_flattened,
+        index=validation_data.index,
         columns=['vst_raw']
     )
-    # Now plot with aligned data - make sure station_id is a string
+    
+    # Create a plot title that indicates whether training used clean or error-injected data
+    val_plot_title = "Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data"
+    
+    # Get the best validation loss
     best_val_loss = min(history['val_loss'])
-    create_full_plot(val_data, val_predictions_df, str(station_id), model_config, best_val_loss)  # Pass model config and best val loss
     
-
-    # Plot scaled predictions to check if they are correct   
-    # print("\nPlotting scaled validation predictions...")
-    # val_predictions, predictions_scaled, target_scaled = trainer.predict(val_data)
-    # plot_scaled_predictions(predictions_scaled, target_scaled, test_data=val_data, title="Scaled Validation Predictions vs Targets")
-
-
-    # # Create comprehensive performance analysis plot
-    # print("\nGenerating comprehensive performance analysis plot...")
-    # test_actual = pd.Series(
-    #     val_data['vst_raw'].values,
-    #     index=val_data.index,
-    #     name='Actual'
-    # )
-    # val_predictions_series = pd.Series(
-    #     predictions_flattened,
-    #     index=val_data.index[:len(predictions_flattened)],
-    #     name='Predicted'
-    #)
-    # performance_metrics = create_performance_analysis_plot(
-    #     test_actual, 
-    #     val_predictions_series, 
-    #     str(station_id), 
-    #     model_config,
-    #     Path(output_path) / "lstm"
-    # )
-    
-    # Print performance metrics
-    # print("\nModel Performance Metrics:")
-    # print(f"RMSE: {performance_metrics['rmse']:.4f} mm")
-    # print(f"MAE: {performance_metrics['mae']:.4f} mm")
-    # print(f"R²: {performance_metrics['r2']:.4f}")
-    # print(f"Mean Error: {performance_metrics['mean_error']:.4f} mm")
-    # print(f"Std Error: {performance_metrics['std_error']:.4f} mm")
+    # Plot validation results
+    if model_diagnostics and not inject_synthetic_errors:
+        create_full_plot(validation_data, val_predictions_df, str(station_id), model_config, best_val_loss, title_suffix=val_plot_title)
+        
+        # Plot convergence
+        plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
     
     # Make and plot test predictions
-    print("\nMaking predictions on test set...")
+    print("\nMaking predictions on test set (clean data)...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
-  
     
     # Convert test predictions to DataFrame for plotting
-    test_predictions_reshaped = test_predictions.reshape(-1, 1) if len(test_predictions.shape) > 1 else test_predictions.reshape(-1)
-    
+    test_predictions_reshaped = test_predictions.flatten() # Ensure 1D array
+
     # Ensure predictions match test data length
-    print(f"Test data length: {len(test_data)}")
-    print(f"Test predictions length: {len(test_predictions_reshaped)}")
-    
+    #print(f"Test data length: {len(test_data)}")
     if len(test_predictions_reshaped) > len(test_data):
         # If predictions are longer, truncate to match test data length
-        print(f"Truncating test predictions to match test data length")
+        #print(f"Truncating test predictions to match test data length")
         test_predictions_reshaped = test_predictions_reshaped[:len(test_data)]
     elif len(test_predictions_reshaped) < len(test_data):
-        # If predictions are shorter, pad with NaN values
-        print(f"Padding test predictions with NaN values to match test data length")
+        #print(f"Padding test predictions with NaN values to match test data length")
         padding = np.full(len(test_data) - len(test_predictions_reshaped), np.nan)
         test_predictions_reshaped = np.concatenate([test_predictions_reshaped, padding])
-    
+        test_predictions_reshaped = test_predictions_reshaped.flatten() # Ensure 1D after padding
+
     test_predictions_df = pd.DataFrame(
         test_predictions_reshaped,
         index=test_data.index,
         columns=['vst_raw']
     )
     
+    # Create a plot title that indicates whether the model was trained on clean or error-injected data 
+    test_plot_title = "Model Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Model Trained on Clean Data"
+    
     # Plot test results with model config
-    create_full_plot(test_data, test_predictions_df, str(station_id), model_config)  # Pass model config
+    if model_diagnostics and not inject_synthetic_errors:
+        create_full_plot(test_data, test_predictions_df, str(station_id), model_config, title_suffix=test_plot_title)
     
-    # Plot convergence
-    # plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
+    # Create a dictionary to store all performance metrics
+    performance_metrics = {}
     
-    return test_predictions, predictions_original, history
+    # If we used synthetic errors, create a comparison of validation predictions with and without errors
+    if inject_synthetic_errors:
+        # Train a second model using the same configuration but with clean data
+        print("\nFor comparison, training a second model with clean data...")
+        
+        # Create a new model with the same configuration
+        clean_model = LSTMModel(
+            input_size=input_size,
+            sequence_length=model_config['sequence_length'],
+            hidden_size=model_config['hidden_size'],
+            output_size=len(model_config['output_features']),
+            num_layers=model_config['num_layers'],
+            dropout=model_config['dropout']
+        )
+        
+        # Initialize a new trainer
+        clean_trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
+        
+        # Train the model with clean data
+        clean_history, clean_val_predictions, clean_val_targets = clean_trainer.train(
+            train_data=train_data,  # Using clean training data
+            val_data=val_data,      # Using clean validation data
+            epochs=model_config['epochs'],
+            batch_size=model_config['batch_size'],
+            patience=model_config['patience']
+        )
+        
+        # Conditional block for validation data related operations
+        if val_data is not None:
+            # Make predictions on validation data
+            clean_val_predictions_np = clean_val_predictions.cpu().numpy()
+
+            # Process predictions
+            clean_predictions_reshaped = clean_val_predictions_np.reshape(-1, 1)
+            clean_predictions_original = preprocessor.feature_scaler.inverse_transform_target(clean_predictions_reshaped)
+            clean_predictions_flattened = clean_predictions_original.flatten()
+
+            # Ensure predictions match validation data length
+            if len(clean_predictions_flattened) < len(val_data):
+                # If predictions are shorter, pad with NaN values
+                padding = np.full(len(val_data) - len(clean_predictions_flattened), np.nan)
+                clean_predictions_flattened = np.concatenate([clean_predictions_flattened, padding])
+            elif len(clean_predictions_flattened) > len(val_data):
+                # If predictions are longer, truncate to match validation data length
+                clean_predictions_flattened = clean_predictions_flattened[:len(val_data)]
+
+            # Create DataFrame with aligned predictions and targets
+            clean_val_predictions_df = pd.DataFrame(
+                clean_predictions_flattened,
+                index=val_data.index,
+                columns=['vst_raw']
+            )
+
+            # Only create comparison plot if model_diagnostics is True
+            if model_diagnostics:
+                # Create comparison plot between clean and error-injected model predictions
+                print("\nCreating comparison plot between models trained on clean vs error-injected data...")
+                plt.figure(figsize=(15, 12))
+
+                # Plot 1: Validation data (clean vs with errors)
+                plt.subplot(4, 1, 1)
+                plt.plot(val_data.index, val_data['vst_raw'], label='Clean Validation Data', alpha=0.7)
+                plt.title('Clean Validation Data')
+                plt.legend()
+                plt.grid(True)
+
+                plt.subplot(4, 1, 2)
+                plt.plot(val_data_with_errors.index, val_data_with_errors['vst_raw'], label='Validation Data with Errors', alpha=0.7)
+                plt.title('Validation Data with Synthetic Errors')
+                plt.legend()
+                plt.grid(True)
+
+                # Plot 3: Validation predictions for both models
+                plt.subplot(4, 1, 3)
+                plt.plot(clean_val_predictions_df.index, clean_val_predictions_df['vst_raw'],
+                        label='Model Trained on Clean Data', alpha=0.7)
+                plt.plot(val_predictions_df.index, val_predictions_df['vst_raw'],
+                        label='Model Trained on Error Data', alpha=0.7, linestyle='--')
+                plt.title('Validation Predictions: Clean-Trained vs Error-Trained Model')
+                plt.legend()
+                plt.grid(True)
+
+                # Plot 4: Test predictions for both models (Placeholder, actual calculation below)
+                plt.subplot(4, 1, 4)
+                plt.title('Test Predictions Comparison (See Metrics Table)')
+                plt.grid(True)
+                plt.tight_layout()
+                #plt.show()
+                # Saving plot handled later if needed or combined with other diagnostics
+
+        # End of val_data specific block
+
+        # --- Test Set Comparison (Always run if inject_synthetic_errors is True) ---
+
+        # Get predictions on test data from the clean-trained model
+        clean_test_predictions, _, _ = clean_trainer.predict(test_data)
+        clean_test_predictions_reshaped = clean_test_predictions.flatten()[:len(test_data)] # Ensure 1D and correct length
+
+        # Ensure compatible shapes before comparison
+        test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
+
+        # Ensure prediction arrays are 1D before creating mask
+        if len(clean_test_predictions_reshaped.shape) > 1:
+            clean_test_predictions_reshaped = clean_test_predictions_reshaped.flatten()
+        if len(test_predictions_reshaped.shape) > 1:
+             test_predictions_reshaped = test_predictions_reshaped.flatten()
+
+        predictions_nan_mask = ~np.isnan(clean_test_predictions_reshaped) # Based on clean model predictions for consistency
+        valid_mask = test_data_nan_mask & predictions_nan_mask
+
+        # Clean-trained model metrics
+        clean_rmse = np.sqrt(mean_squared_error(test_data['vst_raw'].values[valid_mask], clean_test_predictions_reshaped[valid_mask]))
+        clean_mae = mean_absolute_error(test_data['vst_raw'].values[valid_mask], clean_test_predictions_reshaped[valid_mask])
+        clean_r2 = r2_score(test_data['vst_raw'].values[valid_mask], clean_test_predictions_reshaped[valid_mask])
+        clean_nse = calculate_nse(test_data['vst_raw'].values[valid_mask], clean_test_predictions_reshaped[valid_mask])
+
+        # Error-trained model metrics
+        error_rmse = np.sqrt(mean_squared_error(test_data['vst_raw'].values[valid_mask], test_predictions_reshaped[valid_mask]))
+        error_mae = mean_absolute_error(test_data['vst_raw'].values[valid_mask], test_predictions_reshaped[valid_mask])
+        error_r2 = r2_score(test_data['vst_raw'].values[valid_mask], test_predictions_reshaped[valid_mask])
+        error_nse = calculate_nse(test_data['vst_raw'].values[valid_mask], test_predictions_reshaped[valid_mask])
+
+        # Store metrics in dictionary (unconditionally when inject_synthetic_errors=True)
+        performance_metrics = {
+            'error_frequency': error_frequency,
+            'clean_model': {
+                'val_loss': min(clean_history['val_loss']) if 'clean_history' in locals() else np.nan, # Handle if val_data was None
+                'rmse': clean_rmse,
+                'mae': clean_mae,
+                'r2': clean_r2,
+                'nse': clean_nse
+            },
+            'error_model': {
+                'val_loss': min(history['val_loss']), # Assumes history is always available
+                'rmse': error_rmse,
+                'mae': error_mae,
+                'r2': error_r2,
+                'nse': error_nse
+            },
+            'difference': {
+                'val_loss': (min(history['val_loss']) - min(clean_history['val_loss'])) if 'clean_history' in locals() else np.nan,
+                'rmse': error_rmse - clean_rmse,
+                'mae': error_mae - clean_mae,
+                'r2': error_r2 - clean_r2,
+                'nse': error_nse - clean_nse
+            },
+            'percent_change': {
+                'val_loss': ((min(history['val_loss']) - min(clean_history['val_loss'])) / min(clean_history['val_loss']) * 100) if 'clean_history' in locals() and min(clean_history['val_loss']) != 0 else float('inf'),
+                'rmse': (error_rmse - clean_rmse) / clean_rmse * 100 if clean_rmse != 0 else float('inf'),
+                'mae': (error_mae - clean_mae) / clean_mae * 100 if clean_mae != 0 else float('inf'),
+                'r2': (error_r2 - clean_r2) / clean_r2 * 100 if clean_r2 != 0 else float('inf'),
+                'nse': (error_nse - clean_nse) / clean_nse * 100 if clean_nse != 0 else float('inf')
+            }
+        }
+
+        # Print metrics comparison table (unconditionally when inject_synthetic_errors=True)
+        print("\nPerformance Metrics Comparison:")
+        print("-" * 80)
+        print(f"Error Frequency: {error_frequency * 100:.1f}%")
+        print("-" * 80)
+        print(f"{'Metric':<15} {'Clean-Trained':<15} {'Error-Trained':<15} {'Difference':<15} {'% Change':<15}")
+        print("-" * 80)
+        clean_val_loss_disp = performance_metrics['clean_model']['val_loss']
+        error_val_loss_disp = performance_metrics['error_model']['val_loss']
+        diff_val_loss_disp = performance_metrics['difference']['val_loss']
+        pct_val_loss_disp = performance_metrics['percent_change']['val_loss']
+        print(f"{'Val Loss':<15} {clean_val_loss_disp:<15.6f} {error_val_loss_disp:<15.6f} {diff_val_loss_disp:<15.6f} {pct_val_loss_disp:<15.2f}")
+        print(f"{'RMSE':<15} {clean_rmse:<15.2f} {error_rmse:<15.2f} {performance_metrics['difference']['rmse']:<15.2f} {performance_metrics['percent_change']['rmse']:<15.2f}")
+        print(f"{'MAE':<15} {clean_mae:<15.2f} {error_mae:<15.2f} {performance_metrics['difference']['mae']:<15.2f} {performance_metrics['percent_change']['mae']:<15.2f}")
+        print(f"{'R²':<15} {clean_r2:<15.4f} {error_r2:<15.4f} {performance_metrics['difference']['r2']:<15.4f} {performance_metrics['percent_change']['r2']:<15.2f}")
+        print(f"{'NSE':<15} {clean_nse:<15.4f} {error_nse:<15.4f} {performance_metrics['difference']['nse']:<15.4f} {performance_metrics['percent_change']['nse']:<15.2f}")
+
+        # Save metrics to CSV file (unconditionally when inject_synthetic_errors=True)
+        print("\nDEBUG: Attempting to save comparison metrics...") # DEBUG
+        metrics_df = pd.DataFrame({
+            'error_frequency': [error_frequency],
+            'clean_val_loss': [performance_metrics['clean_model']['val_loss']],
+            'error_val_loss': [performance_metrics['error_model']['val_loss']],
+            'clean_rmse': [clean_rmse],
+            'error_rmse': [error_rmse],
+            'clean_mae': [clean_mae],
+            'error_mae': [error_mae],
+            'clean_r2': [clean_r2],
+            'error_r2': [error_r2],
+            'clean_nse': [clean_nse],
+            'error_nse': [error_nse]
+        })
+
+        # Include timestamp in the metrics filename to avoid overwriting previous runs
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        metrics_file = Path(output_path) / f"error_comparison_metrics_{timestamp}.csv"
+
+        # Also save to the standard filename for the visualization code to find
+        standard_metrics_file = Path(output_path) / "error_comparison_metrics.csv"
+
+        print(f"DEBUG: Timestamped metrics file path: {metrics_file}") # DEBUG
+        print(f"DEBUG: Standard metrics file path: {standard_metrics_file}") # DEBUG
+
+        try:
+            metrics_df.to_csv(metrics_file, index=False)
+            print(f"DEBUG: Saved timestamped metrics to {metrics_file}") # DEBUG
+
+            # If standard file exists, append to it, otherwise create new file
+            if standard_metrics_file.exists():
+                print(f"DEBUG: Standard metrics file {standard_metrics_file} exists. Appending...") # DEBUG
+                existing_df = pd.read_csv(standard_metrics_file)
+                combined_df = pd.concat([existing_df, metrics_df], ignore_index=True)
+                combined_df.to_csv(standard_metrics_file, index=False)
+                print(f"DEBUG: Appended metrics to {standard_metrics_file}") # DEBUG
+            else:
+                print(f"DEBUG: Standard metrics file {standard_metrics_file} does not exist. Creating...") # DEBUG
+                metrics_df.to_csv(standard_metrics_file, index=False)
+                print(f"DEBUG: Created standard metrics file {standard_metrics_file}") # DEBUG
+
+            print(f"\nMetrics saved to: {metrics_file}")
+            print(f"Metrics appended to: {standard_metrics_file}")
+        except Exception as e:
+            print(f"\nERROR: Failed to save metrics CSV files: {e}") # DEBUG
+            import traceback
+            traceback.print_exc()
+
+        # Only generate diagnostic visualizations if model_diagnostics is True
+        if model_diagnostics:
+            print("\nGenerating comparative diagnostic visualizations...")
+            
+            # Create diagnostics output directory
+            diagnostics_dir = Path(output_path) / "diagnostics"
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Import the consolidated diagnostics function
+            try:
+                from _3_lstm_model.model_diagnostics import generate_comparative_diagnostics
+                
+                # Create Series for easier handling in diagnostics functions
+                actual_series = pd.Series(test_data['vst_raw'], index=test_data.index)
+                
+                # Fix the shape issue by ensuring prediction arrays are 1D
+                if len(clean_test_predictions_reshaped.shape) > 1:
+                    clean_predictions_series = pd.Series(clean_test_predictions_reshaped.flatten(), index=test_data.index)
+                else:
+                    clean_predictions_series = pd.Series(clean_test_predictions_reshaped, index=test_data.index)
+                    
+                if len(test_predictions_reshaped.shape) > 1:
+                    error_predictions_series = pd.Series(test_predictions_reshaped.flatten(), index=test_data.index)
+                else:
+                    error_predictions_series = pd.Series(test_predictions_reshaped, index=test_data.index)
+                
+                # Prepare rainfall data if available
+                rainfall_series = None
+                if 'rainfall' in test_data.columns:
+                    rainfall_series = pd.Series(test_data['rainfall'], index=test_data.index)
+                
+                # Generate all comparative diagnostics with a single function call
+                predictions_dict = {
+                    'clean_trained': clean_predictions_series,
+                    'error_trained': error_predictions_series
+                }
+                
+                all_visualization_paths = generate_comparative_diagnostics(
+                    actual=actual_series,
+                    predictions_dict=predictions_dict,
+                    output_dir=diagnostics_dir,
+                    station_id=station_id,
+                    rainfall=rainfall_series,
+                    n_event_plots=3  # Analyze top 3 water level events
+                )
+                
+            except Exception as e:
+                print(f"Error generating comparative diagnostic visualizations: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("Skipping comparative diagnostic visualizations (model_diagnostics=False)")
+        
+        return performance_metrics
+    
+    else:
+        # Only process one model (trained on clean or error data based on initial flags)
+        # Calculate metrics
+        # Get valid indices (non-NaN values)
+        # Ensure compatible shapes before comparison
+        test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
+        
+        # Make sure test_predictions_reshaped is a 1D array of the right length
+        if len(test_predictions_reshaped) != len(test_data):
+            # Resize if necessary to match test data length
+            print(f"Resizing test predictions from {len(test_predictions_reshaped)} to {len(test_data)} elements")
+            test_predictions_reshaped = test_predictions_reshaped[:len(test_data)]
+        
+        # Now safe to combine masks
+        predictions_nan_mask = ~np.isnan(test_predictions_reshaped)
+        valid_mask = test_data_nan_mask & predictions_nan_mask
+        
+        # Calculate metrics
+        rmse = np.sqrt(mean_squared_error(
+            test_data['vst_raw'][valid_mask], 
+            test_predictions_reshaped[valid_mask]
+        ))
+        mae = mean_absolute_error(
+            test_data['vst_raw'][valid_mask], 
+            test_predictions_reshaped[valid_mask]
+        )
+        r2 = r2_score(
+            test_data['vst_raw'][valid_mask], 
+            test_predictions_reshaped[valid_mask]
+        )
+        nse = calculate_nse(
+            test_data['vst_raw'][valid_mask], 
+            test_predictions_reshaped[valid_mask]
+        )
+        
+        # Store metrics
+        performance_metrics = {
+            'model': {
+                'val_loss': min(history['val_loss']),
+                'rmse': rmse,
+                'mae': mae,
+                'r2': r2,
+                'nse': nse
+            }
+        }
+        
+        # Print metrics
+        print("\nModel Performance Metrics:")
+        print("-" * 50)
+        print(f"{'Metric':<15} {'Value':<15}")
+        print("-" * 50)
+        print(f"{'Val Loss':<15} {min(history['val_loss']):<15.6f}")
+        print(f"{'RMSE':<15} {rmse:<15.2f}")
+        print(f"{'MAE':<15} {mae:<15.2f}")
+        print(f"{'R²':<15} {r2:<15.4f}")
+        print(f"{'NSE':<15} {nse:<15.4f}")
+        
+        # Generate diagnostic visualizations
+        if model_diagnostics:
+            print("\nGenerating diagnostic visualizations...")
+            
+            # Create diagnostics output directory
+            diagnostics_dir = Path(output_path) / "diagnostics"
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Import the consolidated diagnostics function
+            try:
+                from _3_lstm_model.model_diagnostics import generate_all_diagnostics
+                
+                # Create Series for easier handling in diagnostics functions
+                actual_series = pd.Series(test_data['vst_raw'], index=test_data.index)
+                
+                # Fix the shape issue by ensuring prediction array is 1D
+                if len(test_predictions_reshaped.shape) > 1:
+                    predictions_series = pd.Series(test_predictions_reshaped.flatten(), index=test_data.index)
+                else:
+                    predictions_series = pd.Series(test_predictions_reshaped, index=test_data.index)
+                
+                # Prepare rainfall data if available
+                rainfall_series = None
+                if 'rainfall' in test_data.columns:
+                    rainfall_series = pd.Series(test_data['rainfall'], index=test_data.index)
+                
+                # Generate all diagnostics with a single function call
+                print(f"DEBUG: Calling generate_all_diagnostics for station {station_id}...") # DEBUG
+                print(f"DEBUG: Output dir: {diagnostics_dir}") # DEBUG
+                print(f"DEBUG: Actual shape: {actual_series.shape}, Prediction shape: {predictions_series.shape}") # DEBUG
+                all_visualization_paths = generate_all_diagnostics(
+                    actual=actual_series,
+                    predictions=predictions_series,
+                    output_dir=diagnostics_dir,
+                    station_id=station_id,
+                    rainfall=rainfall_series,
+                    n_event_plots=3  # Analyze top 3 water level events
+                )
+                
+            except Exception as e:
+                print(f"Error generating diagnostic visualizations: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("Skipping diagnostic visualizations (model_diagnostics=False)")
+        
+        return performance_metrics
+
+def run_error_frequency_experiments(error_frequencies=None):
+    """
+    Run experiments with different error frequencies to analyze impact on model performance.
+    
+    Args:
+        error_frequencies: List of error frequencies to test (between 0 and 1)
+                          If None, uses default values [0.01, 0.02, 0.05, 0.1, 0.15, 0.2]
+    """
+    if error_frequencies is None:
+        error_frequencies = [0.0, 0.05, 0.1, 0.15]#, 0.125, 0.2]
+    
+    # Set up paths
+    project_root = Path(__file__).parent
+    data_path = project_root / "data_utils" / "Sample data" / "VST_RAW.txt"
+    output_path = project_root / "results"
+    
+    # Create output directory if it doesn't exist
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    print("\nRunning LSTM model with varying error frequencies to analyze impact")
+    
+    # Create a dataframe to store all results
+    all_results = pd.DataFrame()
+    
+    for error_freq in error_frequencies:
+        print(f"\n{'='*80}")
+        print(f"Running experiment with error frequency: {error_freq*100:.1f}%")
+        print(f"{'='*80}")
+        
+        try:
+            # Run pipeline with current error frequency
+            performance_metrics = run_pipeline(
+                project_root=project_root,
+                data_path=data_path, 
+                output_path=output_path,
+                preprocess_diagnostics=False,
+                synthetic_diagnostics=False,
+                inject_synthetic_errors=True,  # Enable synthetic error injection
+                model_diagnostics=False,  # Disable model diagnostic plots
+                error_frequency=error_freq,
+            )
+            
+            print(f"\nExperiment with {error_freq*100:.1f}% error frequency completed!")
+            
+        except Exception as e:
+            print(f"\nError running pipeline with {error_freq*100:.1f}% error frequency: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    print("\nAll experiments completed!")
+    
+    # Load the final results CSV
+    try:
+        final_results = pd.read_csv(Path(output_path) / "error_comparison_metrics.csv")
+        
+        print("\nSummary of Results:")
+        print(f"{'='*80}")
+        print(final_results[['error_frequency', 'clean_rmse', 'error_rmse', 'clean_mae', 'error_mae', 'clean_nse', 'error_nse']])
+        
+        # Calculate percentage degradation
+        final_results['rmse_pct_increase'] = ((final_results['error_rmse'] - final_results['clean_rmse']) / final_results['clean_rmse']) * 100
+        final_results['mae_pct_increase'] = ((final_results['error_mae'] - final_results['clean_mae']) / final_results['clean_mae']) * 100
+        final_results['nse_pct_decrease'] = ((final_results['clean_nse'] - final_results['error_nse']) / final_results['clean_nse']) * 100
+        
+        print("\nPerformance Degradation:")
+        print(f"{'='*80}")
+        print(final_results[['error_frequency', 'rmse_pct_increase', 'mae_pct_increase', 'nse_pct_decrease']])
+        
+        # Create plots to visualize the relationship between error frequency and model performance
+        plt.figure(figsize=(15, 10))
+        
+        # Sort results by error frequency for smooth plots
+        final_results = final_results.sort_values('error_frequency')
+        
+        # Plot 1: Absolute metrics by frequency
+        plt.subplot(2, 2, 1)
+        plt.plot(final_results['error_frequency'], final_results['clean_rmse'], 'o-', label='Clean Model RMSE')
+        plt.plot(final_results['error_frequency'], final_results['error_rmse'], 'o-', label='Error Model RMSE')
+        plt.title('RMSE vs Error Frequency')
+        plt.xlabel('Error Frequency')
+        plt.ylabel('RMSE (mm)')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        
+        plt.subplot(2, 2, 2)
+        plt.plot(final_results['error_frequency'], final_results['clean_mae'], 'o-', label='Clean Model MAE')
+        plt.plot(final_results['error_frequency'], final_results['error_mae'], 'o-', label='Error Model MAE')
+        plt.title('MAE vs Error Frequency')
+        plt.xlabel('Error Frequency')
+        plt.ylabel('MAE (mm)')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        
+        # Plot 2: Percentage changes by frequency
+        plt.subplot(2, 2, 3)
+        plt.plot(final_results['error_frequency'], final_results['rmse_pct_increase'], 'o-', label='RMSE % Increase')
+        plt.plot(final_results['error_frequency'], final_results['mae_pct_increase'], 'o-', label='MAE % Increase')
+        plt.title('Error Metrics % Increase vs Error Frequency')
+        plt.xlabel('Error Frequency')
+        plt.ylabel('Percentage Increase (%)')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        
+        # Plot 3: NSE by frequency
+        plt.subplot(2, 2, 4)
+        plt.plot(final_results['error_frequency'], final_results['clean_nse'], 'o-', label='Clean Model NSE')
+        plt.plot(final_results['error_frequency'], final_results['error_nse'], 'o-', label='Error Model NSE')
+        plt.title('NSE vs Error Frequency')
+        plt.xlabel('Error Frequency')
+        plt.ylabel('NSE')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        
+        plt.tight_layout()
+        plot_path = Path(output_path) / "error_frequency_impact.png"
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"\nSaved error frequency impact visualization to: {plot_path}")
+        
+    except Exception as e:
+        print(f"\nError processing results: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Run LSTM water level prediction model')
+    parser.add_argument('--error_frequency', type=float, default=None, 
+                        help='Error frequency for synthetic errors (0-1). If not provided, no errors are injected.')
+    parser.add_argument('--run_experiments', action='store_true',
+                        help='Run experiments with different error frequencies')
+    parser.add_argument('--preprocess_diagnostics', action='store_true',
+                        help='Generate preprocessing diagnostics')
+    parser.add_argument('--model_diagnostics', action='store_true',
+                        help='Generate model diagnostics')
+    parser.add_argument('--no_diagnostics', action='store_true',
+                        help='Disable all diagnostics plots')
+    
+    args = parser.parse_args()
+    
     # Set up paths
     project_root = Path(__file__).parent
     data_path = project_root / "data_utils" / "Sample data" / "VST_RAW.txt"
@@ -437,32 +991,57 @@ if __name__ == "__main__":
     # Create output directory if it doesn't exist
     output_path.mkdir(parents=True, exist_ok=True)
     
-    print("\nRunning LSTM model with configuration from config.py")
-
+    # Add some logic to decide whether to use model_diagnostics by default
+    use_model_diagnostics = not args.no_diagnostics
     
-    # Run pipeline with simplified configuration handling
-    try:
-        test_predictions, val_predictions, history = run_pipeline(
-            project_root=project_root,
-            data_path=data_path, 
-            output_path=output_path,
-            preprocess_diagnostics=True,
-            synthetic_diagnostics=False,
-            run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
-            hyperparameter_trials=30,  # Reasonable number for demonstration
-            hyperparameter_diagnostics=False,  # Simplified approach doesn't need diagnostics
-        )
-
-        print("\nModel run completed!")
-        print(f"Results saved to: {output_path}")
-        print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
-        print(f"Best validation loss: {min(history['val_loss']):.6f}")
-        if 'smoothed_val_loss' in history:
-            print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
-            print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+    # Run experiments with different error frequencies
+    if args.run_experiments:
+        run_error_frequency_experiments()
+    # Run single model with specified error frequency
+    else:
+        try:
+            print("\nRunning LSTM model with configuration from config.py")
+            
+            if args.error_frequency is not None:
+                print(f"Injecting synthetic errors with frequency: {args.error_frequency*100:.1f}%")
+            
+            # Determine if we should use diagnostics
+            if args.no_diagnostics:
+                print("Diagnostics plots disabled")
+            elif args.model_diagnostics:
+                print("Model diagnostics enabled")
+            else:
+                print("Running with default diagnostic settings")
         
-    except Exception as e:
-        print(f"\nError running pipeline: {e}")
-        import traceback
-        traceback.print_exc()
-    
+            # Run pipeline with simplified configuration handling
+            result = run_pipeline(
+                project_root=project_root,
+                data_path=data_path, 
+                output_path=output_path,
+                preprocess_diagnostics=args.preprocess_diagnostics,
+                synthetic_diagnostics=False,
+                inject_synthetic_errors=args.error_frequency is not None,
+                model_diagnostics=use_model_diagnostics,
+                error_frequency=args.error_frequency if args.error_frequency is not None else 0.1,
+            )
+
+            print("\nModel run completed!")
+            print(f"Results saved to: {output_path}")
+            
+        except Exception as e:
+            print(f"\nError running pipeline: {e}")
+            import traceback
+            traceback.print_exc()
+'''
+o run the model with different diagnostic options, you can use the following command-line arguments:
+For model diagnostics only:
+python main.py --model_diagnostics
+For preprocessing diagnostics only:
+python main.py --preprocess_diagnostics
+For both model and preprocessing diagnostics:
+python main.py --model_diagnostics --preprocess_diagnostics
+With a specific error frequency and diagnostics:
+python main.py --error_frequency 0.1 --model_diagnostics
+Run experiments with diagnostics:
+python main.py --run_experiments
+'''

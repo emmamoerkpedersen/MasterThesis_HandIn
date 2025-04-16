@@ -37,8 +37,6 @@ class LSTM_Trainer:
             num_layers=config['num_layers'],
             dropout=config['dropout']
         ).to(self.device)
-        #Print device
-        print(f"Model device: {self.model.device}")
         # Initialize optimizer and loss function
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate', 0.001))
         
@@ -174,28 +172,6 @@ class LSTM_Trainer:
         r2 = r2_score(valid_targets, valid_predictions)
         r2_original = r2  # Store original value for reporting
         
-        # Provide more informative message about the R² value quality
-        if r2 < -1.0:
-            # Different warning messages based on how negative the R² is
-            if r2 < -10.0:
-                print(f"Warning: R² value is extremely negative ({r2:.4f}). Model predictions are very poor and may need significant improvement.")
-            elif r2 < -5.0:
-                print(f"Warning: R² value is highly negative ({r2:.4f}). The model may be struggling with this dataset.")
-            else:
-                print(f"Warning: R² value is negative ({r2:.4f}). This indicates the model performs worse than a simple mean baseline.")
-                
-            # Calculate mean of target to understand baseline
-            target_mean = np.mean(valid_targets)
-            print(f"Target mean: {target_mean:.4f}, Target std: {np.std(valid_targets):.4f}")
-            
-            # Optional: explain what R² means
-            print("Note: R² < 0 means the model performs worse than predicting the mean value for all points.")
-            print("      R² = 0 means the model performs as well as predicting the mean.")
-            print("      R² = 1 means perfect predictions.")
-            
-            # Constrain the value to -1.0 for reporting
-            r2 = -1.0
-        
         # Calculate error statistics
         errors = valid_predictions - valid_targets
         mean_error = np.mean(errors)
@@ -281,7 +257,7 @@ class LSTM_Trainer:
         
         # Exponential moving average weight for validation loss
         beta = 0.7  # Weight for previous smoothed value (higher = more smoothing)
-        print(f"Using validation loss EMA smoothing with beta={beta}")
+        #print(f"Using validation loss EMA smoothing with beta={beta}")
 
         # Training loop with progress bar for epochs
         epoch_pbar = tqdm(range(epochs), desc="Training", unit="epoch")
@@ -376,13 +352,13 @@ class LSTM_Trainer:
         self.history['metrics'] = performance_metrics
         
         # Print metrics summary
-        print("\nValidation Performance Metrics:")
-        print(f"RMSE: {performance_metrics['rmse']:.4f}")
-        print(f"MAE: {performance_metrics['mae']:.4f}")
-        print(f"R²: {performance_metrics['r2']:.4f}")
-        if not np.isnan(performance_metrics['peak_rmse']):
-            print(f"Peak RMSE: {performance_metrics['peak_rmse']:.4f}")
-            print(f"Peak MAE: {performance_metrics['peak_mae']:.4f}")
+        #print("\nValidation Performance Metrics:")
+        #print(f"RMSE: {performance_metrics['rmse']:.4f}")
+        #print(f"MAE: {performance_metrics['mae']:.4f}")
+        #print(f"R²: {performance_metrics['r2']:.4f}")
+        #if not np.isnan(performance_metrics['peak_rmse']):
+        #    print(f"Peak RMSE: {performance_metrics['peak_rmse']:.4f}")
+        #    print(f"Peak MAE: {performance_metrics['peak_mae']:.4f}")
 
         return self.history, val_predictions, val_targets
 
