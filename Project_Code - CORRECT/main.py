@@ -446,11 +446,11 @@ if __name__ == "__main__":
             project_root=project_root,
             data_path=data_path, 
             output_path=output_path,
-            preprocess_diagnostics=True,
+            preprocess_diagnostics=False,
             synthetic_diagnostics=False,
-            run_hyperparameter_optimization=False,  # Set to True to run hyperparameter tuning
-            hyperparameter_trials=30,  # Reasonable number for demonstration
-            hyperparameter_diagnostics=False,  # Simplified approach doesn't need diagnostics
+            run_hyperparameter_optimization=False,  
+            hyperparameter_trials=30,  
+            hyperparameter_diagnostics=False,  
         )
 
         print("\nModel run completed!")

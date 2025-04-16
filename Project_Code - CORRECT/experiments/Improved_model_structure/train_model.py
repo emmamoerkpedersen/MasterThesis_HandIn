@@ -38,7 +38,7 @@ class LSTM_Trainer:
             dropout=config['dropout']
         ).to(self.device)
         #Print device
-        print(f"Model device: {self.model.device}")
+        print(f"Model device: {self.device}")
         # Initialize optimizer and loss function
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate', 0.001))
         
