@@ -271,10 +271,6 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
                     print(f"Warning: Error calculating metrics: {e}")
             else:
                 print("Warning: No overlapping valid targets and predictions found for metric calculation.")
-        else:
-            print(f"Warning: Target column '{target_col}' not found in validation data for metric calculation.")
-        # --- End Metric Calculation ---
-        
         # Create plots
         print("Generating plots...")
         

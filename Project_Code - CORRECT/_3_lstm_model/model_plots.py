@@ -11,6 +11,11 @@ import matplotlib.dates as mdates
 from matplotlib.colors import LinearSegmentedColormap
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
+# Get the directory of the current script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Navigate up one level to the Project_Code - CORRECT folder
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+
 def set_plot_style():
     """Set a consistent, professional plot style for all visualizations."""
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -61,8 +66,8 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         metrics: Optional dictionary with additional performance metrics
         title_suffix: Optional suffix to add to the plot title
     """
-    # Ensure output directory exists
-    output_dir = Path("Project_Code - CORRECT/results/lstm")
+    # Ensure output directory exists using relative path
+    output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
     output_dir.mkdir(parents=True, exist_ok=True)
     
     station_id = str(station_id)
@@ -90,12 +95,12 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     if vinge_data is None or (isinstance(vinge_data, pd.DataFrame) and vinge_data['vinge'].count() == 0):
         try:
             print("Vinge data not found in test_data or has no valid entries, trying to load from original data...")
-            # Try to find the data in different possible locations
+            # Try to find the data in different possible locations using relative paths
             possible_data_dirs = [
-                Path("Project_Code - CORRECT/data_utils/Sample data"),
-                Path("data_utils/Sample data"),
-                Path("Project_Code - CORRECT/data_utils"),
-                Path("data_utils")
+                Path(os.path.join(PROJECT_ROOT, "data_utils/Sample data")),
+                Path(os.path.join(PROJECT_ROOT, "../data_utils/Sample data")),
+                Path(os.path.join(PROJECT_ROOT, "data_utils")),
+                Path(os.path.join(PROJECT_ROOT, "../data_utils"))
             ]
             
             # Try each location until we find the file or exhaust all options
@@ -646,7 +651,7 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     """
     # Set default output directory if not provided
     if output_dir is None:
-        output_dir = Path("Project_Code - CORRECT/results/lstm")
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
         output_dir.mkdir(parents=True, exist_ok=True)
     
     # If vinge data is not provided or empty, try to load it from the preprocessed data
@@ -654,12 +659,12 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
         try:
             print(f"Vinge data not provided, attempting to load from preprocessed data...")
             
-            # Define possible directories to look for the data
+            # Define possible directories to look for the data using relative paths
             possible_dirs = [
-                Path("Project_Code - CORRECT/data_utils/Sample data"),
-                Path("data_utils/Sample data"),
-                Path("Project_Code - CORRECT/data_utils"),
-                Path("data_utils")
+                Path(os.path.join(PROJECT_ROOT, "data_utils/Sample data")),
+                Path(os.path.join(PROJECT_ROOT, "../data_utils/Sample data")),
+                Path(os.path.join(PROJECT_ROOT, "data_utils")),
+                Path(os.path.join(PROJECT_ROOT, "../data_utils"))
             ]
             
             preprocessed_data = None
@@ -1064,9 +1069,11 @@ def plot_scaled_predictions(predictions, targets, test_data=None, title="Scaled 
                 )
             )
         
-        # Save and open in browser
-        html_path = 'scaled_predictions.html'
-        fig.write_html(html_path)
+        # Save and open in browser using relative path
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        html_path = output_dir / 'scaled_predictions.html'
+        fig.write_html(str(html_path))
         print(f"Opening scaled predictions plot in browser...")
         webbrowser.open('file://' + os.path.abspath(html_path))
 
@@ -1079,8 +1086,8 @@ def plot_convergence(history, station_id, title=None):
         station_id: ID of the station
         title: Optional plot title
     """
-    # Ensure output directory exists
-    output_dir = Path("Project_Code - CORRECT/results/lstm")
+    # Ensure output directory exists using relative path
+    output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Create figure with subplots - one for loss, one for learning rate
@@ -1131,7 +1138,7 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
     Args:
         data: DataFrame containing feature data
         feature_cols: List of feature column names
-        output_dir: Optional output directory path (default: saves to Project_Code - CORRECT/results/feature_plots)
+        output_dir: Optional output directory path (default: saves to results/feature_plots)
         years_to_show: Number of most recent years to display (default: 3)
     
     Returns:
@@ -1139,7 +1146,7 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
     """
     # Set default output directory if not provided
     if output_dir is None:
-        output_dir = Path("Project_Code - CORRECT/results/feature_plots")
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/feature_plots"))
         output_dir.mkdir(parents=True, exist_ok=True)
     elif isinstance(output_dir, str):
         output_dir = Path(output_dir)
