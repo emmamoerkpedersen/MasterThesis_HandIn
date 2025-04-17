@@ -136,16 +136,16 @@ class DataPreprocessor:
         val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
         train_data = data[data.index.year < 2022]  # Training is everything before 2022
         
-        #print(f"\nSplit Summary:")
-        #print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
-        #print(f"Validation period: {val_data.index.min().year} - {val_data.index.max().year}")
-        #print(f"Test year: {test_data.index.min().year}")
+        print(f"\nSplit Summary:")
+        print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
+        print(f"Validation period: {val_data.index.min().year} - {val_data.index.max().year}")
+        print(f"Test year: {test_data.index.min().year}")
         
-        #print(f'\nData shapes:')
-        #print(f'Total data: {data.shape}')
-        #print(f'Train data: {train_data.shape}')
-        #print(f'Validation data: {val_data.shape}')
-        #print(f'Test data: {test_data.shape}')
+        print(f'\nData shapes:')
+        print(f'Total data: {data.shape}')
+        print(f'Train data: {train_data.shape}')
+        print(f'Validation data: {val_data.shape}')
+        print(f'Test data: {test_data.shape}')
 
         return train_data, val_data, test_data
     
