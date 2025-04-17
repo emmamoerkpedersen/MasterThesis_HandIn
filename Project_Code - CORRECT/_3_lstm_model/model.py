@@ -1,6 +1,8 @@
 import torch.nn as nn
 
 class LSTMModel(nn.Module):
+
+
     """
     NN model for time series forecasting.
     """
@@ -39,3 +41,4 @@ class LSTMModel(nn.Module):
         predictions = self.fc(lstm_out)
         
         return predictions
+   
