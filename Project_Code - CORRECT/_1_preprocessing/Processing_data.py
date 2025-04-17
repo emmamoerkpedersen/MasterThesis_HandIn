@@ -182,7 +182,7 @@ def align_data(data):
                 df.index = df.index.tz_localize(None)
 
             # Round timestamps **only** for the vst_raw, vst_edt, vinge data
-            if subkey == 'vst_raw' or subkey == 'vst_edt' or subkey == 'vinge':
+            if subkey == 'vst_raw' or subkey == 'vst_edt':
                 df.index = df.index.round('15min')
 
             # Remove duplicates after rounding (if any)
@@ -357,7 +357,6 @@ if __name__ == "__main__":
         ),
         row=1, col=1
     )
-
     # Add processed VST raw data trace to bottom subplot
     fig.add_trace(
         go.Scatter(

@@ -77,7 +77,7 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Create figure with GridSpec
             fig = plt.figure(figsize=(15, 12))
-            gs = GridSpec(2, 1, figure=fig, height_ratios=[1, 1], hspace=0.3)
+            gs = GridSpec(2, 1, figure=fig, height_ratios=[1, 1], hspace=0.1)
             
             # Get the original and processed data
             orig = original_data[station_name]['vst_raw'].copy()  # Make a copy to avoid modifying original
@@ -152,14 +152,16 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Top subplot: Original data with IQR bounds and removed points
             ax1 = fig.add_subplot(gs[0])
+            
+            # Plot the original data
             ax1.plot(orig_plot.index, orig_plot[orig_value_col], color='#1f77b4', alpha=0.8, 
-                    linewidth=1.2, label='Original Data', zorder=2)
+                    linewidth=0.8, label='Original Data', zorder=2)
             
             # Add IQR bounds with improved styling
             ax1.axhline(y=lower_bound, color='#ff7f0e', linestyle='--', alpha=0.6,
-                       linewidth=1.0, label='IQR Bounds', zorder=3)
+                       linewidth=0.8, label='IQR Bounds', zorder=1)
             ax1.axhline(y=upper_bound, color='#ff7f0e', linestyle='--', alpha=0.6,
-                       linewidth=1.0, zorder=3)
+                       linewidth=0.8, zorder=1)
             
             # Add frost periods if available
             if frost_periods:
@@ -168,19 +170,28 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                         ax1.axvspan(start, end, color='#E3F2FD', alpha=0.5, 
                                   label='Frost Period' if start == frost_periods[0][0] else "", zorder=1)
             
+            # Find actual outliers (points removed during preprocessing)
+            # We do this by comparing original data with preprocessed data
+            # To get the missing points:
+            outlier_points = orig[outlier_mask].copy()
+            
+            print(f"Found {len(outlier_points)} outlier points for station {station_name}")
+            print(f"Outlier value range: {outlier_points[orig_value_col].min()} to {outlier_points[orig_value_col].max()}")
+            
             # PERFORMANCE OPTIMIZATION: Only plot a sample of outlier points if there are too many
-            outlier_points = orig[outlier_mask]
             if len(outlier_points) > 0:
                 if len(outlier_points) > 1000:
                     # Sample to get at most 1000 outlier points
                     outlier_sample = outlier_points.sample(n=min(1000, len(outlier_points)), random_state=42)
                     ax1.scatter(outlier_sample.index, outlier_sample[orig_value_col],
-                              color='#d62728', s=25, alpha=0.7, label='Removed Points (Sample)', zorder=5)
+                              color='#d62728', s=25, alpha=0.7, label='Removed Points (Sample)', zorder=3)
+                    print(f"Plotting {len(outlier_sample)} sample outlier points")
                 else:
+                    # Plot all outliers
                     ax1.scatter(outlier_points.index, outlier_points[orig_value_col],
-                              color='#d62728', s=25, alpha=0.7, label='Removed Points', zorder=5)
+                              color='#d62728', s=25, alpha=0.7, label='Removed Points', zorder=3)
             
-            ax1.set_title('Original Data with Quality Control Bounds', fontweight='bold', pad=15)
+            #ax1.set_title('Original Data with Quality Control Bounds', fontweight='bold', pad=15)
             ax1.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
             
             # Clean styling similar to create_water_level_plot_png
@@ -192,9 +203,9 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             # Bottom subplot: Preprocessed data only
             ax2 = fig.add_subplot(gs[1])
             ax2.plot(proc_plot.index, proc_plot['vst_raw'], color='#2ca02c', alpha=0.8, 
-                    linewidth=1.2, label='Preprocessed Data', zorder=2)
+                    linewidth=0.8, label='Preprocessed Data', zorder=2)
             
-            ax2.set_title('Preprocessed Data (2010 onwards)', fontweight='bold', pad=15)
+            #ax2.set_title('Preprocessed Data (2010 onwards)', fontweight='bold', pad=15)
             ax2.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
             ax2.set_xlabel('Date', fontweight='bold', labelpad=10)
             
@@ -213,9 +224,12 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                 ax.xaxis.set_major_locator(mdates.YearLocator(1))
                 ax.tick_params(axis='x', rotation=45)
             
+            # Set consistent y-axis range for the preprocessed data plot
+            ax2.set_ylim(0, max(proc_plot['vst_raw'].max() * 1.1, upper_bound * 1.1))
+            
             # Add main title
-            fig.suptitle(f'Data Preprocessing - Station {station_name}', 
-                        fontweight='bold', y=0.95)
+            #fig.suptitle(f'Data Preprocessing - Station {station_name}', 
+            #            fontweight='bold', y=0.95)
             
             # Format the figure for nice display
             fig.autofmt_xdate()
@@ -383,24 +397,23 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
     # Define start date for precipitation data
     precip_start_date = pd.to_datetime('2010-01-01')
     
-    for station_name in preprocessed_data.keys():
-        if station_name in original_data and original_data[station_name]['vst_raw'] is not None:
-            # Create figure with GridSpec for better control of subplot heights
-            fig = plt.figure(figsize=(15, 12))
-            gs = GridSpec(3, 1, figure=fig, height_ratios=[1, 1, 3], hspace=0.3)
+    for station_name in original_data.keys():
+        if original_data[station_name]['vst_raw'] is not None:
+            # Create figure with GridSpec for better control of subplot heights - now with 4 rows
+            fig = plt.figure(figsize=(15, 15))  # Increased figure height for 4 subplots
+            gs = GridSpec(4, 1, figure=fig, height_ratios=[1, 1, 1, 3], hspace=0.2)
             
-            # Get data for this station
+            # Get data for this station (use original data for all plots)
             orig_data = original_data[station_name]
-            proc_data = preprocessed_data[station_name]
             
             # Track min and max dates to show data availability
             min_dates = {}
             max_dates = {}
             
-            # 1. Temperature data (first subplot)
+            # 1. Temperature data (first subplot) - Using ORIGINAL data
             ax1 = fig.add_subplot(gs[0])
-            if proc_data['temperature'] is not None:
-                temp_data = proc_data['temperature'].copy()
+            if orig_data['temperature'] is not None:
+                temp_data = orig_data['temperature'].copy()
                 if not isinstance(temp_data.index, pd.DatetimeIndex):
                     temp_data.set_index('Date', inplace=True)
                 
@@ -416,9 +429,8 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 max_dates['temperature'] = temp_data.index.max()
                 
                 ax1.plot(temp_data.index, temp_data[temp_col],
-                        color='#d62728', alpha=0.8, linewidth=1.2, label='Temperature')
+                        color='#d62728', alpha=0.8, linewidth=0.8, label='Temperature')
                 
-                ax1.set_title('Temperature', fontweight='bold', pad=15)
                 ax1.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
                 ax1.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
                 
@@ -427,25 +439,40 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 ax1.spines['right'].set_visible(False)
                 ax1.grid(False)
                 
-                # Set x-axis limits for temperature subplot
+                # Set x-axis limits for temperature subplot - use its own data range
                 ax1.set_xlim(min_dates['temperature'], max_dates['temperature'])
+                
+                # Ensure x-axis is visible
+                ax1.xaxis.set_visible(True)
+            else:
+                ax1.text(0.5, 0.5, 'No temperature data available', 
+                        horizontalalignment='center', verticalalignment='center',
+                        transform=ax1.transAxes, fontsize=14)
             
-            # 2. Rainfall data (second subplot) - from 2010 onwards
+            # 2. Rainfall data (second subplot) - from 2010 onwards - Using ORIGINAL data
             ax2 = fig.add_subplot(gs[1])
-            if proc_data['rainfall'] is not None:
-                rain_data = proc_data['rainfall'].copy()
+            if orig_data['rainfall'] is not None:
+                rain_data = orig_data['rainfall'].copy()
                 if not isinstance(rain_data.index, pd.DatetimeIndex):
                     rain_data.set_index('Date', inplace=True)
                 
-                # Filter rainfall data to start from 2010
-                rain_data_filtered = rain_data[rain_data.index >= precip_start_date]
+                # Handle timezone issues - ensure both are timezone-naive or timezone-aware
+                if rain_data.index.tz is not None:
+                    # Make precip_start_date timezone-aware to match the DataFrame
+                    precip_start_date_adj = precip_start_date.tz_localize(rain_data.index.tz)
+                    rain_data_filtered = rain_data[rain_data.index >= precip_start_date_adj]
+                else:
+                    # Both are timezone-naive
+                    rain_data_filtered = rain_data[rain_data.index >= precip_start_date]
                 
                 # Get rainfall column name
                 rain_col = [col for col in rain_data.columns if col != 'Date'][0]
                 
                 # PERFORMANCE OPTIMIZATION: For rainfall, resample to daily sum for better visualization
                 if len(rain_data_filtered) > 1000:
-                    rain_data_filtered = rain_data_filtered.resample('D').sum().dropna()
+                    rain_data_plot = rain_data_filtered.resample('D').sum().dropna()
+                else:
+                    rain_data_plot = rain_data_filtered
                 
                 # Track date range of filtered data
                 if not rain_data_filtered.empty:
@@ -453,10 +480,9 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                     max_dates['rainfall'] = rain_data_filtered.index.max()
                     
                     # Plot rainfall as bars
-                    ax2.bar(rain_data_filtered.index, rain_data_filtered[rain_col],
+                    ax2.bar(rain_data_plot.index, rain_data_plot[rain_col],
                            color='#1f77b4', alpha=0.7, width=1, label='Rainfall')
                     
-                    ax2.set_title('Precipitation (2010 onwards)', fontweight='bold', pad=15)
                     ax2.set_ylabel('Precipitation (mm)', fontweight='bold', labelpad=10)
                     ax2.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
                     
@@ -465,15 +491,98 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                     ax2.spines['right'].set_visible(False)
                     ax2.grid(False)
                     
-                    # Set x-axis limits specifically for rainfall subplot (2010 onwards)
-                    ax2.set_xlim(precip_start_date, max_dates['rainfall'])
+                    # Set x-axis limits specifically for rainfall subplot - use its own data range
+                    ax2.set_xlim(min_dates['rainfall'], max_dates['rainfall'])
+                    
+                    # Ensure x-axis is visible
+                    ax2.xaxis.set_visible(True)
                 else:
                     ax2.text(0.5, 0.5, 'No precipitation data available from 2010 onwards', 
                             horizontalalignment='center', verticalalignment='center',
                             transform=ax2.transAxes, fontsize=14)
+            else:
+                ax2.text(0.5, 0.5, 'No rainfall data available', 
+                        horizontalalignment='center', verticalalignment='center',
+                        transform=ax2.transAxes, fontsize=14)
             
-            # 3. Water level measurements (VST_RAW) - larger subplot at bottom
+            # 3. VINGE data subplot (manual measurements) - Using ORIGINAL data
             ax3 = fig.add_subplot(gs[2])
+            if orig_data.get('vinge') is not None:
+                vinge_data = orig_data['vinge'].copy()
+                
+                # Just use the VINGE data as is, without any filtering or processing
+                if not isinstance(vinge_data.index, pd.DatetimeIndex):
+                    if 'Date' in vinge_data.columns:
+                        vinge_data.set_index('Date', inplace=True)
+                    else:
+                        # Try to convert the index to datetime
+                        try:
+                            vinge_data.index = pd.to_datetime(vinge_data.index)
+                        except:
+                            print(f"Warning: Could not convert VINGE index to datetime for station {station_name}.")
+                
+                # Identify the column with VINGE data
+                if 'W.L [cm]' in vinge_data.columns:
+                    vinge_col = 'W.L [cm]'
+                    # Assume VINGE data is already in mm
+                    vinge_data['water_level_mm'] = vinge_data[vinge_col]
+                elif 'vinge' in vinge_data.columns:
+                    vinge_col = 'vinge'
+                    vinge_data['water_level_mm'] = vinge_data[vinge_col]
+                else:
+                    # Try to use the first non-index column
+                    value_cols = [col for col in vinge_data.columns if col != 'Date']
+                    if value_cols:
+                        vinge_col = value_cols[0]
+                        vinge_data['water_level_mm'] = vinge_data[vinge_col]
+                    else:
+                        print(f"Warning: No suitable column found in VINGE data for station {station_name}.")
+                        vinge_col = None
+                
+                if vinge_col is not None and isinstance(vinge_data.index, pd.DatetimeIndex):
+                    # Remove NaN values
+                    vinge_data = vinge_data.dropna(subset=['water_level_mm'])
+                    
+                    # Track date range
+                    if not vinge_data.empty:
+                        min_dates['vinge'] = vinge_data.index.min()
+                        max_dates['vinge'] = vinge_data.index.max()
+                        
+                        # Plot as scatter (don't connect points)
+                        ax3.scatter(vinge_data.index, vinge_data['water_level_mm'],
+                                color='#d62728', alpha=0.8, s=20, 
+                                label='Vinge', zorder=5)
+                        
+                        ax3.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+                        ax3.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                        
+                        # Clean style
+                        ax3.spines['top'].set_visible(False)
+                        ax3.spines['right'].set_visible(False)
+                        ax3.grid(False)
+                        
+                        # Set x-axis limits using its own data range
+                        ax3.set_xlim(min_dates['vinge'], max_dates['vinge'])
+                        
+                        # Ensure x-axis is visible
+                        ax3.xaxis.set_visible(True)
+                        
+                        print(f"Plotted {len(vinge_data)} VINGE measurements for station {station_name}.")
+                    else:
+                        ax3.text(0.5, 0.5, 'No valid VINGE measurements after filtering', 
+                                horizontalalignment='center', verticalalignment='center',
+                                transform=ax3.transAxes, fontsize=14)
+                else:
+                    ax3.text(0.5, 0.5, 'VINGE data could not be properly processed', 
+                            horizontalalignment='center', verticalalignment='center',
+                            transform=ax3.transAxes, fontsize=14)
+            else:
+                ax3.text(0.5, 0.5, 'No VINGE data available', 
+                        horizontalalignment='center', verticalalignment='center',
+                        transform=ax3.transAxes, fontsize=14)
+            
+            # 4. Water level measurements (VST_RAW) - larger subplot at bottom - Using ORIGINAL data
+            ax4 = fig.add_subplot(gs[3])
             if orig_data['vst_raw'] is not None:
                 vst_data = orig_data['vst_raw'].copy()
                 if not isinstance(vst_data.index, pd.DatetimeIndex):
@@ -490,43 +599,60 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 min_dates['vst_raw'] = vst_data.index.min()
                 max_dates['vst_raw'] = vst_data.index.max()
                 
-                ax3.plot(vst_data.index, vst_data[vst_col],
-                        color='#1f77b4', alpha=0.8, linewidth=1.2, label='VST Raw')
+                ax4.plot(vst_data.index, vst_data[vst_col],
+                        color='#1f77b4', alpha=0.8, linewidth=0.8, label='VST Raw')
                 
-                ax3.set_title('Water Level Measurements', fontweight='bold', pad=15)
-                ax3.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
-                ax3.set_xlabel('Date', fontweight='bold', labelpad=10)
-                ax3.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                ax4.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+                ax4.set_xlabel('Date', fontweight='bold', labelpad=10)
+                ax4.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
                 
                 # Clean style similar to water_level_plot
-                ax3.spines['top'].set_visible(False)
-                ax3.spines['right'].set_visible(False)
-                ax3.grid(False)
+                ax4.spines['top'].set_visible(False)
+                ax4.spines['right'].set_visible(False)
+                ax4.grid(False)
                 
-                # Set x-axis limits for VST subplot
-                ax3.set_xlim(min_dates['vst_raw'], max_dates['vst_raw'])
+                # Set x-axis limits for VST subplot - use its own data range
+                ax4.set_xlim(min_dates['vst_raw'], max_dates['vst_raw'])
+            else:
+                ax4.text(0.5, 0.5, 'No VST data available', 
+                        horizontalalignment='center', verticalalignment='center',
+                        transform=ax4.transAxes, fontsize=14)
             
-            # Format x-axis dates for all subplots
-            for ax in [ax1, ax2, ax3]:
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-                ax.xaxis.set_major_locator(mdates.YearLocator(2))  # Every 2 years for cleaner view
-                ax.tick_params(axis='x', rotation=45)
+            # Format x-axis dates for all subplots - with independent x-axis ranges
+            for ax, data_type in zip([ax1, ax2, ax3, ax4], ['temperature', 'rainfall', 'vinge', 'vst_raw']):
+                if data_type in min_dates:
+                    # Use appropriate date formatter based on the span of data
+                    date_span = max_dates[data_type] - min_dates[data_type]
+                    
+                    if date_span.days > 365 * 10:  # More than 10 years
+                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+                        ax.xaxis.set_major_locator(mdates.YearLocator(2))  # Every 2 years
+                    elif date_span.days > 365 * 2:  # More than 2 years
+                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                        ax.xaxis.set_major_locator(mdates.YearLocator())  # Every year
+                    else:  # Less than 2 years
+                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+                        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))  # Every 2 months
+                    
+                    ax.tick_params(axis='x', rotation=45)
+                    
+                    # Make sure x-axis ticks and labels are shown for each subplot
+                    ax.tick_params(axis='x', which='both', bottom=True, labelbottom=True)
             
             # Generate data availability text for title
             availability_text = []
-            for data_type in ['temperature', 'rainfall', 'vst_raw']:
+            for data_type in ['temperature', 'rainfall', 'vinge', 'vst_raw']:
                 if data_type in min_dates:
                     start_year = min_dates[data_type].year
                     end_year = max_dates[data_type].year
                     availability_text.append(f"{data_type.capitalize()}: {start_year}-{end_year}")
             
             # Add main title with data availability
-            fig.suptitle(f'Station {station_name} - Data Overview\n({", ".join(availability_text)})',
-                        fontweight='bold', y=0.95)
+           # fig.suptitle(f'Station {station_name} - Data Overview\n({", ".join(availability_text)})',
+           #             fontweight='bold', y=0.95)
             
-            # Format the figure for nice display
-            fig.autofmt_xdate()
-            plt.tight_layout()
+            # Format the figure for nice display - don't use autofmt_xdate as it can hide x-axis labels
+            plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave room for the suptitle
             
             # PERFORMANCE OPTIMIZATION: Reduce DPI for faster rendering
             plt.savefig(diagnostic_dir / f"{station_name}_data_overview.png",
@@ -561,13 +687,13 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
         if (station_name in original_data and
             original_data[station_name]['vst_raw'] is not None and 
             station_data.get('vst_edt') is not None and 
-            station_data.get('vinge') is not None):
+            original_data[station_name].get('vinge') is not None):  # Use original VINGE data
             
             print(f"\nProcessing station {station_name}:")
             
             # Create figure with two subplots
             fig = plt.figure(figsize=(15, 10))
-            gs = GridSpec(2, 1, figure=fig, height_ratios=[2, 1], hspace=0.3)
+            gs = GridSpec(2, 1, figure=fig, height_ratios=[2, 1], hspace=0.1)
             
             # Main plot with VST_RAW, VST_EDT, and VINGE
             ax1 = fig.add_subplot(gs[0])
@@ -575,88 +701,117 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             # Ensure data is properly indexed
             vst_raw = original_data[station_name]['vst_raw'].copy()
             vst_edt = station_data['vst_edt'].copy()
-            vinge_data = station_data['vinge'].copy()
+            vinge_data = original_data[station_name]['vinge'].copy()  # Use original VINGE data
             
+            # Print information about the VINGE data
             print(f"VINGE data shape before processing: {vinge_data.shape}")
             print(f"VINGE data columns:", vinge_data.columns)
             print(f"First few rows of VINGE data:\n{vinge_data.head()}")
             
+            # Convert indices to DatetimeIndex if needed
             if not isinstance(vst_raw.index, pd.DatetimeIndex):
                 vst_raw.set_index('Date', inplace=True)
             if not isinstance(vst_edt.index, pd.DatetimeIndex):
                 vst_edt.set_index('Date', inplace=True)
             if not isinstance(vinge_data.index, pd.DatetimeIndex):
-                vinge_data.set_index('Date', inplace=True)
+                if 'Date' in vinge_data.columns:
+                    vinge_data.set_index('Date', inplace=True)
+                else:
+                    try:
+                        vinge_data.index = pd.to_datetime(vinge_data.index)
+                    except:
+                        print(f"Warning: Could not convert VINGE index to datetime for station {station_name}.")
             
-            # Focus on last 4 years
-            end_date = vst_raw.index.max()
-            start_date = end_date - pd.DateOffset(years=4)
+            # Focus on 2022-01-01 to 2024-01-01
+            start_date = pd.to_datetime('2022-01-01')
+            end_date = pd.to_datetime('2024-01-01')
             
             print(f"Date range: {start_date} to {end_date}")
             
-            # Filter data for last 4 years
-            vst_raw = vst_raw[vst_raw.index >= start_date]
-            vst_edt = vst_edt[vst_edt.index >= start_date]
-            vinge_data = vinge_data[vinge_data.index >= start_date]
+            # Filter data for specified date range
+            vst_raw_filtered = vst_raw[(vst_raw.index >= start_date) & (vst_raw.index <= end_date)]
+            vst_edt_filtered = vst_edt[(vst_edt.index >= start_date) & (vst_edt.index <= end_date)]
             
-            # Remove NaN values from VINGE data since these are manual measurements
-            vinge_data = vinge_data.dropna()
+            # Filter VINGE data if it has a datetime index
+            if isinstance(vinge_data.index, pd.DatetimeIndex):
+                vinge_filtered = vinge_data[(vinge_data.index >= start_date) & (vinge_data.index <= end_date)]
+            else:
+                print("Warning: VINGE data index is not a DatetimeIndex. Cannot filter by date.")
+                vinge_filtered = vinge_data.copy()  # Use as is
+                
+            # Remove NaN values from VINGE data
+            vinge_filtered = vinge_filtered.dropna()
             
-            print(f"VINGE data points after date filtering and NaN removal: {len(vinge_data)}")
+            print(f"VINGE data points after date filtering and NaN removal: {len(vinge_filtered)}")
             
-            # Get the value column name from the original data
+            # Get the value column names
             vst_raw_col = [col for col in vst_raw.columns if col != 'Date'][0]
             vst_edt_col = [col for col in vst_edt.columns if col != 'Date'][0]
             
             print(f"Column names - VST Raw: {vst_raw_col}, VST EDT: {vst_edt_col}")
-            print("VINGE data columns:", vinge_data.columns)
+            print("VINGE data columns:", vinge_filtered.columns)
             
-            # Convert VINGE water level from cm to mm
-            if 'W.L [cm]' in vinge_data.columns:
-                vinge_data['water_level_mm'] = vinge_data['W.L [cm]']
-            elif 'vinge' in vinge_data.columns:
-                vinge_data['water_level_mm'] = vinge_data['vinge']
+            # Get or create the VINGE water level column - assume it's already in mm
+            if 'W.L [cm]' in vinge_filtered.columns:
+                vinge_filtered['water_level_mm'] = vinge_filtered['W.L [cm]']  # Assume already in mm
+            elif 'vinge' in vinge_filtered.columns:
+                vinge_filtered['water_level_mm'] = vinge_filtered['vinge']
             else:
-                print(f"Warning: No recognized VINGE column found. Available columns: {vinge_data.columns}")
-                return
+                # Try to find any numeric column
+                numeric_cols = [col for col in vinge_filtered.columns 
+                              if pd.api.types.is_numeric_dtype(vinge_filtered[col])]
+                
+                if numeric_cols:
+                    vinge_col = numeric_cols[0]
+                    vinge_filtered['water_level_mm'] = vinge_filtered[vinge_col]
+                    print(f"Using column '{vinge_col}' for VINGE water level data")
+                else:
+                    print(f"Warning: No recognized VINGE column found. Available columns: {vinge_filtered.columns}")
+                    return
             
             # Convert data to numeric type
-            vst_raw[vst_raw_col] = pd.to_numeric(vst_raw[vst_raw_col], errors='coerce')
-            vst_edt[vst_edt_col] = pd.to_numeric(vst_edt[vst_edt_col], errors='coerce')
+            vst_raw_filtered[vst_raw_col] = pd.to_numeric(vst_raw_filtered[vst_raw_col], errors='coerce')
+            vst_edt_filtered[vst_edt_col] = pd.to_numeric(vst_edt_filtered[vst_edt_col], errors='coerce')
+            vinge_filtered['water_level_mm'] = pd.to_numeric(vinge_filtered['water_level_mm'], errors='coerce')
             
             # Print value ranges
-            print(f"VST Raw range: {vst_raw[vst_raw_col].min():.1f} to {vst_raw[vst_raw_col].max():.1f}")
-            print(f"VST EDT range: {vst_edt[vst_edt_col].min():.1f} to {vst_edt[vst_edt_col].max():.1f}")
-            print(f"VINGE range: {vinge_data['water_level_mm'].min():.1f} to {vinge_data['water_level_mm'].max():.1f}")
+            if not vst_raw_filtered.empty:
+                print(f"VST Raw range: {vst_raw_filtered[vst_raw_col].min():.1f} to {vst_raw_filtered[vst_raw_col].max():.1f}")
+            
+            if not vst_edt_filtered.empty:
+                print(f"VST EDT range: {vst_edt_filtered[vst_edt_col].min():.1f} to {vst_edt_filtered[vst_edt_col].max():.1f}")
+            
+            if not vinge_filtered.empty:
+                print(f"VINGE range: {vinge_filtered['water_level_mm'].min():.1f} to {vinge_filtered['water_level_mm'].max():.1f}")
             
             # PERFORMANCE OPTIMIZATION: Downsample large datasets for plotting
-            if len(vst_raw) > 10000:
+            if len(vst_raw_filtered) > 10000:
                 # Use efficient resampling for VST data (average hourly data points)
-                vst_raw_plot = vst_raw.resample('1H').mean().dropna()
+                vst_raw_plot = vst_raw_filtered.resample('1H').mean().dropna()
             else:
-                vst_raw_plot = vst_raw
+                vst_raw_plot = vst_raw_filtered
                 
-            if len(vst_edt) > 10000:
-                vst_edt_plot = vst_edt.resample('1H').mean().dropna()
+            if len(vst_edt_filtered) > 10000:
+                vst_edt_plot = vst_edt_filtered.resample('1H').mean().dropna()
             else:
-                vst_edt_plot = vst_edt
+                vst_edt_plot = vst_edt_filtered
             
             # Plot raw VST data
             ax1.plot(vst_raw_plot.index, vst_raw_plot[vst_raw_col],
-                    color='#1f77b4', alpha=0.8, linewidth=1.2, 
+                    color='#1f77b4', alpha=0.8, linewidth=0.8, 
                     label='VST Raw')
             
             # Plot EDT corrected data
             ax1.plot(vst_edt_plot.index, vst_edt_plot[vst_edt_col],
-                    color='#2ca02c', alpha=0.8, linewidth=1.2, 
+                    color='#2ca02c', alpha=0.8, linewidth=0.8, 
                     label='VST EDT')
             
             # Plot VINGE measurements with larger markers and higher zorder
-            ax1.scatter(vinge_data.index, vinge_data['water_level_mm'],
-                       color='#d62728', alpha=0.8, s=50, 
-                       label='Manual Board (VINGE)', zorder=5)
+            ax1.scatter(vinge_filtered.index, vinge_filtered['water_level_mm'],
+                       color='#d62728', alpha=0.8, s=20, 
+                       label='Vinge', zorder=5)
             
-            print(f"Number of VINGE points plotted: {len(vinge_data)}")
+            print(f"Number of VINGE points plotted: {len(vinge_filtered)}")
             
             # Bottom subplot for VINGE vs VST_RAW differences
             ax2 = fig.add_subplot(gs[1])
@@ -667,18 +822,18 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             closest_vst_values = []
             
             # Calculate differences for all VINGE measurements
-            for date, value in vinge_data.iterrows():
+            for date, row in vinge_filtered.iterrows():
                 # Find closest VST reading within 12 hours
                 window_start = date - pd.Timedelta(hours=12)
                 window_end = date + pd.Timedelta(hours=12)
-                closest_vst = vst_raw.loc[(vst_raw.index >= window_start) & 
-                                        (vst_raw.index <= window_end)]
+                closest_vst = vst_raw_filtered.loc[(vst_raw_filtered.index >= window_start) & 
+                                        (vst_raw_filtered.index <= window_end)]
                 
                 if not closest_vst.empty:
                     # Find the closest date
                     closest_date = closest_vst.index[abs(closest_vst.index - date).argmin()]
-                    closest_value = vst_raw.loc[closest_date, vst_raw_col]
-                    vinge_value = value['water_level_mm']
+                    closest_value = vst_raw_filtered.loc[closest_date, vst_raw_col]
+                    vinge_value = row['water_level_mm']
                     
                     # Only calculate difference if both values are numeric and not NaN
                     if pd.notnull(closest_value) and pd.notnull(vinge_value):
@@ -702,15 +857,12 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             ax2.axhline(y=-20, color='#d62728', linestyle='--', alpha=0.8)
             
             # Style the plots
-            ax1.set_title('Water Level Measurements Comparison', fontweight='bold', pad=15)
+            #ax1.set_title('Water Level Measurements Comparison', fontweight='bold', pad=15)
             ax1.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
             
-            ax2.set_title('Difference Between Manual and Automated Measurements', fontweight='bold', pad=15)
+            #ax2.set_title('Difference Between Manual and Automated Measurements', fontweight='bold', pad=15)
             ax2.set_ylabel('Difference (mm)', fontweight='bold', labelpad=10)
             ax2.set_xlabel('Date', fontweight='bold', labelpad=10)
-            
-            # Create consistent date range and ticks for both plots
-            date_range = pd.date_range(start=start_date, end=end_date, freq='6M')
             
             # Apply consistent styling for both subplots
             for ax in [ax1, ax2]:
@@ -722,9 +874,9 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
                 # Set the same x-axis limits for both plots
                 ax.set_xlim(start_date, end_date)
                 
-                # Set major ticks at 6-month intervals
+                # Set major ticks at 2-month intervals for the 2022-2024 period
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-                ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
+                ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
                 ax.xaxis.set_minor_locator(mdates.MonthLocator())
                 ax.tick_params(axis='x', rotation=45)
             
@@ -735,8 +887,8 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
                       edgecolor='#cccccc', fontsize=12)
             
             # Add main title
-            fig.suptitle(f'Manual vs Automated Water Level Measurements - Station {station_name} (Last 4 Years)',
-                        fontweight='bold', y=0.95)
+            #fig.suptitle(f'Manual vs Automated Water Level Measurements - Station {station_name} (2022-2024)',
+            #            fontweight='bold', y=0.95)
             
             # Format the figure for nice display
             fig.autofmt_xdate()

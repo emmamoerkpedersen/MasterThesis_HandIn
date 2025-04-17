@@ -32,10 +32,10 @@ class DataPreprocessor:
         )
         
         # Print feature configuration
-        print(f"Feature configuration:")
-        print(f"  - Base features: {self.feature_cols}")
-        print(f"  - Use time features: {self.config.get('use_time_features', False)}")
-        print(f"  - Use cumulative features: {self.config.get('use_cumulative_features', False)}")
+        #print(f"Feature configuration:")
+        #print(f"  - Base features: {self.feature_cols}")
+        #print(f"  - Use time features: {self.config.get('use_time_features', False)}")
+       # print(f"  - Use cumulative features: {self.config.get('use_cumulative_features', False)}")
     
     def update_feature_scaler(self):
         """
@@ -47,7 +47,7 @@ class DataPreprocessor:
             output_features=self.output_features,
             device=self.device
         )
-        print(f"Updated feature scaler with columns: {self.feature_cols}")
+        #print(f"Updated feature scaler with columns: {self.feature_cols}")
     
     def load_and_split_data(self, project_root, station_id):
         """
@@ -95,23 +95,23 @@ class DataPreprocessor:
         data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
-        print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
+        #print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
         #Aggregate temperature to 30 days
         data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
-        print(f"  - Aggregated temperature to 30 days")
+        #print(f"  - Aggregated temperature to 30 days")
 
        
 
         # Aggregate temperature to 30 days
         data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
-        print(f"  - Aggregated temperature to 30 days")
+        #print(f"  - Aggregated temperature to 30 days")
 
         # Add cumulative rainfall features if enabled in config
         if self.config.get('use_cumulative_features', False):
             data = self._add_cumulative_features(data)
             # Update feature_cols with the new cumulative features
             self.feature_cols = self.feature_engineer.feature_cols.copy()
-            print(f"  - Updated feature columns with cumulative features: {self.feature_cols}")
+            #print(f"  - Updated feature columns with cumulative features: {self.feature_cols}")
             # Update the feature scaler with the new feature columns
             self.update_feature_scaler()
         
@@ -120,7 +120,7 @@ class DataPreprocessor:
             data = self._add_time_features(data)
             # Update feature_cols with the new time features
             self.feature_cols = self.feature_engineer.feature_cols.copy()
-            print(f"  - Updated feature columns with time features: {self.feature_cols}")
+            #print(f"  - Updated feature columns with time features: {self.feature_cols}")
             # Update the feature scaler with the new feature columns
             self.update_feature_scaler()
 
@@ -164,11 +164,11 @@ class DataPreprocessor:
         feature_cols = self.feature_engineer.feature_cols
         target_col = self.output_features   
         
-        print(f"\nUsing features for model:")
-        print(f"Total features: {len(feature_cols)}")
-        print("Feature list:")
-        for col in feature_cols:
-            print(f"  - {col}")
+        #print(f"\nUsing features for model:")
+        #print(f"Total features: {len(feature_cols)}")
+        #print("Feature list:")
+        #for col in feature_cols:
+        #    print(f"  - {col}")
         
         # Ensure all feature columns exist in data
         missing_cols = [col for col in feature_cols if col not in data.columns]
@@ -182,13 +182,13 @@ class DataPreprocessor:
         # Print diagnostic information about NaN values in target
         nan_count = target[target_col].isna().sum()
         total_count = len(target)
-        print(f"\nTarget NaN diagnostics before scaling:")
-        print(f"  {target_col}: {nan_count}/{total_count} NaN values ({nan_count/total_count*100:.2f}%)")
+        #print(f"\nTarget NaN diagnostics before scaling:")
+        #print(f"  {target_col}: {nan_count}/{total_count} NaN values ({nan_count/total_count*100:.2f}%)")
         
         if nan_count == total_count:
-            print("  WARNING: All target values are NaN!")
+            #print("  WARNING: All target values are NaN!")
             target[target_col] = target[target_col].fillna(0)
-            print("  Filled NaN values with 0 to allow scaling to proceed")
+            #print("  Filled NaN values with 0 to allow scaling to proceed")
 
         # Scale data using FeatureScaler
         if is_training:
@@ -199,36 +199,36 @@ class DataPreprocessor:
         # Print diagnostic information about NaN values in scaled target
         nan_count_scaled = np.isnan(scaled_target).sum()
         total_count_scaled = len(scaled_target)
-        print(f"\nTarget NaN diagnostics after scaling:")
-        print(f"  {target_col}: {nan_count_scaled}/{total_count_scaled} NaN values ({nan_count_scaled/total_count_scaled*100:.2f}%)")
+        #print(f"\nTarget NaN diagnostics after scaling:")
+        #print(f"  {target_col}: {nan_count_scaled}/{total_count_scaled} NaN values ({nan_count_scaled/total_count_scaled*100:.2f}%)")
         
         if nan_count_scaled == total_count_scaled:
-            print("  WARNING: All scaled target values are NaN!")
+            #print("  WARNING: All scaled target values are NaN!")
             scaled_target = np.nan_to_num(scaled_target, nan=0)
-            print("  Filled NaN values with 0 to allow model training to proceed")
+            #print("  Filled NaN values with 0 to allow model training to proceed")
 
         # Print feature ranges after scaling
-        print("\nFeature ranges after scaling:")
-        for i, col in enumerate(feature_cols):
-            min_val = scaled_features[:, i].min()
-            max_val = scaled_features[:, i].max()
-            mean_val = scaled_features[:, i].mean()
-            std_val = scaled_features[:, i].std()
-            print(f"  {col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
+        #print("\nFeature ranges after scaling:")
+        #for i, col in enumerate(feature_cols):
+        #    min_val = scaled_features[:, i].min()
+        #    max_val = scaled_features[:, i].max()
+        #    mean_val = scaled_features[:, i].mean()
+        #    std_val = scaled_features[:, i].std()
+        #    print(f"  {col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
         
         # Print target range after scaling
-        min_val = np.nanmin(scaled_target)
-        max_val = np.nanmax(scaled_target)
-        mean_val = np.nanmean(scaled_target)
-        std_val = np.nanstd(scaled_target)
-        print(f"Target range after scaling:")
-        print(f"  {target_col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
+        #min_val = np.nanmin(scaled_target)
+        #max_val = np.nanmax(scaled_target)
+        #mean_val = np.nanmean(scaled_target)
+        #std_val = np.nanstd(scaled_target)
+        #print(f"Target range after scaling:")
+        #print(f"  {target_col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
         
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
 
         # Only print basic shape info for debugging
-        print(f"{'Training' if is_training else 'Validation'} data: {X.shape[0]} sequences of length {X.shape[1]}")
+        #print(f"{'Training' if is_training else 'Validation'} data: {X.shape[0]} sequences of length {X.shape[1]}")
         
         # Convert to tensors and move to device
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)

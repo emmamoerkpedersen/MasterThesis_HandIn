@@ -34,7 +34,7 @@ SYNTHETIC_ERROR_PARAMS = {
     'use_context_aware': False,
     
     'spike': {
-        'frequency': 0.00003,
+        'frequency': 0.0000,
         # Wider range to allow for more subtle spikes
         'magnitude_range': (0.1, 1.0),  # Changed from (0.4, 0.8)
         'negative_positiv_ratio': 0.5,
@@ -51,9 +51,9 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     'drift': {
-        'frequency': 0.00003,
+        'frequency': 0.0000,
         # Wider range for drift durations
-        'duration_range': [12, 168],  # Changed from [24, 168]
+        'duration_range': [500, 1168],  # Changed from [24, 168]
         # More varied magnitude range
         'magnitude_range': [5, 50],   # Changed from [10, 50]
         'negative_positive_ratio': 0.5,
@@ -65,14 +65,14 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     'flatline': {
-        'frequency': 0.00003,
+        'frequency': 0.000,
         # More varied durations
         'duration_range': (10, 200),  # Changed from (20, 200)
         'value_method': 'first_value'
     },
     
     'offset': {
-        'frequency': 0.00003,
+        'frequency': 0.0000,
         # Wider range for offset magnitudes
         'magnitude_range': (20, 500),  # Changed from (50, 500)
         'negative_positiv_ratio': 0.7,
@@ -87,7 +87,7 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     'noise': {
-        'frequency': 0,  # Still disabled
+        'frequency': 0.0000,  # Still disabled
         'duration_range': (4, 24),
         'intensity_range': (1, 4)  # Changed from (2, 4)
     },
@@ -115,6 +115,7 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
+
     'hidden_size': 384,         
     'num_layers': 2,            
     'dropout': 0.3,             
