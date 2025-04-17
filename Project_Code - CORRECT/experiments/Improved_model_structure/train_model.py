@@ -46,9 +46,6 @@ class LSTM_Trainer:
         # Get peak weight for the custom loss function (default to 2.0 if not specified)
         self.peak_weight = config.get('peak_weight', 2.0)
         
-        # Get gradient clipping value (default to 1.0 if not specified)
-        self.grad_clip_value = config.get('grad_clip_value', 1.0)
-
         # Initialize learning rate scheduler
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, 
@@ -58,8 +55,6 @@ class LSTM_Trainer:
             min_lr=1e-6
         )
         
-        # Print whether gradient clipping is enabled
-        print(f"Using gradient clipping with max norm: {self.grad_clip_value}")
         print(f"Using learning rate scheduler with patience {self.scheduler.patience}, factor {self.scheduler.factor}")
     
 
@@ -110,13 +105,6 @@ class LSTM_Trainer:
                 
                 if training:
                     loss.backward()
-                    
-                    # Apply gradient clipping if enabled
-                    if 'grad_clip_value' in self.config and self.config['grad_clip_value'] > 0:
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(), 
-                            self.config['grad_clip_value']
-                        )
                     
                     self.optimizer.step()
                 
@@ -172,17 +160,12 @@ class LSTM_Trainer:
 
         # Initialize early stopping
         best_val_loss = float('inf')
-        smoothed_val_loss = float('inf')  # Initialize smoothed validation loss
         patience_counter = 0
         best_model_state = None
         
         # Reset history for new training run
-        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': [], 'smoothed_val_loss': []}
+        self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': []}
         
-        # Exponential moving average weight for validation loss
-        beta = 0.7  # Weight for previous smoothed value (higher = more smoothing)
-        #print(f"Using validation loss EMA smoothing with beta={beta}")
-
         # Training loop with progress bar for epochs
         epoch_pbar = tqdm(range(epochs), desc="Training", unit="epoch")
         for epoch in epoch_pbar:
@@ -192,28 +175,21 @@ class LSTM_Trainer:
             # Run validation epoch
             val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
 
-            # Calculate smoothed validation loss using exponential moving average
-            if epoch == 0:
-               smoothed_val_loss = val_loss  # Initialize with first value
-            else:
-               smoothed_val_loss = beta * smoothed_val_loss + (1 - beta) * val_loss
-            
             # Store history
             self.history['train_loss'].append(train_loss)
             self.history['val_loss'].append(val_loss)
-            self.history['smoothed_val_loss'].append(smoothed_val_loss)
+            # Remove smoothed validation loss calculation and storage
             current_lr = self.optimizer.param_groups[0]['lr']
             self.history['learning_rates'].append(current_lr)
             
-            # Step the learning rate scheduler based on smoothed validation loss
-            self.scheduler.step(smoothed_val_loss)
+            # Step the learning rate scheduler based on raw validation loss
+            self.scheduler.step(val_loss)
 
             # Update progress bar with current metrics
             epoch_pbar.set_postfix({
                 'Train Loss': f'{train_loss:.6f}',
                 'Val Loss': f'{val_loss:.6f}',
                 'LR': f'{current_lr:.6f}',
-                'Smooth Val': f'{smoothed_val_loss:.6f}',
                 'Patience': f'{patience_counter}/{patience}'
             })
             
@@ -225,16 +201,15 @@ class LSTM_Trainer:
                     print(f"Callback raised an exception: {e}")
                     break
 
-            # Early stopping based on smoothed validation loss
-            if smoothed_val_loss < best_val_loss:
-                best_val_loss = smoothed_val_loss
+            # Early stopping based on raw validation loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 patience_counter = 0
                 best_model_state = self.model.state_dict().copy()
                 epoch_pbar.set_postfix({
                     'Train Loss': f'{train_loss:.6f}',
                     'Val Loss': f'{val_loss:.6f}',
                     'LR': f'{current_lr:.6f}',
-                    'Smooth Val': f'{smoothed_val_loss:.6f}',
                     'Patience': f'{patience_counter}/{patience}',
                     'Best Model': '✓'
                 })
@@ -246,7 +221,7 @@ class LSTM_Trainer:
 
         # After training is complete, print a summary
         print(f"\nTraining completed: {epoch+1}/{epochs} epochs")
-        print(f"Best smoothed validation loss: {best_val_loss:.6f}")
+        print(f"Best validation loss: {best_val_loss:.6f}")
 
         # Restore best model
         if best_model_state:

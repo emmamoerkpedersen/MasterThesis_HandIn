@@ -246,7 +246,7 @@ def run_pipeline(
                 train_data_with_errors[column] = modified_data['vst_raw']
             
             # Reset error generator for validation data
-            error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
+            error_generator = SyntheticErrorGenerator(error_config)  # Use modified config with correct frequency, not default
             
             # Then process validation data
             print("\nProcessing VALIDATION data...")
@@ -515,45 +515,8 @@ def run_pipeline(
 
             # Only create comparison plot if model_diagnostics is True
             if model_diagnostics:
-                # Create comparison plot between clean and error-injected model predictions
-                print("\nCreating comparison plot between models trained on clean vs error-injected data...")
-                plt.figure(figsize=(15, 12))
-
-                # Plot 1: Validation data (clean vs with errors)
-                plt.subplot(4, 1, 1)
-                plt.plot(val_data.index, val_data['vst_raw'], label='Clean Validation Data', alpha=0.7)
-                plt.title('Clean Validation Data')
-                plt.legend()
-                plt.grid(True)
-
-                plt.subplot(4, 1, 2)
-                plt.plot(val_data_with_errors.index, val_data_with_errors['vst_raw'], label='Validation Data with Errors', alpha=0.7)
-                plt.title('Validation Data with Synthetic Errors')
-                plt.legend()
-                plt.grid(True)
-
-                # Plot 3: Validation predictions for both models
-                plt.subplot(4, 1, 3)
-                plt.plot(clean_val_predictions_df.index, clean_val_predictions_df['vst_raw'],
-                        label='Model Trained on Clean Data', alpha=0.7)
-                plt.plot(val_predictions_df.index, val_predictions_df['vst_raw'],
-                        label='Model Trained on Error Data', alpha=0.7, linestyle='--')
-                plt.title('Validation Predictions: Clean-Trained vs Error-Trained Model')
-                plt.legend()
-                plt.grid(True)
-
-                # Plot 4: Test predictions for both models (Placeholder, actual calculation below)
-                plt.subplot(4, 1, 4)
-                plt.title('Test Predictions Comparison (See Metrics Table)')
-                plt.grid(True)
-                plt.tight_layout()
-                
-                # Save the comparison plot
-                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                comparison_plot_path = Path(output_path) / f"comparison_plot_{error_frequency:.2f}_{timestamp_str}.png"
-                plt.savefig(comparison_plot_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                print(f"\nSaved comparison plot to: {comparison_plot_path}")
+                # Remove this duplicate block - plots are generated elsewhere
+                pass
 
         # End of val_data specific block
 
@@ -692,38 +655,57 @@ def run_pipeline(
             print("\nCreating comparison plot between models trained on clean vs error-injected data...")
             plt.figure(figsize=(15, 12))
 
-            # Plot 1: Validation data (clean vs with errors)
-            plt.subplot(4, 1, 1)
-            plt.plot(val_data.index, val_data['vst_raw'], label='Clean Validation Data', alpha=0.7)
-            plt.title('Clean Validation Data')
+            # Plot 1: Validation data with errors highlighted
+            plt.subplot(3, 1, 1)
+            plt.plot(val_data.index, val_data['vst_raw'], label='Original Data', alpha=0.7, color='blue')
+            plt.plot(val_data_with_errors.index, val_data_with_errors['vst_raw'], 
+                    label=f'Validation Data with Errors ({error_frequency*100:.1f}%)', 
+                    alpha=0.7, color='red')
+            
+            # Calculate where the data differs to highlight errors
+            error_mask = val_data['vst_raw'].values != val_data_with_errors['vst_raw'].values
+            error_indices = val_data_with_errors.index[error_mask]
+            error_values = val_data_with_errors['vst_raw'].values[error_mask]
+            
+            # Highlight the error points
+            if len(error_indices) > 0:
+                plt.scatter(error_indices, error_values, color='red', s=30, zorder=5, 
+                           label=f'Injected Errors ({len(error_indices)} points)')
+                
+            plt.title(f'Validation Data with Synthetic Errors ({error_frequency*100:.1f}%) - Station {station_id}')
             plt.legend()
             plt.grid(True)
 
-            plt.subplot(4, 1, 2)
-            plt.plot(val_data_with_errors.index, val_data_with_errors['vst_raw'], label='Validation Data with Errors', alpha=0.7)
-            plt.title('Validation Data with Synthetic Errors')
-            plt.legend()
-            plt.grid(True)
-
-            # Plot 3: Validation predictions for both models
-            plt.subplot(4, 1, 3)
-            plt.plot(clean_val_predictions_df.index, clean_val_predictions_df['vst_raw'],
-                    label='Model Trained on Clean Data', alpha=0.7)
+            # Plot 2: Validation predictions for both models
+            plt.subplot(3, 1, 2)
+            plt.plot(val_data.index, val_data['vst_raw'], label='Ground Truth', alpha=0.7, color='black')
+            
+            # Only plot if we have clean model predictions
+            if 'clean_val_predictions_df' in locals():
+                plt.plot(clean_val_predictions_df.index, clean_val_predictions_df['vst_raw'],
+                        label='Model Trained on Clean Data', alpha=0.7, color='green')
+                            
             plt.plot(val_predictions_df.index, val_predictions_df['vst_raw'],
-                    label='Model Trained on Error Data', alpha=0.7, linestyle='--')
-            plt.title('Validation Predictions: Clean-Trained vs Error-Trained Model')
+                    label='Model Trained on Error Data', alpha=0.7, color='red', linestyle='--')
+            plt.title('Validation Data: Predictions Comparison')
             plt.legend()
             plt.grid(True)
 
-            # Plot 4: Test predictions for both models (Placeholder, actual calculation below)
-            plt.subplot(4, 1, 4)
-            plt.title('Test Predictions Comparison (See Metrics Table)')
+            # Plot 3: Test predictions 
+            plt.subplot(3, 1, 3)
+            plt.plot(test_data.index, test_data['vst_raw'], label='Test Ground Truth', alpha=0.7, color='black')
+            plt.plot(test_data.index[:len(test_predictions_reshaped)], 
+                    test_predictions_reshaped, 
+                    label='Test Predictions', alpha=0.7, color='red')
+            plt.title('Test Data: Model Predictions')
+            plt.legend()
             plt.grid(True)
+            
             plt.tight_layout()
             
             # Save the comparison plot
             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            comparison_plot_path = Path(output_path) / f"comparison_plot_{error_frequency:.2f}_{timestamp_str}.png"
+            comparison_plot_path = Path(output_path) / f"comparison_plot_freq_{error_frequency:.3f}_{timestamp_str}.png"
             plt.savefig(comparison_plot_path, dpi=300, bbox_inches='tight')
             plt.close()
             print(f"\nSaved comparison plot to: {comparison_plot_path}")
