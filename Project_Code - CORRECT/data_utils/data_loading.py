@@ -110,32 +110,6 @@ def load_all_folders(base_path, folders):
     
     return all_data
 
-def prepare_data_for_error_detection(file_path: str) -> pd.DataFrame:
-    """
-    Prepare VST_RAW data specifically for error detection pipeline.
-    
-    Args:
-        file_path: Path to VST_RAW.txt
-    
-    Returns:
-        DataFrame with:
-        - Consistent 15-min intervals
-        - DateTime index
-        - Single 'Value' column
-        - No initial missing values
-    """
-    # Load raw data using existing function
-    raw_data = load_vst_file(file_path)  # Now already has Date as index
-    
-    # Ensure consistent time intervals using the index
-    clean_data = raw_data.resample('15T').asfreq()
-    
-    # Basic validation
-    assert not clean_data['Value'].isna().any(), "Missing values in clean data"
-    assert clean_data.index.is_monotonic_increasing, "Time index not monotonic"
-    
-    return clean_data
-
 def get_data_path():
     """Get the path to the data directory."""
     # Get the current file's directory and navigate to the sample data

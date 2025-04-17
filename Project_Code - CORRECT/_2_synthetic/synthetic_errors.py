@@ -208,7 +208,7 @@ class SyntheticErrorGenerator:
                 # Mark period as used
                 self._mark_period_used(idx, idx + 1)
                 successful_injections += 1
-                print(f"Successfully injected spike {successful_injections}/{n_spikes}")
+                #print(f"Successfully injected spike {successful_injections}/{n_spikes}")
                 
             except Exception as e:
                 print(f"Failed to inject spike at index {idx}")
@@ -623,7 +623,7 @@ class SyntheticErrorGenerator:
             # Inject only active error types
             for error_type in active_error_types:
                 try:
-                    print(f"Injecting {error_type} errors...")  # Debug print
+                    #print(f"Injecting {error_type} errors...")  # Debug print
                     if error_type == 'spike':
                         modified_data = self.inject_spike_errors(modified_data)
                     elif error_type == 'flatline':
@@ -646,7 +646,7 @@ class SyntheticErrorGenerator:
                 ground_truth.loc[mask, 'error'] = True
                 ground_truth.loc[mask, 'error_type'] = period.error_type
             
-            print(f"Successfully injected {len(self.error_periods)} errors")  # Debug print
+            #print(f"Successfully injected {len(self.error_periods)} errors")  # Debug print
             return modified_data, ground_truth
         
         except Exception as e:

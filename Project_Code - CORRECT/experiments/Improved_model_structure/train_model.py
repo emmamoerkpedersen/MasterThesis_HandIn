@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
-#from experiments.Improved_model_structure.model import LSTMModel
-from _3_lstm_model.model import LSTMModel
+from experiments.Improved_model_structure.model import LSTMModel
+#from _3_lstm_model.model import LSTMModel
 from tqdm import tqdm
 from _3_lstm_model.objective_functions import get_objective_function
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
@@ -37,8 +37,7 @@ class LSTM_Trainer:
             num_layers=config['num_layers'],
             dropout=config['dropout']
         ).to(self.device)
-        #Print device
-        print(f"Model device: {self.device}")
+
         # Initialize optimizer and loss function
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.get('learning_rate', 0.001))
         
@@ -135,6 +134,7 @@ class LSTM_Trainer:
             val_predictions = torch.cat(all_predictions, dim=0)
             val_targets = torch.cat(all_targets, dim=0)
             return total_loss / len(data_loader), val_predictions, val_targets
+
 
     def evaluate_predictions(self, predictions, targets, data_index=None):
         """
@@ -240,6 +240,7 @@ class LSTM_Trainer:
             'peak_rmse': peak_rmse,
             'nse': nse  # Add NSE to the returned metrics
         }
+
         
     def train(self, train_data, val_data, epochs, batch_size, patience, epoch_callback=None):
         """
@@ -287,7 +288,7 @@ class LSTM_Trainer:
         
         # Exponential moving average weight for validation loss
         beta = 0.7  # Weight for previous smoothed value (higher = more smoothing)
-        print(f"Using validation loss EMA smoothing with beta={beta}")
+        #print(f"Using validation loss EMA smoothing with beta={beta}")
 
         # Training loop with progress bar for epochs
         epoch_pbar = tqdm(range(epochs), desc="Training", unit="epoch")
@@ -358,38 +359,6 @@ class LSTM_Trainer:
         if best_model_state:
             self.model.load_state_dict(best_model_state)
             
-        # Calculate additional metrics for validation predictions
-        # Convert predictions to numpy and reshape for metrics calculation
-        val_predictions_np = val_predictions.cpu().numpy()
-        val_targets_np = val_targets.cpu().numpy()
-        
-        # Reshape to match expected format
-        predictions_reshaped = val_predictions_np.reshape(-1, 1)
-        targets_reshaped = val_targets_np.reshape(-1, 1)
-        
-        # Convert back to original scale for meaningful metrics
-        predictions_original = self.preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped).flatten()
-        targets_original = val_targets_np.flatten()  # Targets are already in the right scale for comparison
-        
-        # Calculate additional performance metrics
-        performance_metrics = self.evaluate_predictions(
-            predictions_original, 
-            targets_original,
-            data_index=val_data.index if hasattr(val_data, 'index') else None
-        )
-        
-        # Add metrics to history
-        self.history['metrics'] = performance_metrics
-        
-        # Print metrics summary
-        print("\nValidation Performance Metrics:")
-        print(f"RMSE: {performance_metrics['rmse']:.4f}")
-        print(f"MAE: {performance_metrics['mae']:.4f}")
-        print(f"R²: {performance_metrics['r2']:.4f}")
-        if not np.isnan(performance_metrics['peak_rmse']):
-            print(f"Peak RMSE: {performance_metrics['peak_rmse']:.4f}")
-            print(f"Peak MAE: {performance_metrics['peak_mae']:.4f}")
-
         return self.history, val_predictions, val_targets
 
     def predict(self, data):
@@ -425,14 +394,7 @@ class LSTM_Trainer:
             print(f"Model: LSTM with {self.config['num_layers']} layers, {self.config['hidden_size']} hidden units")
             print(f"Sequence length: {self.config['sequence_length']}")
             print(f"Features used: {len(self.preprocessor.feature_cols)}")
-            
-            # Print loss function information
-            if self.config.get('use_dynamic_weighting', False):
-                print(f"Loss function: Dynamic weighted loss")
-            elif self.config.get('use_peak_weighted_loss', False):
-                print(f"Loss function: Peak weighted loss (weight: {self.peak_weight})")
-            else:
-                print(f"Loss function: Standard MSE loss")
+            print(f"Loss function: {self.config['objective_function']}")
                 
             print(f"Time features: {self.config.get('use_time_features', False)}")
             print(f"Smoothing: {self.config.get('use_smoothing', False)}")
