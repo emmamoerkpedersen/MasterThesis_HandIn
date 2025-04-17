@@ -46,6 +46,7 @@ def setup_grid_search():
     grid_params = {
         'hidden_size': [24, 64, 128, 256],
         'num_layers': [1,2,3],
+
         'sequence_length': [5000, 10000, 20000, 35000],
         'learning_rate': [0.001, 0.0001],
         'objective_function': ['smoothL1_loss']
@@ -139,7 +140,7 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
     trainer = LSTM_Trainer(config, preprocessor=preprocessor)
     
     # Limit epochs for quick results during grid search
-    epochs = 1000  # Reduced epochs for grid search
+    epochs = 500  # Reduced epochs for grid search
     
     # Print model configuration
     print(f"Hidden Size: {config['hidden_size']}")
@@ -198,6 +199,35 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             
             # Align predictions and targets based on index
             aligned_targets, aligned_predictions = target_series.align(val_predictions_df['vst_raw'], join='inner')
+
+        # Get performance metrics - use the metrics from history if available
+        if 'metrics' in history:
+            performance_metrics = history['metrics']
+        else:
+            # Fallback: Calculate metrics using the validation data
+            actual_vals = val_data['vst_raw'].dropna().values
+            pred_vals = val_predictions_df.loc[val_data['vst_raw'].dropna().index, 'vst_raw'].values
+            
+            if len(actual_vals) > 0 and len(pred_vals) > 0:
+                rmse = np.sqrt(mean_squared_error(actual_vals, pred_vals))
+                mae = mean_absolute_error(actual_vals, pred_vals) 
+                r2 = r2_score(actual_vals, pred_vals)
+            else:
+                rmse = float('nan')
+                mae = float('nan')
+                r2 = float('nan')
+                
+            performance_metrics = {
+                'rmse': rmse,
+                'mae': mae,
+                'r2': r2,
+                'mean_error': float('nan'),
+                'std_error': float('nan'),
+                'peak_mae': float('nan'),
+                'peak_rmse': float('nan'),
+                'nse': float('nan')
+            }
+
             
             # Ensure we have valid data after alignment
             valid_mask = (~aligned_targets.isna()) & (~aligned_predictions.isna())
@@ -310,7 +340,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             "mae": float(performance_metrics['mae']),
             "r2": float(performance_metrics['r2']),
             "peak_rmse": float(performance_metrics['peak_rmse']),
-            "peak_mae": float(performance_metrics['peak_mae'])
+            "peak_mae": float(performance_metrics['peak_mae']),
+            "nse": float(performance_metrics['nse'])
         }
         
         with open(model_dir / "metrics.json", "w") as f:
@@ -332,7 +363,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             "mae": metrics['mae'],
             "r2": metrics['r2'],
             "peak_rmse": metrics['peak_rmse'],
-            "peak_mae": metrics['peak_mae']
+            "peak_mae": metrics['peak_mae'],
+            "nse": metrics['nse']
         }
         
         return result, history, trainer.model
@@ -347,7 +379,8 @@ def run_single_model(config, train_data, val_data, output_dir, station_id, prepr
             "mae": float('nan'),
             "r2": float('nan'),
             "peak_rmse": float('nan'),
-            "peak_mae": float('nan')
+            "peak_mae": float('nan'),
+            "nse": float('nan')
         }, None, None
 
 
