@@ -13,13 +13,6 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 
 class RNNModel(nn.Module):
-
-    """
-    RNN Model for iterative prediction
-    Including anomaly detection
-    """
-
-class RNNModel(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, water_level_index=0, meteo_level_index=1):
         super(RNNModel, self).__init__()
         self.model_name = 'AnomalyAwareLSTM'
@@ -106,24 +99,11 @@ X_train, y_train = preprocessor.prepare_data(train_data, is_training=True)
 X_val, y_val = preprocessor.prepare_data(val_data, is_training=False)
 X_test, y_test = preprocessor.prepare_data(test_data, is_training=False)
 
-# Print diagnostic information about NaN values
-print(f"Training data shape: X={X_train.shape}, y={y_train.shape}")
-print(f"Validation data shape: X={X_val.shape}, y={y_val.shape}")
-print(f"Test data shape: X={X_test.shape}, y={y_test.shape}")
-
-# Check for NaN values in the data
-nan_count_X = torch.isnan(X_train).sum().item()
-nan_count_y = torch.isnan(y_train).sum().item()
-total_count_X = X_train.numel()
-total_count_y = y_train.numel()
-
-print(f"NaN values in X_train: {nan_count_X}/{total_count_X} ({nan_count_X/total_count_X*100:.2f}%)")
-print(f"NaN values in y_train: {nan_count_y}/{total_count_y} ({nan_count_y/total_count_y*100:.2f}%)")
 
 # Get input and output sizes from the data
 input_size = X_train.shape[2]  # Number of features
 output_size = y_train.shape[2]  # Number of output features
-hidden_size = 64  # Increased hidden size for more complex data
+hidden_size = 24  # Increased hidden size for more complex data
 
 # Initialize the model
 model = RNNModel(input_size, hidden_size, output_size)
@@ -141,12 +121,7 @@ for epoch in range(num_epochs):
     
     # Create mask for non-NaN values
     non_nan_mask = ~torch.isnan(y_train)
-    
-    # Print diagnostic information about the mask
-    if epoch == 0:
-        print(f"y_train shape: {y_train.shape}")
-        print(f"non_nan_mask shape: {non_nan_mask.shape}")
-        print(f"Number of True values in mask: {non_nan_mask.sum().item()}")
+
     
     # Reshape outputs and targets to 2D for easier masking
     # Original shapes: (batch_size, seq_len, output_size)
@@ -159,15 +134,7 @@ for epoch in range(num_epochs):
     valid_outputs = outputs_reshaped[non_nan_mask_reshaped]
     valid_targets = y_train_reshaped[non_nan_mask_reshaped]
     
-    # Print diagnostic information about valid targets
-    if epoch == 0:
-        print(f"outputs_reshaped shape: {outputs_reshaped.shape}")
-        print(f"y_train_reshaped shape: {y_train_reshaped.shape}")
-        print(f"non_nan_mask_reshaped shape: {non_nan_mask_reshaped.shape}")
-        print(f"Valid outputs shape: {valid_outputs.shape}")
-        print(f"Valid targets shape: {valid_targets.shape}")
-        print(f"Valid targets range: [{valid_targets.min().item():.4f}, {valid_targets.max().item():.4f}]")
-    
+
     # Skip if no valid targets
     if valid_targets.size(0) == 0:
         print(f"Epoch [{epoch+1}/{num_epochs}]: No valid targets, skipping")
