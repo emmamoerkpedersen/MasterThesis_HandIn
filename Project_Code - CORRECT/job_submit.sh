@@ -7,9 +7,9 @@
 ### Ask for number of cores (default 1)
 #BSUB -n 1
 ### Specify that we want the job to get killed if it exceeds 3 GB memory per core/slot
-#BSUB -M 50GB
+#BSUB -M 5GB
 ### Set walltime limit: hh:mm
-#BSUB -W 10:00
+#BSUB -W 00:30
 ### user email adress
 #BSUB s194463@student.dtu.dk
 ### Send notification at completion
