@@ -115,21 +115,21 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'hidden_size': 128,         # Increased from 256 to handle more features
-    'num_layers': 1,            # Increased from 2 to add more capacity
-    'dropout': 0.2,             # Reduced slightly to allow better generalization with more layers
-    'batch_size': 16,
-    'sequence_length': 10000,
+    'hidden_size':300,         # Increased from 256 to handle more features
+    'num_layers': 3,            # Increased from 2 to add more capacity
+    'dropout': 0.25,             # Reduced slightly to allow better generalization with more layers
+    'batch_size': 32,
+    'sequence_length': 5000,
     'epochs': 600,
     'patience': 15,             # Increased to give more time to learn with increased complexity
 
     'warmup_length': 100,
-    'learning_rate': 0.001,    # Slightly reduced for stability with more complex model
+    'learning_rate': 0.0001,    # Slightly reduced for stability with more complex model
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
     'objective_function': 'smoothL1_loss',  # Changed to better handle peaks
     #'peak_weight': 4.0,         # Increased peak weight
-    'grad_clip_value': 1.148,     # Maintained to prevent exploding gradients
+    'grad_clip_value': 3.148,     # Maintained to prevent exploding gradients
     #'use_smoothing': True,      # Enable validation loss smoothing
    # 'smoothing_alpha': 0.5,     # Equal weight to old and new values
 

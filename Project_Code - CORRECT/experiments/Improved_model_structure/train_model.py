@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
-#from experiments.Improved_model_structure.model import LSTMModel
-from _3_lstm_model.model import LSTMModel
+from experiments.Improved_model_structure.model import LSTMModel
+#from _3_lstm_model.model import LSTMModel
 from tqdm import tqdm
 from _3_lstm_model.objective_functions import get_objective_function
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
@@ -134,82 +134,6 @@ class LSTM_Trainer:
             val_targets = torch.cat(all_targets, dim=0)
             return total_loss / len(data_loader), val_predictions, val_targets
 
-    def evaluate_predictions(self, predictions, targets, data_index=None):
-        """
-        Calculate performance metrics for model predictions.
-        
-        Args:
-            predictions: Model predictions (numpy array)
-            targets: Target values (numpy array)
-            data_index: Optional pandas DatetimeIndex for calculating peak metrics
-            
-        Returns:
-            dict: Dictionary of performance metrics
-        """
-        from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-        
-        # Remove NaN values for metric calculation
-        valid_mask = (~np.isnan(targets)) & (~np.isnan(predictions))
-        valid_targets = targets[valid_mask]
-        valid_predictions = predictions[valid_mask]
-        
-        if len(valid_targets) == 0:
-            return {
-                'rmse': float('nan'),
-                'mae': float('nan'),
-                'r2': float('nan'),
-                'mean_error': float('nan'),
-                'std_error': float('nan'),
-                'peak_mae': float('nan'),
-                'peak_rmse': float('nan')
-            }
-        
-        # Calculate standard metrics
-        rmse = np.sqrt(mean_squared_error(valid_targets, valid_predictions))
-        mae = mean_absolute_error(valid_targets, valid_predictions)
-        
-        # Calculate and validate R² score (can be extremely negative for poor models)
-        r2 = r2_score(valid_targets, valid_predictions)
-        r2_original = r2  # Store original value for reporting
-        
-        # Calculate error statistics
-        errors = valid_predictions - valid_targets
-        mean_error = np.mean(errors)
-        std_error = np.std(errors)
-        
-        # Calculate peak-specific metrics (if we have indices)
-        peak_mae = float('nan')
-        peak_rmse = float('nan')
-        
-        if data_index is not None and len(valid_targets) > 0:
-            try:
-                # Identify peaks (top 10% of values)
-                peak_threshold = np.percentile(valid_targets, 90)
-                peak_mask = valid_targets >= peak_threshold
-                
-                if np.sum(peak_mask) > 0:
-                    peak_mae = mean_absolute_error(
-                        valid_targets[peak_mask], 
-                        valid_predictions[peak_mask]
-                    )
-                    peak_rmse = np.sqrt(mean_squared_error(
-                        valid_targets[peak_mask], 
-                        valid_predictions[peak_mask]
-                    ))
-            except Exception as e:
-                print(f"Error calculating peak metrics: {e}")
-        
-        # Add the original R² value for debugging
-        return {
-            'rmse': rmse,
-            'mae': mae,
-            'r2': r2,
-            'r2_original': r2_original,  # Store the original unconstrained value
-            'mean_error': mean_error,
-            'std_error': std_error,
-            'peak_mae': peak_mae,
-            'peak_rmse': peak_rmse
-        }
         
     def train(self, train_data, val_data, epochs, batch_size, patience, epoch_callback=None):
         """
@@ -328,38 +252,6 @@ class LSTM_Trainer:
         if best_model_state:
             self.model.load_state_dict(best_model_state)
             
-        # Calculate additional metrics for validation predictions
-        # Convert predictions to numpy and reshape for metrics calculation
-        val_predictions_np = val_predictions.cpu().numpy()
-        val_targets_np = val_targets.cpu().numpy()
-        
-        # Reshape to match expected format
-        predictions_reshaped = val_predictions_np.reshape(-1, 1)
-        targets_reshaped = val_targets_np.reshape(-1, 1)
-        
-        # Convert back to original scale for meaningful metrics
-        predictions_original = self.preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped).flatten()
-        targets_original = val_targets_np.flatten()  # Targets are already in the right scale for comparison
-        
-        # Calculate additional performance metrics
-        performance_metrics = self.evaluate_predictions(
-            predictions_original, 
-            targets_original,
-            data_index=val_data.index if hasattr(val_data, 'index') else None
-        )
-        
-        # Add metrics to history
-        self.history['metrics'] = performance_metrics
-        
-        # Print metrics summary
-        #print("\nValidation Performance Metrics:")
-        #print(f"RMSE: {performance_metrics['rmse']:.4f}")
-        #print(f"MAE: {performance_metrics['mae']:.4f}")
-        #print(f"R²: {performance_metrics['r2']:.4f}")
-        #if not np.isnan(performance_metrics['peak_rmse']):
-        #    print(f"Peak RMSE: {performance_metrics['peak_rmse']:.4f}")
-        #    print(f"Peak MAE: {performance_metrics['peak_mae']:.4f}")
-
         return self.history, val_predictions, val_targets
 
     def predict(self, data):
@@ -395,14 +287,7 @@ class LSTM_Trainer:
             print(f"Model: LSTM with {self.config['num_layers']} layers, {self.config['hidden_size']} hidden units")
             print(f"Sequence length: {self.config['sequence_length']}")
             print(f"Features used: {len(self.preprocessor.feature_cols)}")
-            
-            # Print loss function information
-            if self.config.get('use_dynamic_weighting', False):
-                print(f"Loss function: Dynamic weighted loss")
-            elif self.config.get('use_peak_weighted_loss', False):
-                print(f"Loss function: Peak weighted loss (weight: {self.peak_weight})")
-            else:
-                print(f"Loss function: Standard MSE loss")
+            print(f"Loss function: {self.config['objective_function']}")
                 
             print(f"Time features: {self.config.get('use_time_features', False)}")
             print(f"Smoothing: {self.config.get('use_smoothing', False)}")

@@ -46,7 +46,7 @@ def set_plot_style():
     plt.rcParams['axes.edgecolor'] = '#cccccc'
     plt.rcParams['axes.linewidth'] = 1.0
 
-def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None):
+def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None, show_config=False):
     """
     Create an interactive plot with aligned datetime indices, rainfall data, and model configuration.
     
@@ -192,7 +192,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         best_val_loss,
         metrics=metrics,
         vinge_data=vinge_data,
-        show_config=False,
+        show_config=show_config,
         title_suffix=title_suffix
     )
     
