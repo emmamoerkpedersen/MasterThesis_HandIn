@@ -120,7 +120,7 @@ LSTM_CONFIG = {
     'num_layers': 2,            
     'dropout': 0.3,             
     'batch_size': 16,
-    'sequence_length': 2500,
+    'sequence_length': 25000,
     'epochs': 600,
     'patience': 15,            
 
@@ -128,11 +128,7 @@ LSTM_CONFIG = {
     'learning_rate': 0.0002,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
-    'objective_function': 'smoothL1_loss', 
-    #'peak_weight': 4.0,         
-    'grad_clip_value': 1.0,     
-    #'use_smoothing': True,      
-   # 'smoothing_alpha': 0.5,     
+    'objective_function': 'smoothL1_loss',   
 
     'use_time_features': True,
     'use_cumulative_features': True, 

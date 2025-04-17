@@ -107,7 +107,7 @@ def run_pipeline(
         feature_plot_dir = Path(output_path) / "feature_plots"
         feature_plot_dir.mkdir(parents=True, exist_ok=True)
         plot_features_stacked_plots(train_data, preprocessor.feature_cols, output_dir=feature_plot_dir)
-
+    
     # # Plot scaled vs unscaled features for visualization
     # print("\nGenerating scaled vs unscaled features plot for control...")
     
@@ -848,10 +848,6 @@ def run_pipeline(
                 if 'rainfall' in test_data.columns:
                     rainfall_series = pd.Series(test_data['rainfall'], index=test_data.index)
                 
-                # Generate all diagnostics with a single function call
-                print(f"DEBUG: Calling generate_all_diagnostics for station {station_id}...") # DEBUG
-                print(f"DEBUG: Output dir: {diagnostics_dir}") # DEBUG
-                print(f"DEBUG: Actual shape: {actual_series.shape}, Prediction shape: {predictions_series.shape}") # DEBUG
                 all_visualization_paths = generate_all_diagnostics(
                     actual=actual_series,
                     predictions=predictions_series,
@@ -881,6 +877,8 @@ if __name__ == "__main__":
                         help='Run experiments with different error frequencies')
     parser.add_argument('--preprocess_diagnostics', action='store_true',
                         help='Generate preprocessing diagnostics')
+    parser.add_argument('--synthetic_diagnostics', action='store_true',
+                        help='Generate synthetic error diagnostics')
     parser.add_argument('--model_diagnostics', action='store_true',
                         help='Generate basic model plots (predictions)')
     parser.add_argument('--advanced_diagnostics', action='store_true',
@@ -931,7 +929,7 @@ if __name__ == "__main__":
                 data_path=data_path, 
                 output_path=output_path,
                 preprocess_diagnostics=args.preprocess_diagnostics,
-                synthetic_diagnostics=False,
+                synthetic_diagnostics=args.synthetic_diagnostics,
                 inject_synthetic_errors=args.error_frequency is not None,
                 model_diagnostics=use_model_diagnostics,
                 advanced_diagnostics=use_advanced_diagnostics,
