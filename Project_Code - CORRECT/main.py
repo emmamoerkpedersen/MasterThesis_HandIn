@@ -30,13 +30,12 @@ from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions,
 from config import SYNTHETIC_ERROR_PARAMS
 from config import LSTM_CONFIG
 from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
-
+from experiments.error_frequency import run_error_frequency_experiments
 
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
-#from experiments.Improved_model_structure.model import LSTMModel
+from experiments.Improved_model_structure.model import LSTMModel
 
-
-from _3_lstm_model.model import LSTMModel
+#from _3_lstm_model.model import LSTMModel
 # from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
 # from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
 
@@ -52,6 +51,7 @@ def run_pipeline(
     synthetic_diagnostics: bool = False,
     inject_synthetic_errors: bool = False,
     model_diagnostics: bool = True,
+    advanced_diagnostics: bool = False,  # New parameter for advanced diagnostics
     error_frequency: float = 0.1,  # Added parameter to control error frequency
 ):
     """
@@ -64,7 +64,8 @@ def run_pipeline(
         preprocess_diagnostics: Whether to generate preprocessing diagnostics
         synthetic_diagnostics: Whether to generate synthetic error diagnostics
         inject_synthetic_errors: Whether to inject synthetic errors
-        model_diagnostics: Whether to generate model diagnostic plots
+        model_diagnostics: Whether to generate basic model plots (prediction plots)
+        advanced_diagnostics: Whether to generate advanced model diagnostics
         error_frequency: Frequency of synthetic errors to inject (0-1)
     
     Returns:
@@ -453,7 +454,7 @@ def run_pipeline(
     test_plot_title = "Model Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Model Trained on Clean Data"
     
     # Plot test results with model config
-    if model_diagnostics and not inject_synthetic_errors:
+    if model_diagnostics:
         create_full_plot(test_data, test_predictions_df, str(station_id), model_config, title_suffix=test_plot_title)
     
     # Create a dictionary to store all performance metrics
@@ -546,8 +547,13 @@ def run_pipeline(
                 plt.title('Test Predictions Comparison (See Metrics Table)')
                 plt.grid(True)
                 plt.tight_layout()
-                #plt.show()
-                # Saving plot handled later if needed or combined with other diagnostics
+                
+                # Save the comparison plot
+                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                comparison_plot_path = Path(output_path) / f"comparison_plot_{error_frequency:.2f}_{timestamp_str}.png"
+                plt.savefig(comparison_plot_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                print(f"\nSaved comparison plot to: {comparison_plot_path}")
 
         # End of val_data specific block
 
@@ -682,6 +688,48 @@ def run_pipeline(
 
         # Only generate diagnostic visualizations if model_diagnostics is True
         if model_diagnostics:
+            # Create comparison plot between clean and error-injected model predictions
+            print("\nCreating comparison plot between models trained on clean vs error-injected data...")
+            plt.figure(figsize=(15, 12))
+
+            # Plot 1: Validation data (clean vs with errors)
+            plt.subplot(4, 1, 1)
+            plt.plot(val_data.index, val_data['vst_raw'], label='Clean Validation Data', alpha=0.7)
+            plt.title('Clean Validation Data')
+            plt.legend()
+            plt.grid(True)
+
+            plt.subplot(4, 1, 2)
+            plt.plot(val_data_with_errors.index, val_data_with_errors['vst_raw'], label='Validation Data with Errors', alpha=0.7)
+            plt.title('Validation Data with Synthetic Errors')
+            plt.legend()
+            plt.grid(True)
+
+            # Plot 3: Validation predictions for both models
+            plt.subplot(4, 1, 3)
+            plt.plot(clean_val_predictions_df.index, clean_val_predictions_df['vst_raw'],
+                    label='Model Trained on Clean Data', alpha=0.7)
+            plt.plot(val_predictions_df.index, val_predictions_df['vst_raw'],
+                    label='Model Trained on Error Data', alpha=0.7, linestyle='--')
+            plt.title('Validation Predictions: Clean-Trained vs Error-Trained Model')
+            plt.legend()
+            plt.grid(True)
+
+            # Plot 4: Test predictions for both models (Placeholder, actual calculation below)
+            plt.subplot(4, 1, 4)
+            plt.title('Test Predictions Comparison (See Metrics Table)')
+            plt.grid(True)
+            plt.tight_layout()
+            
+            # Save the comparison plot
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            comparison_plot_path = Path(output_path) / f"comparison_plot_{error_frequency:.2f}_{timestamp_str}.png"
+            plt.savefig(comparison_plot_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"\nSaved comparison plot to: {comparison_plot_path}")
+        
+        # Only generate advanced diagnostic visualizations if advanced_diagnostics is True
+        if advanced_diagnostics:
             print("\nGenerating comparative diagnostic visualizations...")
             
             # Create diagnostics output directory
@@ -731,7 +779,7 @@ def run_pipeline(
                 import traceback
                 traceback.print_exc()
         else:
-            print("Skipping comparative diagnostic visualizations (model_diagnostics=False)")
+            print("Skipping comparative diagnostic visualizations (advanced_diagnostics=False)")
         
         return performance_metrics
     
@@ -793,8 +841,8 @@ def run_pipeline(
         print(f"{'NSE':<15} {nse:<15.4f}")
         
         # Generate diagnostic visualizations
-        if model_diagnostics:
-            print("\nGenerating diagnostic visualizations...")
+        if advanced_diagnostics:
+            print("\nGenerating advanced diagnostic visualizations...")
             
             # Create diagnostics output directory
             diagnostics_dir = Path(output_path) / "diagnostics"
@@ -828,7 +876,7 @@ def run_pipeline(
                     output_dir=diagnostics_dir,
                     station_id=station_id,
                     rainfall=rainfall_series,
-                    n_event_plots=3  # Analyze top 3 water level events
+                    n_event_plots=10  # Analyze top 10 water level events
                 )
                 
             except Exception as e:
@@ -836,133 +884,9 @@ def run_pipeline(
                 import traceback
                 traceback.print_exc()
         else:
-            print("Skipping diagnostic visualizations (model_diagnostics=False)")
+            print("Skipping advanced diagnostics visualizations (advanced_diagnostics=False)")
         
         return performance_metrics
-
-def run_error_frequency_experiments(error_frequencies=None):
-    """
-    Run experiments with different error frequencies to analyze impact on model performance.
-    
-    Args:
-        error_frequencies: List of error frequencies to test (between 0 and 1)
-                          If None, uses default values [0.01, 0.02, 0.05, 0.1, 0.15, 0.2]
-    """
-    if error_frequencies is None:
-        error_frequencies = [0.0, 0.05, 0.1, 0.15]#, 0.125, 0.2]
-    
-    # Set up paths
-    project_root = Path(__file__).parent
-    data_path = project_root / "data_utils" / "Sample data" / "VST_RAW.txt"
-    output_path = project_root / "results"
-    
-    # Create output directory if it doesn't exist
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    print("\nRunning LSTM model with varying error frequencies to analyze impact")
-    
-    # Create a dataframe to store all results
-    all_results = pd.DataFrame()
-    
-    for error_freq in error_frequencies:
-        print(f"\n{'='*80}")
-        print(f"Running experiment with error frequency: {error_freq*100:.1f}%")
-        print(f"{'='*80}")
-        
-        try:
-            # Run pipeline with current error frequency
-            performance_metrics = run_pipeline(
-                project_root=project_root,
-                data_path=data_path, 
-                output_path=output_path,
-                preprocess_diagnostics=False,
-                synthetic_diagnostics=False,
-                inject_synthetic_errors=True,  # Enable synthetic error injection
-                model_diagnostics=False,  # Disable model diagnostic plots
-                error_frequency=error_freq,
-            )
-            
-            print(f"\nExperiment with {error_freq*100:.1f}% error frequency completed!")
-            
-        except Exception as e:
-            print(f"\nError running pipeline with {error_freq*100:.1f}% error frequency: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    print("\nAll experiments completed!")
-    
-    # Load the final results CSV
-    try:
-        final_results = pd.read_csv(Path(output_path) / "error_comparison_metrics.csv")
-        
-        print("\nSummary of Results:")
-        print(f"{'='*80}")
-        print(final_results[['error_frequency', 'clean_rmse', 'error_rmse', 'clean_mae', 'error_mae', 'clean_nse', 'error_nse']])
-        
-        # Calculate percentage degradation
-        final_results['rmse_pct_increase'] = ((final_results['error_rmse'] - final_results['clean_rmse']) / final_results['clean_rmse']) * 100
-        final_results['mae_pct_increase'] = ((final_results['error_mae'] - final_results['clean_mae']) / final_results['clean_mae']) * 100
-        final_results['nse_pct_decrease'] = ((final_results['clean_nse'] - final_results['error_nse']) / final_results['clean_nse']) * 100
-        
-        print("\nPerformance Degradation:")
-        print(f"{'='*80}")
-        print(final_results[['error_frequency', 'rmse_pct_increase', 'mae_pct_increase', 'nse_pct_decrease']])
-        
-        # Create plots to visualize the relationship between error frequency and model performance
-        plt.figure(figsize=(15, 10))
-        
-        # Sort results by error frequency for smooth plots
-        final_results = final_results.sort_values('error_frequency')
-        
-        # Plot 1: Absolute metrics by frequency
-        plt.subplot(2, 2, 1)
-        plt.plot(final_results['error_frequency'], final_results['clean_rmse'], 'o-', label='Clean Model RMSE')
-        plt.plot(final_results['error_frequency'], final_results['error_rmse'], 'o-', label='Error Model RMSE')
-        plt.title('RMSE vs Error Frequency')
-        plt.xlabel('Error Frequency')
-        plt.ylabel('RMSE (mm)')
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        
-        plt.subplot(2, 2, 2)
-        plt.plot(final_results['error_frequency'], final_results['clean_mae'], 'o-', label='Clean Model MAE')
-        plt.plot(final_results['error_frequency'], final_results['error_mae'], 'o-', label='Error Model MAE')
-        plt.title('MAE vs Error Frequency')
-        plt.xlabel('Error Frequency')
-        plt.ylabel('MAE (mm)')
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        
-        # Plot 2: Percentage changes by frequency
-        plt.subplot(2, 2, 3)
-        plt.plot(final_results['error_frequency'], final_results['rmse_pct_increase'], 'o-', label='RMSE % Increase')
-        plt.plot(final_results['error_frequency'], final_results['mae_pct_increase'], 'o-', label='MAE % Increase')
-        plt.title('Error Metrics % Increase vs Error Frequency')
-        plt.xlabel('Error Frequency')
-        plt.ylabel('Percentage Increase (%)')
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        
-        # Plot 3: NSE by frequency
-        plt.subplot(2, 2, 4)
-        plt.plot(final_results['error_frequency'], final_results['clean_nse'], 'o-', label='Clean Model NSE')
-        plt.plot(final_results['error_frequency'], final_results['error_nse'], 'o-', label='Error Model NSE')
-        plt.title('NSE vs Error Frequency')
-        plt.xlabel('Error Frequency')
-        plt.ylabel('NSE')
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        
-        plt.tight_layout()
-        plot_path = Path(output_path) / "error_frequency_impact.png"
-        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"\nSaved error frequency impact visualization to: {plot_path}")
-        
-    except Exception as e:
-        print(f"\nError processing results: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 if __name__ == "__main__":
@@ -976,7 +900,9 @@ if __name__ == "__main__":
     parser.add_argument('--preprocess_diagnostics', action='store_true',
                         help='Generate preprocessing diagnostics')
     parser.add_argument('--model_diagnostics', action='store_true',
-                        help='Generate model diagnostics')
+                        help='Generate basic model plots (predictions)')
+    parser.add_argument('--advanced_diagnostics', action='store_true',
+                        help='Generate advanced model diagnostics')
     parser.add_argument('--no_diagnostics', action='store_true',
                         help='Disable all diagnostics plots')
     
@@ -993,10 +919,12 @@ if __name__ == "__main__":
     
     # Add some logic to decide whether to use model_diagnostics by default
     use_model_diagnostics = not args.no_diagnostics
+    use_advanced_diagnostics = args.advanced_diagnostics
     
     # Run experiments with different error frequencies
     if args.run_experiments:
-        run_error_frequency_experiments()
+        # Pass the run_pipeline function to the experiments module
+        run_error_frequency_experiments(run_pipeline)
     # Run single model with specified error frequency
     else:
         try:
@@ -1007,9 +935,11 @@ if __name__ == "__main__":
             
             # Determine if we should use diagnostics
             if args.no_diagnostics:
-                print("Diagnostics plots disabled")
+                print("All diagnostics plots disabled")
             elif args.model_diagnostics:
-                print("Model diagnostics enabled")
+                print("Basic model plots enabled")
+                if args.advanced_diagnostics:
+                    print("Advanced diagnostics also enabled")
             else:
                 print("Running with default diagnostic settings")
         
@@ -1022,6 +952,7 @@ if __name__ == "__main__":
                 synthetic_diagnostics=False,
                 inject_synthetic_errors=args.error_frequency is not None,
                 model_diagnostics=use_model_diagnostics,
+                advanced_diagnostics=use_advanced_diagnostics,
                 error_frequency=args.error_frequency if args.error_frequency is not None else 0.1,
             )
 
@@ -1032,16 +963,31 @@ if __name__ == "__main__":
             print(f"\nError running pipeline: {e}")
             import traceback
             traceback.print_exc()
+
 '''
-o run the model with different diagnostic options, you can use the following command-line arguments:
-For model diagnostics only:
+To run the model with different diagnostic options, you can use the following command-line arguments:
+
+For basic prediction plots only:
 python main.py --model_diagnostics
+
 For preprocessing diagnostics only:
 python main.py --preprocess_diagnostics
-For both model and preprocessing diagnostics:
+
+For both basic plots and preprocessing diagnostics:
 python main.py --model_diagnostics --preprocess_diagnostics
-With a specific error frequency and diagnostics:
+
+For advanced diagnostics (includes all plots):
+python main.py --model_diagnostics --advanced_diagnostics
+
+With a specific error frequency and basic plots:
 python main.py --error_frequency 0.1 --model_diagnostics
-Run experiments with diagnostics:
+
+With a specific error frequency and advanced diagnostics:
+python main.py --error_frequency 0.1 --model_diagnostics --advanced_diagnostics
+
+Run experiments with error frequencies:
 python main.py --run_experiments
+
+Disable all diagnostics plots:
+python main.py --no_diagnostics
 '''
