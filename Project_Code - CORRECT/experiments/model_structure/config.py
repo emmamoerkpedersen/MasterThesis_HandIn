@@ -115,17 +115,17 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'hidden_size': 12,        
+    'hidden_size': 128,        
     'num_layers': 2,           
     'dropout': 0.25,           
     'batch_size': 10,
     'sequence_length': 500,
-    'epochs': 10,
+    'epochs': 50,
     'patience': 6,            
 
-    'z_score_threshold': 3,
+    'z_score_threshold': 1.5,
     'warmup_length': 100,
-    'learning_rate': 0.001,    
+    'learning_rate': 0.0001,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
 
