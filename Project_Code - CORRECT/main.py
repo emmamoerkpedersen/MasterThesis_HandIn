@@ -32,12 +32,12 @@ from config import LSTM_CONFIG
 from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
 from experiments.error_frequency import run_error_frequency_experiments
 
-from experiments.Improved_model_structure.train_model import LSTM_Trainer
-from experiments.Improved_model_structure.model import LSTMModel
+#from experiments.Improved_model_structure.train_model import LSTM_Trainer
+#from experiments.Improved_model_structure.model import LSTMModel
 
-#from _3_lstm_model.model import LSTMModel
-# from _3_lstm_model.train_model import DataPreprocessor, LSTM_Trainer
-# from _3_lstm_model.model_plots import create_full_plot, plot_scaled_predictions, plot_convergence
+from _3_lstm_model.model import LSTMModel
+from _3_lstm_model.train_model import LSTM_Trainer
+
 
 # Function to calculate NSE (Nash-Sutcliffe Efficiency)
 def calculate_nse(observed, predicted):
