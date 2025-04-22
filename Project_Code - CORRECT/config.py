@@ -130,8 +130,8 @@ LSTM_CONFIG = {
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
     'objective_function': 'smoothL1_loss',   
 
-    'use_time_features': True,
-    'use_cumulative_features': True, 
+    'use_time_features': False,
+    'use_cumulative_features': False, 
     'feature_cols': [
         'rainfall',
         'temperature',
