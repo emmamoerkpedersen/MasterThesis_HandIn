@@ -84,13 +84,14 @@ class DataPreprocessor:
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = pd.Timestamp('2010-01-04')
-        end_date = pd.Timestamp('2013-01-07')
+        end_date = pd.Timestamp('2025-01-07')
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
         # Fill temperature and rainfall Nan with bfill and ffill
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
+        data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
@@ -131,14 +132,14 @@ class DataPreprocessor:
         #Filter data to only include the features and target feature
         data = data[all_features]
 
+        # test_data = data
+        # val_data = data
+        # train_data = data
 
-        test_data = data
-        val_data = data
-        train_data = data
-        # # Split data based on years
-        # test_data = data[(data.index.year == 2024)]
-        # val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
-        # train_data = data[data.index.year < 2022]  # Training is everything before 2022
+        # Split data based on years
+        test_data = data[(data.index.year == 2024)]
+        val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
+        train_data = data[data.index.year < 2022]  # Training is everything before 2022
         
         print(f"\nSplit Summary:")
         print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")

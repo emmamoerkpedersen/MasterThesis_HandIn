@@ -105,10 +105,10 @@ project_root = Path(__file__).parent.parent.parent
 preprocessor = DataPreprocessor(config)
 
 # Load and split the data
-station_id = '21006845'  # Main station ID
+station_id = '21006846'  # Main station ID
 train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
 
-# Prepare the data for training
+# Prepare the data for training, with shape (num_sequences, sequence_length, num_features)
 X_train, y_train = preprocessor.prepare_data(train_data, is_training=True)
 X_val, y_val = preprocessor.prepare_data(val_data, is_training=False)
 X_test, y_test = preprocessor.prepare_data(test_data, is_training=False)
@@ -180,7 +180,8 @@ for epoch in range(num_epochs):
     model.eval()
     with torch.no_grad():
         val_outputs, _ = model(X_val)  # Ignore anomaly flags during validation
-        
+    
+
         # Create mask for non-NaN values in validation targets
         val_non_nan_mask = ~torch.isnan(y_val)
         val_outputs_reshaped = val_outputs.reshape(-1, feat_size)
