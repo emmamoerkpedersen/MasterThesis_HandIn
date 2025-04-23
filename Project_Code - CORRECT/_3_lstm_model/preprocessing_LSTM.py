@@ -84,7 +84,7 @@ class DataPreprocessor:
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = pd.Timestamp('2010-01-04')
-        end_date = pd.Timestamp('2025-01-07')
+        end_date = pd.Timestamp('2011-01-07')
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
@@ -126,14 +126,14 @@ class DataPreprocessor:
         #Filter data to only include the features and target feature
         data = data[all_features]
 
-        # test_data = data
-        # val_data = data
-        # train_data = data
+        test_data = data
+        val_data = data
+        train_data = data
 
-        # Split data based on years
-        test_data = data[(data.index.year == 2024)]
-        val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
-        train_data = data[data.index.year < 2022]  # Training is everything before 2022
+        # # Split data based on years
+        # test_data = data[(data.index.year == 2024)]
+        # val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
+        # train_data = data[data.index.year < 2022]  # Training is everything before 2022
         
         print(f"\nSplit Summary:")
         print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
@@ -203,33 +203,49 @@ class DataPreprocessor:
     
     def _create_sequences(self, features, targets):
          """
-         Create sequences using the configured sequence length.
+         Create sequences for forecasting with overlapping input sequences and future targets.
+         
+         Args:
+             features: Input features, shape (num_samples, num_features)
+             targets: Target values, shape (num_samples, num_targets)
+             
+         Returns:
+             X: Input sequences, shape (num_sequences, sequence_length, num_features)
+             y: Target sequences, shape (num_sequences, prediction_window, num_targets)
          """
-         sequence_length = self.config.get('sequence_length', 500)  # Default to 500 instead of 5000
+         sequence_length = self.config.get('sequence_length', 500)
+         prediction_window = self.config.get('prediction_window', 15)
          data_length = len(features)
-
+         
+         # Check if we have enough data
+         if data_length < sequence_length + prediction_window:
+             raise ValueError(f"Not enough data points ({data_length}) for sequence length ({sequence_length}) and prediction window ({prediction_window})")
          
          X, y = [], []
- 
-         # Create sequences based on configured sequence length
-         for i in range(0, data_length - sequence_length + 1, sequence_length):
-             end_idx = i + sequence_length
+         
+         # Create overlapping sequences
+         # For each sequence, we use timesteps i to i+sequence_length-1 to predict timesteps i+sequence_length to i+sequence_length+prediction_window-1
+         for i in range(0, data_length - sequence_length - prediction_window + 1):
+             # Input sequence: from i to i+sequence_length-1
+             feature_seq = features[i:i+sequence_length]
              
-             # Only create complete sequences
-             if end_idx <= data_length:
-                 feature_seq = features[i:end_idx]
-                 target_seq = targets[i:end_idx]
-          
-                 
-                 X.append(feature_seq)
-                 y.append(target_seq)
- 
+             # Target sequence: from i+sequence_length to i+sequence_length+prediction_window-1
+             target_seq = targets[i+sequence_length:i+sequence_length+prediction_window]
+             
+             X.append(feature_seq)
+             y.append(target_seq)
+         
          if not X:
-             raise ValueError("No sequences could be created. Check sequence length and data size.")
+             raise ValueError("No sequences could be created. Check sequence length, prediction window, and data size.")
          
          X = np.array(X)
-         y = np.array(y)[..., np.newaxis]  # Add feature dimension
- 
+         y = np.array(y)
+         
+         # Ensure y has shape (num_sequences, prediction_window, num_targets)
+         # If y is 2D, add a dimension for output_size
+         if len(y.shape) == 2:
+             y = y[..., np.newaxis]
+         
          return X, y
 
     def _add_time_features(self, data):
