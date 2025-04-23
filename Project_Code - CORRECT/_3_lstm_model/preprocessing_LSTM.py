@@ -89,7 +89,7 @@ class DataPreprocessor:
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
         # Fill temperature and rainfall Nan with bfill and ffill
-        data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
+        #data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
         data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
@@ -98,13 +98,7 @@ class DataPreprocessor:
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         #print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
         #Aggregate temperature to 30 days
-        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
-        #print(f"  - Aggregated temperature to 30 days")
-
-       
-
-        # Aggregate temperature to 30 days
-        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
+        #data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
         #print(f"  - Aggregated temperature to 30 days")
 
         # Add cumulative rainfall features if enabled in config
@@ -168,12 +162,7 @@ class DataPreprocessor:
         # Get the most up-to-date feature columns from feature engineer
         feature_cols = self.feature_engineer.feature_cols
         target_col = self.output_features   
-        
-        #print(f"\nUsing features for model:")
-        #print(f"Total features: {len(feature_cols)}")
-        #print("Feature list:")
-        #for col in feature_cols:
-        #    print(f"  - {col}")
+
         
         # Ensure all feature columns exist in data
         missing_cols = [col for col in feature_cols if col not in data.columns]
@@ -184,56 +173,30 @@ class DataPreprocessor:
         features = data[feature_cols]
         target = pd.DataFrame(data[target_col])
         
-        # Print diagnostic information about NaN values in target
-        nan_count = target[target_col].isna().sum()
-        total_count = len(target)
-        #print(f"\nTarget NaN diagnostics before scaling:")
-        #print(f"  {target_col}: {nan_count}/{total_count} NaN values ({nan_count/total_count*100:.2f}%)")
-        
-        if nan_count == total_count:
-            #print("  WARNING: All target values are NaN!")
-            target[target_col] = target[target_col].fillna(0)
-            #print("  Filled NaN values with 0 to allow scaling to proceed")
-
+    
         # Scale data using FeatureScaler
         if is_training:
             scaled_features, scaled_target = self.feature_scaler.fit_transform(features, target)
         else:
             scaled_features, scaled_target = self.feature_scaler.transform(features, target)
             
-        # Print diagnostic information about NaN values in scaled target
-        nan_count_scaled = np.isnan(scaled_target).sum()
-        total_count_scaled = len(scaled_target)
-        #print(f"\nTarget NaN diagnostics after scaling:")
-        #print(f"  {target_col}: {nan_count_scaled}/{total_count_scaled} NaN values ({nan_count_scaled/total_count_scaled*100:.2f}%)")
-        
-        if nan_count_scaled == total_count_scaled:
-            #print("  WARNING: All scaled target values are NaN!")
-            scaled_target = np.nan_to_num(scaled_target, nan=0)
-            #print("  Filled NaN values with 0 to allow model training to proceed")
-
-        # Print feature ranges after scaling
-        #print("\nFeature ranges after scaling:")
-        #for i, col in enumerate(feature_cols):
-        #    min_val = scaled_features[:, i].min()
-        #    max_val = scaled_features[:, i].max()
-        #    mean_val = scaled_features[:, i].mean()
-        #    std_val = scaled_features[:, i].std()
-        #    print(f"  {col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
-        
-        # Print target range after scaling
-        #min_val = np.nanmin(scaled_target)
-        #max_val = np.nanmax(scaled_target)
-        #mean_val = np.nanmean(scaled_target)
-        #std_val = np.nanstd(scaled_target)
-        #print(f"Target range after scaling:")
-        #print(f"  {target_col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
-        
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
 
-        # Only print basic shape info for debugging
-        #print(f"{'Training' if is_training else 'Validation'} data: {X.shape[0]} sequences of length {X.shape[1]}")
+        # # Debug print for NaN values in sequences
+        # print("\nChecking for NaN values in sequences:")
+        # print(f"NaN in X sequences: {np.isnan(X).sum()}")
+        # print(f"NaN in y sequences: {np.isnan(y).sum()}")
+        # print(f"Total elements in X: {X.size}, in y: {y.size}")
+        
+        if np.isnan(y).any():
+            print("\nAnalyzing NaN distribution in y sequences:")
+            nan_seq_count = np.isnan(y).any(axis=(1, 2)).sum()
+            print(f"Number of sequences containing NaN: {nan_seq_count} out of {len(y)}")
+            for i in range(len(y)):
+                nan_count = np.isnan(y[i]).sum()
+                if nan_count > 0:
+                    print(f"Sequence {i}: {nan_count} NaN values")
         
         # Convert to tensors and move to device
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)
@@ -242,28 +205,30 @@ class DataPreprocessor:
          """
          Create sequences using the configured sequence length.
          """
-         sequence_length = self.config.get('sequence_length', 5000)  # Get from config or default to 5000
+         sequence_length = self.config.get('sequence_length', 500)  # Default to 500 instead of 5000
          data_length = len(features)
+
          
          X, y = [], []
  
          # Create sequences based on configured sequence length
-         for i in range(0, data_length, sequence_length):
-             end_idx = min(i + sequence_length, data_length)
-             feature_seq = features[i:end_idx]
-             target_seq = targets[i:end_idx]
+         for i in range(0, data_length - sequence_length + 1, sequence_length):
+             end_idx = i + sequence_length
+             
+             # Only create complete sequences
+             if end_idx <= data_length:
+                 feature_seq = features[i:end_idx]
+                 target_seq = targets[i:end_idx]
+          
+                 
+                 X.append(feature_seq)
+                 y.append(target_seq)
  
-             # Pad sequences if needed
-             if end_idx - i < sequence_length:
-                 pad_length = sequence_length - (end_idx - i)
-                 feature_seq = np.pad(feature_seq, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
-                 target_seq = np.pad(target_seq, (0, pad_length), mode='constant', constant_values=np.nan)
- 
-             X.append(feature_seq)
-             y.append(target_seq)
- 
-         X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
-         y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
+         if not X:
+             raise ValueError("No sequences could be created. Check sequence length and data size.")
+         
+         X = np.array(X)
+         y = np.array(y)[..., np.newaxis]  # Add feature dimension
  
          return X, y
 

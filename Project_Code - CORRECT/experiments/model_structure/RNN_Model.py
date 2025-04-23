@@ -8,29 +8,40 @@ from plotly.subplots import make_subplots
 import plotly.io as pio
 from pathlib import Path
 import sys 
+import pandas as pd
 # Add the parent directory to the Python path to allow importing from _3_lstm_model
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from config import LSTM_CONFIG
 # =======================
 # Model Definition
-# =======================
+# =====================
 class Iterative_LSTM_Model(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_layers=1, dropout=0.0):
         super(Iterative_LSTM_Model, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
         self.LSTM = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0)
         self.fc = nn.Linear(hidden_size, output_size)  # Predict next time step
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         # x shape: (batch_size, sequence_length, input_size)
-        lstm_out, _ = self.LSTM(x)  # lstm_out shape: (batch_size, sequence_length, hidden_size)
+        # Initialize hidden state and cell state
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        
+        # LSTM forward pass
+        lstm_out, _ = self.LSTM(x, (h0, c0))  # lstm_out shape: (batch_size, sequence_length, hidden_size)
         
         if self.training:
             lstm_out = self.dropout(lstm_out)
             
         # Apply fully connected layer to all time steps
         predictions = self.fc(lstm_out)  # shape: (batch_size, sequence_length, output_size)
+        
+    
+            
         return predictions
 
 
@@ -56,9 +67,9 @@ def compute_z_scores(pred, actual):
     valid_mask = ~torch.isnan(residual)
     
     # Print diagnostic information
-    total_points = residual.numel()
-    valid_points = torch.sum(valid_mask).item()
-    print(f"Computing z-scores: {valid_points}/{total_points} valid points")
+    # total_points = residual.numel()
+    # valid_points = torch.sum(valid_mask).item()
+    #print(f"Computing z-scores: {valid_points}/{total_points} valid points")
     
     if torch.sum(valid_mask) > 1:  # If we have more than one valid residual
         # Calculate mean using only valid residuals
@@ -83,13 +94,6 @@ def compute_z_scores(pred, actual):
         # If we don't have enough valid points, return zeros
         z_scores = torch.zeros_like(residual)
         print("Not enough valid points to compute z-scores")
-    
-    # Check for NaN values in z_scores
-    if torch.isnan(z_scores).any():
-        nan_count = torch.isnan(z_scores).sum().item()
-        print(f"Warning: NaN values detected in z_scores: {nan_count}")
-        # Replace NaN values with zeros
-        z_scores = torch.nan_to_num(z_scores, nan=0.0)
     
     return z_scores
 
@@ -120,7 +124,7 @@ def replace_anomalies(pred, actual, z_scores, threshold=LSTM_CONFIG.get('z_score
     
     # Count anomalies
     anomaly_count = torch.sum(anomalies).item()
-    print(f"Detected {anomaly_count} anomalies out of {anomalies.numel()} points")
+    #print(f"Detected {anomaly_count} anomalies out of {anomalies.numel()} points")
     
     # Replace anomalies with predicted values
     edited = torch.where(anomalies, pred, actual)
@@ -281,20 +285,11 @@ def train_model(X_train, y_train, X_val, y_val, input_size, output_size, val_dat
 
         for i in range(X_train.shape[0]):
             inputs = X_train[i].unsqueeze(0).to(device)
-            target = y_train[i].to(device)
+            target = y_train[i].unsqueeze(0).to(device)  # Add batch dimension to match output shape
 
-            # Skip warmup period
-            if warmup_length < target.shape[0]:
-                valid_target = target[warmup_length:]
-                output = model(inputs)
-                
-                # Get predictions after warmup
-                valid_outputs = output[0, warmup_length:]
-                
-                # Calculate loss only on non-NaN targets
-                non_nan_mask = ~torch.isnan(valid_target)
-                if torch.any(non_nan_mask):
-                    loss = criterion(valid_outputs[non_nan_mask], valid_target[non_nan_mask])
+            output = model(inputs)
+
+            loss = criterion(output, target)
                     
             optimizer.zero_grad()
             loss.backward()
@@ -317,60 +312,53 @@ def train_model(X_train, y_train, X_val, y_val, input_size, output_size, val_dat
         with torch.no_grad():
             for i in range(X_val.shape[0]):
                 inputs = X_val[i].unsqueeze(0).to(device)
-                target = y_val[i].to(device)
+                target = y_val[i].unsqueeze(0).to(device)  # Add batch dimension to match output shape
                 
-                # Skip warmup period
-                if warmup_length < target.shape[0]:
-                    valid_target = target[warmup_length:]
-                    output = model(inputs)
+                output = model(inputs)
+            
+                # Calculate loss
+                loss = criterion(output, target)
+                val_loss += loss.item()
+                valid_val_samples += 1
+                
+                # Store validation predictions and anomalies
+                if epoch == 0 or (valid_val_samples > 0 and val_loss / valid_val_samples < best_val_loss):
+                    # Get full sequence predictions and ensure they're on CPU
+                    full_outputs = output.squeeze(0).cpu()  # Remove batch dimension
+                    target_cpu = target.squeeze(0).cpu()  # Remove batch dimension
+
+                    # Store raw predictions before anomaly detection
+                    val_anomalies['predictions'].append(full_outputs.numpy())
                     
-                    # Get predictions after warmup
-                    valid_outputs = output[0, warmup_length:]
+                    # Compute z-scores and replace anomalies
+                    z_scores = compute_z_scores(full_outputs, target_cpu)
+                    edited, anomaly_flag = replace_anomalies(full_outputs, target_cpu, z_scores, threshold)
                     
-                    # Calculate loss only on non-NaN targets
-                    non_nan_mask = ~torch.isnan(valid_target)
-                    if torch.any(non_nan_mask):
-                        loss = criterion(valid_outputs[non_nan_mask], valid_target[non_nan_mask])
-                        val_loss += loss.item()
-                        valid_val_samples += 1
+                    # Get the actual dates for this sequence
+                    if val_data_index is not None:
+                        start_idx = i * sequence_length
+                        end_idx = min(start_idx + sequence_length, len(val_data_index))
+                        sequence_dates = val_data_index[start_idx:end_idx]
+                        val_anomalies['dates'].append(sequence_dates)
+                    else:
+                        val_anomalies['dates'].append(i)  # Fallback to sequence index if no dates provided
                     
-                    # Store validation predictions and anomalies
-                    if epoch == 0 or (valid_val_samples > 0 and val_loss / valid_val_samples < best_val_loss):
-                        # Get full sequence predictions
-                        full_outputs = output[0].cpu()
-                        
-                        # Store raw predictions before anomaly detection
-                        val_anomalies['predictions'].append(full_outputs.numpy())
-                        
-                        # Compute z-scores and replace anomalies
-                        z_scores = compute_z_scores(full_outputs, target.cpu())
-                        edited, anomaly_flag = replace_anomalies(full_outputs, target.cpu(), z_scores, threshold)
-                        
-                        # Get the actual dates for this sequence
-                        if val_data_index is not None:
-                            start_idx = i * sequence_length
-                            end_idx = min(start_idx + sequence_length, len(val_data_index))
-                            sequence_dates = val_data_index[start_idx:end_idx]
-                            val_anomalies['dates'].append(sequence_dates)
-                        else:
-                            val_anomalies['dates'].append(i)  # Fallback to sequence index if no dates provided
-                        
-                        # Store the data
-                        val_anomalies['original'].append(target.cpu().numpy())
-                        val_anomalies['edited'].append(edited.numpy())
-                        
-                        # Find and store anomalies with their actual dates
-                        anomaly_mask = anomaly_flag.numpy() > 0
-                        if np.any(anomaly_mask):
-                            anomaly_indices = np.where(anomaly_mask)[0]
-                            for idx in anomaly_indices:
-                                if val_data_index is not None:
-                                    date_idx = start_idx + idx
-                                    if date_idx < len(val_data_index):
-                                        anomaly_date = val_data_index[date_idx]
-                                        val_anomalies['anomaly_points'].append((anomaly_date, target.cpu().numpy()[idx][0]))
-                                else:
-                                    val_anomalies['anomaly_points'].append((i, idx, target.cpu().numpy()[idx][0]))
+                    # Store the data
+                    val_anomalies['original'].append(target_cpu.numpy())
+                    val_anomalies['edited'].append(edited.numpy())
+                    
+                    # Find and store anomalies with their actual dates
+                    anomaly_mask = anomaly_flag.numpy() > 0
+                    if np.any(anomaly_mask):
+                        anomaly_indices = np.where(anomaly_mask)[0]
+                        for idx in anomaly_indices:
+                            if val_data_index is not None:
+                                date_idx = start_idx + idx
+                                if date_idx < len(val_data_index):
+                                    anomaly_date = val_data_index[date_idx]
+                                    val_anomalies['anomaly_points'].append((anomaly_date, target_cpu[idx][0]))
+                            else:
+                                val_anomalies['anomaly_points'].append((i, idx, target_cpu[idx][0]))
 
         avg_val_loss = val_loss / valid_val_samples if valid_val_samples > 0 else float('inf')
         print(f"Epoch [{epoch+1}/{num_epochs}] Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
@@ -414,8 +402,8 @@ def plot_full_validation(preprocessor, val_data, save_path=None, val_anomalies=N
     # Create the plot
     plt.figure(figsize=(16, 10))
     
-    # Get sequence length and warmup length from config
-    warmup_length = preprocessor.config.get('warmup_length', 100)
+    # Get sequence length from config
+    sequence_length = preprocessor.config.get('sequence_length', 500)
     
     # Combine all sequences into continuous arrays
     all_dates = []
@@ -423,29 +411,40 @@ def plot_full_validation(preprocessor, val_data, save_path=None, val_anomalies=N
     all_predicted = []
     all_edited = []
     
-    for i, seq_dates in enumerate(val_anomalies['dates']):
-        if warmup_length < len(seq_dates):
-            # Get data after warmup
-            valid_dates = seq_dates[warmup_length:]
-            valid_original = val_anomalies['original'][i][warmup_length:].reshape(-1)
-            valid_predicted = val_anomalies['predictions'][i][warmup_length:].reshape(-1)
-            valid_edited = val_anomalies['edited'][i][warmup_length:].reshape(-1)
-            
-            # Ensure all arrays have matching lengths
-            min_length = min(len(valid_dates), len(valid_original), 
-                           len(valid_predicted), len(valid_edited))
-            
-            all_dates.extend(valid_dates[:min_length])
-            all_original.extend(valid_original[:min_length])
-            all_predicted.extend(valid_predicted[:min_length])
-            all_edited.extend(valid_edited[:min_length])
+    # Process each sequence
+    for i in range(len(val_anomalies['original'])):
+        # Get the sequence data
+        original = val_anomalies['original'][i].reshape(-1)
+        predicted = val_anomalies['predictions'][i].reshape(-1)
+        edited = val_anomalies['edited'][i].reshape(-1)
+        
+        # Get corresponding dates
+        if isinstance(val_anomalies['dates'][i], pd.DatetimeIndex):
+            dates = val_anomalies['dates'][i]
+        else:
+            # If dates are not provided, create sequence indices
+            start_idx = i * sequence_length
+            dates = np.arange(start_idx, start_idx + len(original))
+        
+        # Append data to lists
+        all_dates.extend(dates)
+        all_original.extend(original)
+        all_predicted.extend(predicted)
+        all_edited.extend(edited)
     
-    # Sort all data by date
-    sorted_indices = np.argsort(all_dates)
-    all_dates = np.array(all_dates)[sorted_indices]
-    all_original = np.array(all_original)[sorted_indices]
-    all_predicted = np.array(all_predicted)[sorted_indices]
-    all_edited = np.array(all_edited)[sorted_indices]
+    # Convert lists to numpy arrays
+    all_dates = np.array(all_dates)
+    all_original = np.array(all_original)
+    all_predicted = np.array(all_predicted)
+    all_edited = np.array(all_edited)
+    
+    # Sort all data by date if using actual dates
+    if isinstance(all_dates[0], (pd.Timestamp, np.datetime64)):
+        sorted_indices = np.argsort(all_dates)
+        all_dates = all_dates[sorted_indices]
+        all_original = all_original[sorted_indices]
+        all_predicted = all_predicted[sorted_indices]
+        all_edited = all_edited[sorted_indices]
     
     # Plot continuous data
     plt.plot(all_dates, all_original, 'b-', label='Original Data', alpha=0.7, linewidth=1)
@@ -457,24 +456,32 @@ def plot_full_validation(preprocessor, val_data, save_path=None, val_anomalies=N
         anomaly_dates = []
         anomaly_values = []
         
-        for date, value in val_anomalies['anomaly_points']:
-            if not np.isnan(value):
-                anomaly_dates.append(date)
-                anomaly_values.append(value)
+        for anomaly in val_anomalies['anomaly_points']:
+            if isinstance(anomaly, tuple):
+                if len(anomaly) == 2:  # (date, value) format
+                    date, value = anomaly
+                else:  # (sequence_idx, point_idx, value) format
+                    seq_idx, point_idx, value = anomaly
+                    date = all_dates[seq_idx * sequence_length + point_idx]
+                
+                if not np.isnan(value):
+                    anomaly_dates.append(date)
+                    anomaly_values.append(value)
         
         if anomaly_dates:
             plt.scatter(anomaly_dates, anomaly_values, color='red', s=30, 
                        label='Anomalies', zorder=5)
     
     # Add labels and title
-    plt.xlabel('Date')
+    plt.xlabel('Time' if not isinstance(all_dates[0], (pd.Timestamp, np.datetime64)) else 'Date')
     plt.ylabel('Water Level')
     plt.title('Water Level Data with Predictions and Anomalies (Validation Period)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     
-    # Format x-axis to show dates nicely
-    plt.gcf().autofmt_xdate()
+    # Format x-axis to show dates nicely if using actual dates
+    if isinstance(all_dates[0], (pd.Timestamp, np.datetime64)):
+        plt.gcf().autofmt_xdate()
     
     # Save the plot if a path is provided
     if save_path:
@@ -486,7 +493,7 @@ def plot_full_validation(preprocessor, val_data, save_path=None, val_anomalies=N
 
 def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anomalies=None):
     """
-    Create an interactive Plotly visualization of the validation dataset with dates on the x-axis.
+    Create an interactive Plotly visualization of the validation dataset.
     Shows four time series:
     1. Original data (blue)
     2. Predicted data (orange)
@@ -500,8 +507,8 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
     # Create interactive Plotly figure
     fig = go.Figure()
     
-    # Get warmup length from config
-    warmup_length = preprocessor.config.get('warmup_length', 100)
+    # Get sequence length from config
+    sequence_length = preprocessor.config.get('sequence_length', 500)
     
     # Combine all sequences into continuous arrays
     all_dates = []
@@ -509,29 +516,40 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
     all_predicted = []
     all_edited = []
     
-    for i, seq_dates in enumerate(val_anomalies['dates']):
-        if warmup_length < len(seq_dates):
-            # Get data after warmup
-            valid_dates = seq_dates[warmup_length:]
-            valid_original = val_anomalies['original'][i][warmup_length:].reshape(-1)
-            valid_predicted = val_anomalies['predictions'][i][warmup_length:].reshape(-1)
-            valid_edited = val_anomalies['edited'][i][warmup_length:].reshape(-1)
-            
-            # Ensure all arrays have matching lengths
-            min_length = min(len(valid_dates), len(valid_original), 
-                           len(valid_predicted), len(valid_edited))
-            
-            all_dates.extend(valid_dates[:min_length])
-            all_original.extend(valid_original[:min_length])
-            all_predicted.extend(valid_predicted[:min_length])
-            all_edited.extend(valid_edited[:min_length])
+    # Process each sequence
+    for i in range(len(val_anomalies['original'])):
+        # Get the sequence data
+        original = val_anomalies['original'][i].reshape(-1)
+        predicted = val_anomalies['predictions'][i].reshape(-1)
+        edited = val_anomalies['edited'][i].reshape(-1)
+        
+        # Get corresponding dates
+        if isinstance(val_anomalies['dates'][i], pd.DatetimeIndex):
+            dates = val_anomalies['dates'][i]
+        else:
+            # If dates are not provided, create sequence indices
+            start_idx = i * sequence_length
+            dates = np.arange(start_idx, start_idx + len(original))
+        
+        # Append data to lists
+        all_dates.extend(dates)
+        all_original.extend(original)
+        all_predicted.extend(predicted)
+        all_edited.extend(edited)
     
-    # Sort all data by date
-    sorted_indices = np.argsort(all_dates)
-    all_dates = np.array(all_dates)[sorted_indices]
-    all_original = np.array(all_original)[sorted_indices]
-    all_predicted = np.array(all_predicted)[sorted_indices]
-    all_edited = np.array(all_edited)[sorted_indices]
+    # Convert lists to numpy arrays
+    all_dates = np.array(all_dates)
+    all_original = np.array(all_original)
+    all_predicted = np.array(all_predicted)
+    all_edited = np.array(all_edited)
+    
+    # Sort all data by date if using actual dates
+    if isinstance(all_dates[0], (pd.Timestamp, np.datetime64)):
+        sorted_indices = np.argsort(all_dates)
+        all_dates = all_dates[sorted_indices]
+        all_original = all_original[sorted_indices]
+        all_predicted = all_predicted[sorted_indices]
+        all_edited = all_edited[sorted_indices]
     
     # Add continuous traces
     fig.add_trace(go.Scatter(
@@ -540,7 +558,7 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
         mode='lines',
         name='Original Data',
         line=dict(color='blue', width=1),
-        hovertemplate='Date: %{x}<br>Water Level: %{y:.2f}<extra></extra>'
+        hovertemplate='Time: %{x}<br>Water Level: %{y:.2f}<extra></extra>'
     ))
     
     fig.add_trace(go.Scatter(
@@ -549,7 +567,7 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
         mode='lines',
         name='Predicted Data',
         line=dict(color='orange', width=1),
-        hovertemplate='Date: %{x}<br>Water Level: %{y:.2f}<extra></extra>'
+        hovertemplate='Time: %{x}<br>Water Level: %{y:.2f}<extra></extra>'
     ))
     
     fig.add_trace(go.Scatter(
@@ -558,7 +576,7 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
         mode='lines',
         name='Edited Data',
         line=dict(color='green', width=1),
-        hovertemplate='Date: %{x}<br>Water Level: %{y:.2f}<extra></extra>'
+        hovertemplate='Time: %{x}<br>Water Level: %{y:.2f}<extra></extra>'
     ))
     
     # Plot anomalies (red points)
@@ -566,10 +584,17 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
         anomaly_dates = []
         anomaly_values = []
         
-        for date, value in val_anomalies['anomaly_points']:
-            if not np.isnan(value):
-                anomaly_dates.append(date)
-                anomaly_values.append(value)
+        for anomaly in val_anomalies['anomaly_points']:
+            if isinstance(anomaly, tuple):
+                if len(anomaly) == 2:  # (date, value) format
+                    date, value = anomaly
+                else:  # (sequence_idx, point_idx, value) format
+                    seq_idx, point_idx, value = anomaly
+                    date = all_dates[seq_idx * sequence_length + point_idx]
+                
+                if not np.isnan(value):
+                    anomaly_dates.append(date)
+                    anomaly_values.append(value)
         
         if anomaly_dates:
             fig.add_trace(go.Scatter(
@@ -578,13 +603,15 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
                 mode='markers',
                 name='Anomalies',
                 marker=dict(color='red', size=8),
-                hovertemplate='Date: %{x}<br>Water Level: %{y:.2f}<extra></extra>'
+                hovertemplate='Time: %{x}<br>Water Level: %{y:.2f}<extra></extra>'
             ))
     
-    # Update layout with enhanced zoom capabilities
+    # Update layout
+    x_axis_title = 'Time' if not isinstance(all_dates[0], (pd.Timestamp, np.datetime64)) else 'Date'
+    
     fig.update_layout(
         title='Water Level Data with Predictions and Anomalies (Validation Period)',
-        xaxis_title='Date',
+        xaxis_title=x_axis_title,
         yaxis_title='Water Level',
         hovermode='x unified',
         legend=dict(
@@ -605,7 +632,7 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
         ),
         annotations=[
             dict(
-                text="Use the zoom tools to explore both time and water level ranges",
+                text="Use the zoom tools to explore the data",
                 showarrow=False,
                 xref="paper", yref="paper",
                 x=0, y=1.05,
@@ -616,22 +643,33 @@ def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anom
     )
     
     # Configure x-axis with enhanced zoom capabilities
+    if isinstance(all_dates[0], (pd.Timestamp, np.datetime64)):
+        fig.update_xaxes(
+            rangeslider_visible=True,
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=1, label="1m", step="month", stepmode="backward"),
+                    dict(count=3, label="3m", step="month", stepmode="backward"),
+                    dict(count=6, label="6m", step="month", stepmode="backward"),
+                    dict(step="all", label="All")
+                ])
+            )
+        )
+    else:
+        fig.update_xaxes(
+            rangeslider_visible=True
+        )
+    
+    # Configure axes with enhanced zoom capabilities
     fig.update_xaxes(
-        rangeslider_visible=True,
-        rangeselector=dict(
-            buttons=list([
-                dict(count=1, label="1m", step="month", stepmode="backward"),
-                dict(count=3, label="3m", step="month", stepmode="backward"),
-                dict(count=6, label="6m", step="month", stepmode="backward"),
-                dict(step="all", label="All")
-            ])
-        ),
         showspikes=True,
         spikemode='across',
-        spikesnap='cursor'
+        spikesnap='cursor',
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='LightGray'
     )
     
-    # Configure y-axis with enhanced zoom capabilities
     fig.update_yaxes(
         showspikes=True,
         spikemode='across',
@@ -670,14 +708,6 @@ if __name__ == "__main__":
     X_val, y_val = preprocessor.prepare_data(val_data, is_training=False)
     X_test, y_test = preprocessor.prepare_data(test_data, is_training=False)
 
-    # Print data shapes for debugging
-    print(f"X_train shape: {X_train.shape}")
-    print(f"y_train shape: {y_train.shape}")
-    print(f"X_val shape: {X_val.shape}")
-    print(f"y_val shape: {y_val.shape}")
-    print(f"X_test shape: {X_test.shape}")
-    print(f"y_test shape: {y_test.shape}")
-
     # Get input and output sizes from the data
     input_size = X_train.shape[2]  # Number of features
     output_size = 1  # We're predicting a single value (water level)
@@ -689,7 +719,6 @@ if __name__ == "__main__":
         val_data_index=val_data.index,
         config=LSTM_CONFIG
     )
-    
     # Plot the entire validation dataset using anomalies detected during training
     plot_full_validation(preprocessor, val_data, 
         val_anomalies=val_anomalies

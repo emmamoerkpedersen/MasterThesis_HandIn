@@ -120,11 +120,11 @@ LSTM_CONFIG = {
     'dropout': 0.25,           
     'batch_size': 10,
     'sequence_length': 500,
-    'epochs': 50,
+    'epochs': 100,
     'patience': 6,            
 
     'z_score_threshold': 1.5,
-    'warmup_length': 100,
+    'warmup_length': 0,
     'learning_rate': 0.0001,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
@@ -139,7 +139,7 @@ LSTM_CONFIG = {
     'use_time_features': False,
     'use_cumulative_features': False, 
     'feature_cols': [
-        'rainfall', 'vst_raw'
+        'vst_raw', 'rainfall'
         
     ],
     'output_features': ['vst_raw'],
