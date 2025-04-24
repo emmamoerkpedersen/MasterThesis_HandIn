@@ -3,12 +3,14 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
 from pathlib import Path
 import sys 
 import pandas as pd
+from datetime import datetime
 # Add the parent directory to the Python path to allow importing from _3_lstm_model
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
@@ -25,27 +27,45 @@ class Iterative_LSTM_Model(nn.Module):
         self.LSTM = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0)
         self.fc = nn.Linear(hidden_size, output_size * prediction_window)  # Predict multiple future time steps
         self.dropout = nn.Dropout(dropout)
+        print(f"\nModel Architecture:")
+        print(f"Input size: {input_size}")
+        print(f"Hidden size: {hidden_size}")
+        print(f"Output size: {output_size}")
+        print(f"Prediction window: {prediction_window}")
+        print(f"Number of layers: {num_layers}")
+        print(f"Dropout: {dropout}")
 
     def forward(self, x):
         # x shape: (batch_size, sequence_length, input_size)
+        print(f"\nForward Pass Shapes:")
+        print(f"Input x shape: {x.shape}")
+        
         # Initialize hidden state and cell state
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        print(f"Hidden state h0 shape: {h0.shape}")
+        print(f"Cell state c0 shape: {c0.shape}")
         
         # LSTM forward pass
         lstm_out, _ = self.LSTM(x, (h0, c0))  # lstm_out shape: (batch_size, sequence_length, hidden_size)
+        print(f"LSTM output shape: {lstm_out.shape}")
         
         if self.training:
             lstm_out = self.dropout(lstm_out)
+            print(f"After dropout shape: {lstm_out.shape}")
             
         # Apply fully connected layer to the last time step only
         last_hidden = lstm_out[:, -1, :]  # shape: (batch_size, hidden_size)
+        print(f"Last hidden state shape: {last_hidden.shape}")
+        
         predictions = self.fc(last_hidden)  # shape: (batch_size, output_size * prediction_window)
+        print(f"FC layer output shape: {predictions.shape}")
         
         # Reshape to (batch_size, prediction_window, output_size)
         predictions = predictions.view(predictions.size(0), self.prediction_window, -1)
+        print(f"Final predictions shape: {predictions.shape}")
         
-        return predictions  # shape: (batch_size, prediction_window, output_size)
+        return predictions
 
 
 # =======================
@@ -57,34 +77,37 @@ def compute_z_scores(pred, actual):
     Handles NaN values and prevents NaN propagation.
     
     Args:
-        pred: Predicted values, shape (batch_size, prediction_window, output_size)
-        actual: Actual values, shape (batch_size, prediction_window, output_size)
+        pred: Predicted values, shape (prediction_window, output_size)
+        actual: Actual values, shape (prediction_window, output_size)
         
     Returns:
         z_scores: Z-scores for each prediction
     """
+    print(f"\nComputing Z-scores:")
+    print(f"Pred shape: {pred.shape}")
+    print(f"Actual shape: {actual.shape}")
+    
     # Calculate residuals
     residual = actual - pred
+    print(f"Residual shape: {residual.shape}")
     
     # Create mask for valid (non-NaN) residuals
     valid_mask = ~torch.isnan(residual)
-    
-    # Print diagnostic information
-    # total_points = residual.numel()
-    # valid_points = torch.sum(valid_mask).item()
-    #print(f"Computing z-scores: {valid_points}/{total_points} valid points")
+    print(f"Number of valid residuals: {torch.sum(valid_mask).item()}")
     
     if torch.sum(valid_mask) > 1:  # If we have more than one valid residual
         # Calculate mean using only valid residuals
         mean = torch.mean(residual[valid_mask])
+        print(f"Mean residual: {mean.item():.4f}")
         
         # Calculate std using only valid residuals
         std = torch.std(residual[valid_mask])
+        print(f"Std residual: {std.item():.4f}")
         
         # If std is too small or zero, use a small constant
         if std < 1e-6:
             std = torch.tensor(1e-6, device=residual.device)
-            print(f"Standard deviation too small ({std.item()}), using minimum value")
+            print("Standard deviation too small, using minimum value")
             
         # Calculate z-scores
         z_scores = torch.zeros_like(residual)
@@ -95,18 +118,19 @@ def compute_z_scores(pred, actual):
         
     else:
         # If we don't have enough valid points, return zeros
+        print("Not enough valid points, returning zeros")
         z_scores = torch.zeros_like(residual)
-        print("Not enough valid points to compute z-scores")
     
+    print(f"Z-scores shape: {z_scores.shape}")
     return z_scores
 
-def replace_anomalies(pred, actual, z_scores, threshold=LSTM_CONFIG.get('z_score_threshold', 2.5)):
+def replace_anomalies(pred, actual, z_scores, threshold=2.5):
     """
     Replace anomalies with predicted values.
     
     Args:
-        pred: Predicted values, shape (batch_size, prediction_window, output_size)
-        actual: Actual values, shape (batch_size, prediction_window, output_size)
+        pred: Predicted values, shape (prediction_window, output_size)
+        actual: Actual values, shape (prediction_window, output_size)
         z_scores: Z-scores for anomaly detection
         threshold: Threshold for anomaly detection
         
@@ -114,9 +138,15 @@ def replace_anomalies(pred, actual, z_scores, threshold=LSTM_CONFIG.get('z_score
         edited: Edited values with anomalies replaced
         anomaly_flag: Flag indicating anomalies
     """
+    print(f"\nReplacing Anomalies:")
+    print(f"Pred shape: {pred.shape}")
+    print(f"Actual shape: {actual.shape}")
+    print(f"Z-scores shape: {z_scores.shape}")
+    print(f"Threshold: {threshold}")
+    
     # Check for NaN values in inputs
     if torch.isnan(pred).any() or torch.isnan(actual).any() or torch.isnan(z_scores).any():
-        print("Warning: NaN values detected in inputs to replace_anomalies")
+        print("NaN values detected in inputs, replacing with zeros")
         # Replace NaN values with zeros
         pred = torch.nan_to_num(pred, nan=0.0)
         actual = torch.nan_to_num(actual, nan=0.0)
@@ -124,10 +154,8 @@ def replace_anomalies(pred, actual, z_scores, threshold=LSTM_CONFIG.get('z_score
     
     # Identify anomalies
     anomalies = torch.abs(z_scores) > threshold
-    
-    # Count anomalies
-    anomaly_count = torch.sum(anomalies).item()
-    #print(f"Detected {anomaly_count} anomalies out of {anomalies.numel()} points")
+    num_anomalies = torch.sum(anomalies).item()
+    print(f"Number of anomalies detected: {num_anomalies}")
     
     # Replace anomalies with predicted values
     edited = torch.where(anomalies, pred, actual)
@@ -137,11 +165,13 @@ def replace_anomalies(pred, actual, z_scores, threshold=LSTM_CONFIG.get('z_score
     
     # Check for NaN values in outputs
     if torch.isnan(edited).any() or torch.isnan(anomaly_flag).any():
-        print("Warning: NaN values detected in outputs of replace_anomalies")
+        print("NaN values detected in outputs, replacing with zeros")
         # Replace NaN values with zeros
         edited = torch.nan_to_num(edited, nan=0.0)
         anomaly_flag = torch.nan_to_num(anomaly_flag, nan=0.0)
     
+    print(f"Edited shape: {edited.shape}")
+    print(f"Anomaly flag shape: {anomaly_flag.shape}")
     return edited, anomaly_flag
 
 
@@ -161,6 +191,10 @@ def update_features(X_data, y_data, model, threshold=LSTM_CONFIG.get('z_score_th
     Returns:
         X_updated: Updated input data with edited water level and anomaly flag
     """
+    print(f"\nUpdating Features:")
+    print(f"X_data shape: {X_data.shape}")
+    print(f"y_data shape: {y_data.shape}")
+    
     model.eval()
     X_updated = []
 
@@ -168,15 +202,19 @@ def update_features(X_data, y_data, model, threshold=LSTM_CONFIG.get('z_score_th
         for i in range(X_data.shape[0]):
             # Get the current sequence
             inputs = X_data[i].unsqueeze(0)  # Add batch dimension
+            print(f"\nProcessing sequence {i+1}/{X_data.shape[0]}")
+            print(f"Input shape: {inputs.shape}")
             
             # Get model predictions for the future time steps
             output = model(inputs)  # Shape: (1, prediction_window, num_targets)
             target = y_data[i]  # Shape: (prediction_window, num_targets)
+            print(f"Model output shape: {output.shape}")
+            print(f"Target shape: {target.shape}")
             
             # Check for NaN values in the model output
             if torch.isnan(output).any():
                 nan_count = torch.isnan(output).sum().item()
-                print(f'NaNs detected in model output for sequence {i}, count: {nan_count}')
+                print(f'NaNs detected in model output, count: {nan_count}')
                 # Skip this sequence and use original values
                 X_updated.append(inputs.squeeze(0))
                 continue
@@ -187,7 +225,7 @@ def update_features(X_data, y_data, model, threshold=LSTM_CONFIG.get('z_score_th
             
             # Check for NaN values in edited values or anomaly flags
             if torch.isnan(edited).any() or torch.isnan(anomaly_flag).any():
-                print(f'NaNs detected in edited values or anomaly flags for sequence {i}')
+                print(f'NaNs detected in edited values or anomaly flags')
                 # Skip this sequence and use original values
                 X_updated.append(inputs.squeeze(0))
                 continue
@@ -195,12 +233,14 @@ def update_features(X_data, y_data, model, threshold=LSTM_CONFIG.get('z_score_th
             # Concatenate edited values and anomaly flags
             # Shape: (prediction_window, 2)
             new_features = torch.cat([edited, anomaly_flag], dim=1)
+            print(f"New features shape: {new_features.shape}")
             
             # Create a copy of the input sequence
             new_input = inputs.clone()
             
             # Get the number of features in the input
             num_features = new_input.shape[2]
+            print(f"Number of input features: {num_features}")
             
             # Make sure we're updating the correct features
             # The last two features should be the water level and anomaly flag
@@ -208,6 +248,7 @@ def update_features(X_data, y_data, model, threshold=LSTM_CONFIG.get('z_score_th
                 # Update the last two features for the last prediction_window time steps
                 # We only update the last prediction_window time steps because that's what we predicted
                 new_input[0, -new_features.shape[0]:, -2:] = new_features
+                print(f"Updated input shape: {new_input.shape}")
             else:
                 print(f'Warning: Input has fewer than 2 features ({num_features}), cannot update features')
                 X_updated.append(inputs.squeeze(0))
@@ -216,7 +257,7 @@ def update_features(X_data, y_data, model, threshold=LSTM_CONFIG.get('z_score_th
             # Final check for NaN values
             if torch.isnan(new_input).any():
                 nan_count = torch.isnan(new_input).sum().item()
-                print(f'NaNs detected in final updated features for sequence {i}, count: {nan_count}')
+                print(f'NaNs detected in final updated features, count: {nan_count}')
                 # Replace NaNs with original values
                 nan_mask = torch.isnan(new_input)
                 new_input[nan_mask] = inputs[nan_mask]
@@ -225,7 +266,9 @@ def update_features(X_data, y_data, model, threshold=LSTM_CONFIG.get('z_score_th
             X_updated.append(new_input.squeeze(0))
     
     # Stack all sequences and return
-    return torch.stack(X_updated)
+    X_updated = torch.stack(X_updated)
+    print(f"\nFinal updated features shape: {X_updated.shape}")
+    return X_updated
 
 
 # =======================
@@ -262,8 +305,17 @@ def train_model(X_train, y_train, X_val, y_val, input_size, output_size, val_dat
     threshold = config.get('z_score_threshold', 1.5)
     learning_rate = config.get('learning_rate', 0.0001)
     warmup_length = config.get('warmup_length', 0)
-    max_grad_norm = config.get('grad_clip_value', 1.0)
     prediction_window = config.get('prediction_window', 15)
+    
+    print("\nModel Configuration:")
+    print(f"Hidden size: {hidden_size}")
+    print(f"Number of layers: {num_layers}")
+    print(f"Dropout: {dropout}")
+    print(f"Number of epochs: {num_epochs}")
+    print(f"Early stopping patience: {patience}")
+    print(f"Z-score threshold: {threshold}")
+    print(f"Learning rate: {learning_rate}")
+    print(f"Prediction window: {prediction_window}")
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = Iterative_LSTM_Model(input_size, hidden_size, output_size, prediction_window=prediction_window, num_layers=num_layers, dropout=dropout).to(device)
@@ -273,431 +325,298 @@ def train_model(X_train, y_train, X_val, y_val, input_size, output_size, val_dat
     best_val_loss = float('inf')
     patience_counter = 0
     
-    # Dictionary to store validation anomalies
-    val_anomalies = {
-        'dates': [],
-        'original': [],
-        'edited': [],
-        'predictions': [],
+    # Initialize arrays to store the full validation sequences
+    sequence_length = config.get('sequence_length', 500)
+    prediction_window = config.get('prediction_window', 15)
+    total_length = len(val_data_index) if val_data_index is not None else X_val.shape[0] * (sequence_length + prediction_window)
+    
+    print(f"\nInitializing validation storage:")
+    print(f"Sequence length: {sequence_length}")
+    print(f"Total length for storage: {total_length}")
+    
+    best_val_anomalies = {
+        'dates': np.array([None] * total_length, dtype=object),
+        'original': np.zeros((total_length, 1)),
+        'edited': np.zeros((total_length, 1)),
+        'predictions': np.zeros((total_length, 1)),
         'anomaly_points': []
     }
 
+    print("\n=== Starting Training Loop ===")
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
         valid_samples = 0
 
+        print(f"\nEpoch {epoch+1}/{num_epochs}")
+        print("Training phase:")
+        
         for i in range(X_train.shape[0]):
             inputs = X_train[i].unsqueeze(0).to(device)
-            
-            # Ensure target has shape (1, prediction_window, output_size)
             target = y_train[i].unsqueeze(0).to(device)
             if len(target.shape) == 2:
                 target = target.unsqueeze(-1)
 
             output = model(inputs)
-
             loss = criterion(output, target)
-                    
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
 
             train_loss += loss.item()
             valid_samples += 1
+            
+            if (i + 1) % 100 == 0:  # Print progress every 100 batches
+                print(f"Processed {i + 1}/{X_train.shape[0]} training sequences")
 
         avg_train_loss = train_loss / valid_samples if valid_samples > 0 else float('inf')
+        print(f"Average training loss: {avg_train_loss:.6f}")
 
         # Validation loop
         model.eval()
         val_loss = 0.0
         valid_val_samples = 0
         
-        # Clear previous validation results
-        val_anomalies = {key: [] for key in val_anomalies}
+        print("\nValidation phase:")
+        
+        # Define batch size for validation
+        batch_size = 32  # You can adjust this based on your memory constraints
         
         with torch.no_grad():
-            for i in range(X_val.shape[0]):
-                inputs = X_val[i].unsqueeze(0).to(device)
+            # Process validation data in batches
+            for i in range(0, X_val.shape[0], batch_size):
+                # Get batch of sequences
+                batch_end = min(i + batch_size, X_val.shape[0])
+                inputs = X_val[i:batch_end].to(device)
+                targets = y_val[i:batch_end].to(device)
+                if len(targets.shape) == 2:
+                    targets = targets.unsqueeze(-1)
                 
-                # Ensure target has shape (1, prediction_window, output_size)
-                target = y_val[i].unsqueeze(0).to(device)
-                if len(target.shape) == 2:
-                    target = target.unsqueeze(-1)
+                print(f"\nProcessing batch {i//batch_size + 1}/{(X_val.shape[0] + batch_size - 1)//batch_size}")
+                print(f"Batch input shape: {inputs.shape}")
+                print(f"Batch target shape: {targets.shape}")
                 
                 output = model(inputs)
-            
-                # Calculate loss
-                loss = criterion(output, target)
-                val_loss += loss.item()
-                valid_val_samples += 1
+                loss = criterion(output, targets)
+                val_loss += loss.item() * (batch_end - i)  # Scale loss by batch size
+                valid_val_samples += (batch_end - i)
                 
-                # Store validation predictions and anomalies
-                if epoch == 0 or (valid_val_samples > 0 and val_loss / valid_val_samples < best_val_loss):
+                # Only store validation predictions and anomalies if this is the best model so far
+                if valid_val_samples > 0 and val_loss / valid_val_samples < best_val_loss:
                     # Get predictions and ensure they're on CPU
-                    full_outputs = output.squeeze(0).cpu()  # Remove batch dimension
-                    target_cpu = target.squeeze(0).cpu()  # Remove batch dimension
-
-                    # Store raw predictions before anomaly detection
-                    val_anomalies['predictions'].append(full_outputs.numpy())
+                    full_outputs = output.cpu()  # Shape: (batch_size, prediction_window, num_targets)
+                    target_cpu = targets.cpu()
                     
-                    # Compute z-scores and replace anomalies
-                    z_scores = compute_z_scores(full_outputs, target_cpu)
-                    edited, anomaly_flag = replace_anomalies(full_outputs, target_cpu, z_scores, threshold)
-                    
-                    # Get the actual dates for this sequence
-                    if val_data_index is not None:
-                        # Calculate the start and end indices for this sequence
-                        sequence_length = config.get('sequence_length', 500)
-                        start_idx = i * sequence_length
-                        end_idx = start_idx + sequence_length + prediction_window
-                        sequence_dates = val_data_index[start_idx:end_idx]
-                        val_anomalies['dates'].append(sequence_dates)
-                    else:
-                        val_anomalies['dates'].append(i)  # Fallback to sequence index if no dates provided
-                    
-                    # Store the data
-                    val_anomalies['original'].append(target_cpu.numpy())
-                    val_anomalies['edited'].append(edited.numpy())
-                    
-                    # Find and store anomalies with their actual dates
-                    anomaly_mask = anomaly_flag.numpy() > 0
-                    if np.any(anomaly_mask):
-                        anomaly_indices = np.where(anomaly_mask)
-                        for j, k in zip(anomaly_indices[0], anomaly_indices[1]):
-                            if val_data_index is not None:
-                                date_idx = start_idx + sequence_length + j
-                                if date_idx < len(val_data_index):
-                                    anomaly_date = val_data_index[date_idx]
-                                    val_anomalies['anomaly_points'].append((anomaly_date, target_cpu[j, k]))
-                            else:
-                                val_anomalies['anomaly_points'].append((i, j, k, target_cpu[j, k]))
+                    # Process each sequence in the batch
+                    for j in range(batch_end - i):
+                        # Inverse transform predictions and targets
+                        full_outputs_np = full_outputs[j].numpy()
+                        target_np = target_cpu[j].numpy()
+                        
+                        # Compute z-scores and replace anomalies
+                        z_scores = compute_z_scores(full_outputs[j], target_cpu[j])
+                        edited, anomaly_flag = replace_anomalies(full_outputs[j], target_cpu[j], z_scores, threshold)
+                        
+                        # Get the actual dates for this sequence
+                        if val_data_index is not None:
+                            # Calculate the start and end indices for this sequence
+                            start_idx = (i + j) * sequence_length
+                            end_idx = start_idx + sequence_length + prediction_window
+                            sequence_dates = val_data_index[start_idx:end_idx]
+                            
+                            # Get the actual sequence length from the data
+                            actual_seq_length = min(len(sequence_dates), len(target_np))
+                            
+                            # Store the data in the correct position in the arrays
+                            best_val_anomalies['dates'][start_idx:start_idx + actual_seq_length] = sequence_dates[:actual_seq_length]
+                            best_val_anomalies['original'][start_idx:start_idx + actual_seq_length] = target_np[:actual_seq_length]
+                            best_val_anomalies['edited'][start_idx:start_idx + actual_seq_length] = edited.numpy()[:actual_seq_length]
+                            best_val_anomalies['predictions'][start_idx:start_idx + actual_seq_length] = full_outputs_np[:actual_seq_length]
+                            
+                            # Find and store anomalies with their actual dates
+                            anomaly_mask = anomaly_flag.numpy() > 0
+                            if np.any(anomaly_mask):
+                                anomaly_indices = np.where(anomaly_mask)
+                                for k, l in zip(anomaly_indices[0], anomaly_indices[1]):
+                                    if k < actual_seq_length:  # Only store if within valid range
+                                        date_idx = start_idx + k
+                                        if date_idx < len(val_data_index):
+                                            anomaly_date = val_data_index[date_idx]
+                                            best_val_anomalies['anomaly_points'].append((anomaly_date, target_np[k, l]))
+                        else:
+                            # If no dates provided, use sequence indices
+                            start_idx = (i + j) * (sequence_length + prediction_window)
+                            actual_seq_length = len(target_np)
+                            end_idx = start_idx + actual_seq_length
+                            
+                            best_val_anomalies['dates'][start_idx:end_idx] = np.arange(start_idx, end_idx)
+                            best_val_anomalies['original'][start_idx:end_idx] = target_np
+                            best_val_anomalies['edited'][start_idx:end_idx] = edited.numpy()
+                            best_val_anomalies['predictions'][start_idx:end_idx] = full_outputs_np
+                            
+                            # Store anomalies with sequence indices
+                            anomaly_mask = anomaly_flag.numpy() > 0
+                            if np.any(anomaly_mask):
+                                anomaly_indices = np.where(anomaly_mask)
+                                for k, l in zip(anomaly_indices[0], anomaly_indices[1]):
+                                    idx = start_idx + k
+                                    best_val_anomalies['anomaly_points'].append((idx, target_np[k, l]))
+                
+                if (i + batch_size) % (batch_size * 10) == 0:  # Print progress every 10 batches
+                    print(f"Processed {min(i + batch_size, X_val.shape[0])}/{X_val.shape[0]} validation sequences")
 
         avg_val_loss = val_loss / valid_val_samples if valid_val_samples > 0 else float('inf')
-        print(f"Epoch [{epoch+1}/{num_epochs}] Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
+        print(f"\nEpoch Summary:")
+        print(f"Training Loss: {avg_train_loss:.6f}")
+        print(f"Validation Loss: {avg_val_loss:.6f}")
 
         # Early stopping check
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             patience_counter = 0
+            print(f"New best validation loss: {best_val_loss:.6f}")
+            print("Saving model...")
             torch.save(model.state_dict(), "best_model.pt")
+            # Store the current val_anomalies as the best ones
+            val_anomalies = {
+                'dates': best_val_anomalies['dates'].copy(),
+                'original': best_val_anomalies['original'].copy(),
+                'edited': best_val_anomalies['edited'].copy(),
+                'predictions': best_val_anomalies['predictions'].copy(),
+                'anomaly_points': best_val_anomalies['anomaly_points'].copy()
+            }
+            print(f"Number of anomaly points detected: {len(val_anomalies['anomaly_points'])}")
         else:
             patience_counter += 1
+            print(f"No improvement. Patience counter: {patience_counter}/{patience}")
             if patience_counter >= patience:
-                print("Early stopping.")
+                print("\nEarly stopping triggered!")
                 break
 
         # Update training inputs with edited values
+        print("\nUpdating training inputs with edited values...")
         X_train = update_features(X_train, y_train, model, threshold).detach()
 
-    print("Training complete.")
+    print("\n=== Training Complete ===")
+    print(f"Best validation loss: {best_val_loss:.6f}")
+    print(f"Final number of anomaly points: {len(val_anomalies['anomaly_points'])}")
     return model, val_anomalies
 
 
 # =======================
 # Visualization Functions
-# =======================
-
-
-def plot_full_validation(preprocessor, val_data, save_path=None, val_anomalies=None):
+# ======================= 
+def plot_validation_anomalies(val_anomalies):
     """
-    Plot the validation results with predictions and anomalies.
+    Create an interactive plot of validation anomalies data using Plotly.
     
     Args:
-        preprocessor: DataPreprocessor instance
-        val_data: Validation data
-        save_path: Path to save the plot
-        val_anomalies: Dictionary containing validation anomalies
+        val_anomalies: Dictionary containing validation anomalies data with keys:
+            - dates: List of dates/timestamps
+            - original: List of original values
+            - edited: List of edited values
+            - predictions: List of model predictions
+            - anomaly_points: List of detected anomalies
     """
-    if val_anomalies is None:
-        print("No validation anomalies provided.")
-        return
+    print("\n=== Creating Validation Anomalies Plot ===")
+    print(f"Number of data points: {len(val_anomalies['dates'])}")
+    print(f"Number of anomaly points: {len(val_anomalies['anomaly_points'])}")
     
-    # Create figure with subplots
-    fig, ax = plt.subplots(figsize=(15, 8))
-    
-    # Get the dates from the validation data
-    dates = val_data.index
-    
-    # Plot the original data
-    ax.plot(dates, val_data[preprocessor.output_features[0]], label='Original', color='blue', alpha=0.7)
-    
-    # Plot the predictions and edited data
-    if 'predictions' in val_anomalies and 'edited' in val_anomalies:
-        # Create a dictionary to store the predictions and edited data for each date
-        predictions_dict = {}
-        edited_dict = {}
-        
-        # Process each sequence
-        for i, (pred, edit, date_range) in enumerate(zip(val_anomalies['predictions'], val_anomalies['edited'], val_anomalies['dates'])):
-            # Get the sequence length and prediction window from the config
-            sequence_length = preprocessor.config.get('sequence_length', 500)
-            prediction_window = preprocessor.config.get('prediction_window', 15)
-            
-            # Calculate the start and end indices for this sequence
-            start_idx = i * sequence_length
-            end_idx = start_idx + sequence_length + prediction_window
-            
-            # Get the dates for this sequence
-            if isinstance(date_range, pd.DatetimeIndex):
-                sequence_dates = date_range
-            else:
-                # If dates are not provided, use the index from val_data
-                sequence_dates = dates[start_idx:end_idx]
-            
-            # Get the prediction dates (the last prediction_window dates)
-            pred_dates = sequence_dates[-prediction_window:]
-            
-            # Store the predictions and edited data for each date
-            for j, date in enumerate(pred_dates):
-                if date not in predictions_dict:
-                    predictions_dict[date] = []
-                    edited_dict[date] = []
-                
-                predictions_dict[date].append(pred[j, 0])
-                edited_dict[date].append(edit[j, 0])
-        
-        # Calculate the mean predictions and edited data for each date
-        pred_dates = sorted(predictions_dict.keys())
-        pred_values = [np.mean(predictions_dict[date]) for date in pred_dates]
-        edited_values = [np.mean(edited_dict[date]) for date in pred_dates]
-        
-        # Plot the predictions and edited data
-        ax.plot(pred_dates, pred_values, label='Predictions', color='red', alpha=0.7)
-        ax.plot(pred_dates, edited_values, label='Edited', color='green', alpha=0.7)
-    
-    # Plot the anomalies
-    if 'anomaly_points' in val_anomalies and val_anomalies['anomaly_points']:
-        anomaly_dates = []
-        anomaly_values = []
-        
-        for point in val_anomalies['anomaly_points']:
-            if len(point) == 2:  # (date, value)
-                date, value = point
-                anomaly_dates.append(date)
-                anomaly_values.append(value)
-            elif len(point) == 4:  # (sequence_idx, pred_idx, target_idx, value)
-                sequence_idx, pred_idx, target_idx, value = point
-                # Calculate the date index
-                sequence_length = preprocessor.config.get('sequence_length', 500)
-                date_idx = sequence_idx * sequence_length + sequence_length + pred_idx
-                if date_idx < len(dates):
-                    anomaly_dates.append(dates[date_idx])
-                    anomaly_values.append(value)
-        
-        ax.scatter(anomaly_dates, anomaly_values, color='purple', label='Anomalies', s=50, alpha=0.7)
-    
-    # Set labels and title
-    ax.set_xlabel('Date')
-    ax.set_ylabel(preprocessor.output_features[0])
-    ax.set_title('Validation Results with Predictions and Anomalies')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    # Format x-axis
-    fig.autofmt_xdate()
-    
-    # Save the plot if a path is provided
-    if save_path:
-        plt.savefig(save_path)
-        print(f"Plot saved to {save_path}")
-    
-    plt.tight_layout()
-    plt.show()
+    # Create figure with secondary y-axis
+    fig = make_subplots(rows=1, cols=1)
 
+    # Convert dates to strings for plotting
+    dates = pd.to_datetime(val_anomalies['dates'])
 
-def plot_interactive_validation(preprocessor, val_data, save_path=None, val_anomalies=None):
-    """
-    Create an interactive plot of the validation results with predictions and anomalies.
+    # Ensure all time series are 1D numpy arrays
+    original = np.array(val_anomalies['original']).flatten()
+    edited = np.array(val_anomalies['edited']).flatten()
+    predictions = np.array(val_anomalies['predictions']).flatten()
+
+    # Sanity check
+    assert len(dates) == len(original) == len(edited) == len(predictions)
+
     
-    Args:
-        preprocessor: DataPreprocessor instance
-        val_data: Validation data
-        save_path: Path to save the plot
-        val_anomalies: Dictionary containing validation anomalies
-    """
-    if val_anomalies is None:
-        print("No validation anomalies provided.")
-        return
-    
-    # Create figure
-    fig = go.Figure()
-    
-    # Get the dates from the validation data
-    dates = val_data.index
-    
-    # Plot the original data
-    fig.add_trace(go.Scatter(
-        x=dates,
-        y=val_data[preprocessor.output_features[0]],
-        mode='lines',
-        name='Original',
-        line=dict(color='blue', width=1),
-        hovertemplate='Date: %{x}<br>Value: %{y:.2f}<extra></extra>'
-    ))
-    
-    # Plot the predictions and edited data
-    if 'predictions' in val_anomalies and 'edited' in val_anomalies:
-        # Create a dictionary to store the predictions and edited data for each date
-        predictions_dict = {}
-        edited_dict = {}
-        
-        # Process each sequence
-        for i, (pred, edit, date_range) in enumerate(zip(val_anomalies['predictions'], val_anomalies['edited'], val_anomalies['dates'])):
-            # Get the sequence length and prediction window from the config
-            sequence_length = preprocessor.config.get('sequence_length', 500)
-            prediction_window = preprocessor.config.get('prediction_window', 15)
-            
-            # Calculate the start and end indices for this sequence
-            start_idx = i * sequence_length
-            end_idx = start_idx + sequence_length + prediction_window
-            
-            # Get the dates for this sequence
-            if isinstance(date_range, pd.DatetimeIndex):
-                sequence_dates = date_range
-            else:
-                # If dates are not provided, use the index from val_data
-                sequence_dates = dates[start_idx:end_idx]
-            
-            # Get the prediction dates (the last prediction_window dates)
-            pred_dates = sequence_dates[-prediction_window:]
-            
-            # Store the predictions and edited data for each date
-            for j, date in enumerate(pred_dates):
-                if date not in predictions_dict:
-                    predictions_dict[date] = []
-                    edited_dict[date] = []
-                
-                predictions_dict[date].append(pred[j, 0])
-                edited_dict[date].append(edit[j, 0])
-        
-        # Calculate the mean predictions and edited data for each date
-        pred_dates = sorted(predictions_dict.keys())
-        pred_values = [np.mean(predictions_dict[date]) for date in pred_dates]
-        edited_values = [np.mean(edited_dict[date]) for date in pred_dates]
-        
-        # Plot the predictions and edited data
-        fig.add_trace(go.Scatter(
-            x=pred_dates,
-            y=pred_values,
-            mode='lines',
-            name='Predictions',
-            line=dict(color='red', width=1),
-            hovertemplate='Date: %{x}<br>Value: %{y:.2f}<extra></extra>'
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=pred_dates,
-            y=edited_values,
-            mode='lines',
-            name='Edited',
-            line=dict(color='green', width=1),
-            hovertemplate='Date: %{x}<br>Value: %{y:.2f}<extra></extra>'
-        ))
-    
-    # Plot the anomalies
-    if 'anomaly_points' in val_anomalies and val_anomalies['anomaly_points']:
-        anomaly_dates = []
-        anomaly_values = []
-        
-        for point in val_anomalies['anomaly_points']:
-            if len(point) == 2:  # (date, value)
-                date, value = point
-                anomaly_dates.append(date)
-                anomaly_values.append(value)
-            elif len(point) == 4:  # (sequence_idx, pred_idx, target_idx, value)
-                sequence_idx, pred_idx, target_idx, value = point
-                # Calculate the date index
-                sequence_length = preprocessor.config.get('sequence_length', 500)
-                date_idx = sequence_idx * sequence_length + sequence_length + pred_idx
-                if date_idx < len(dates):
-                    anomaly_dates.append(dates[date_idx])
-                    anomaly_values.append(value)
-        
-        fig.add_trace(go.Scatter(
-            x=anomaly_dates,
-            y=anomaly_values,
-            mode='markers',
-            name='Anomalies',
-            marker=dict(color='purple', size=8),
-            hovertemplate='Date: %{x}<br>Value: %{y:.2f}<extra></extra>'
-        ))
-    
-    # Update layout
-    fig.update_layout(
-        title='Validation Results with Predictions and Anomalies',
-        xaxis_title='Date',
-        yaxis_title=preprocessor.output_features[0],
-        hovermode='x unified',
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
-        height=800,
-        width=1200,
-        template='plotly_white',
-        modebar=dict(
-            orientation='vertical',
-            bgcolor='rgba(255, 255, 255, 0.7)',
-            color='#1f77b4',
-            activecolor='#d62728'
-        ),
-        annotations=[
-            dict(
-                text="Use the zoom tools to explore the data",
-                showarrow=False,
-                xref="paper", yref="paper",
-                x=0, y=1.05,
-                font=dict(size=12, color="gray")
-            )
-        ],
-        dragmode='zoom'
-    )
-    
-    # Configure x-axis with enhanced zoom capabilities
-    fig.update_xaxes(
-        rangeslider_visible=True,
-        rangeselector=dict(
-            buttons=list([
-                dict(count=1, label="1m", step="month", stepmode="backward"),
-                dict(count=3, label="3m", step="month", stepmode="backward"),
-                dict(count=6, label="6m", step="month", stepmode="backward"),
-                dict(step="all", label="All")
-            ])
+    print("\nAdding traces to plot...")
+    # Plot original values
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=val_anomalies['original'].flatten(),
+            name='Original Values',
+            line=dict(color='blue', width=1),
+            opacity=0.7
         )
     )
     
-    # Configure axes with enhanced zoom capabilities
-    fig.update_xaxes(
-        showspikes=True,
-        spikemode='across',
-        spikesnap='cursor',
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='LightGray'
+    # Plot edited values
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=val_anomalies['edited'].flatten(),
+            name='Edited Values',
+            line=dict(color='green', width=1),
+            opacity=0.7
+        )
     )
     
-    fig.update_yaxes(
-        showspikes=True,
-        spikemode='across',
-        spikesnap='cursor',
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='LightGray'
+    # Plot predictions
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=val_anomalies['predictions'].flatten(),
+            name='Predictions',
+            line=dict(color='red', width=1),
+            opacity=0.7
+        )
     )
     
-    # Save the interactive plot as HTML if a path is provided
-    if save_path:
-        pio.write_html(fig, file=save_path, include_plotlyjs=True, full_html=True)
-        print(f"Interactive plot saved to {save_path}")
+    # Plot anomaly points
+    if val_anomalies['anomaly_points']:
+        print("Adding anomaly points to plot...")
+        anomaly_dates = pd.to_datetime([point[0] for point in val_anomalies['anomaly_points']])
+        anomaly_values = [point[1] for point in val_anomalies['anomaly_points']]        
+                
+        anomaly_values = [point[1] for point in val_anomalies['anomaly_points']]
+        fig.add_trace(
+            go.Scatter(
+                x=anomaly_dates,
+                y=anomaly_values,
+                mode='markers',
+                name='Anomaly Points',
+                marker=dict(
+                    color='yellow',
+                    size=10,
+                    symbol='star'
+                )
+            )
+        )
     
+    print("\nUpdating plot layout...")
+    # Update layout
+    fig.update_layout(
+        title='Validation Anomalies Analysis',
+        xaxis_title='Date',
+        yaxis_title='Value',
+        hovermode='x unified',
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01
+        ),
+        template='plotly_white',
+        width=1200,  # Make the figure wider
+        height=600   # Adjust height proportionally
+    )
+    
+    print("Displaying plot...")
     # Show the plot
-    fig.show()
-
+    pio.show(fig)
+    
+    print("Plot creation complete!")
+    return fig
 
 
 # =======================
@@ -730,13 +649,5 @@ if __name__ == "__main__":
         val_data_index=val_data.index,
         config=LSTM_CONFIG
     )
-    # Plot the entire validation dataset using anomalies detected during training
-    plot_full_validation(preprocessor, val_data, 
-        val_anomalies=val_anomalies
-    )
-    
-    # Create interactive Plotly visualization using anomalies detected during training
-    plot_interactive_validation( preprocessor, val_data, 
-        save_path="validation_plot_interactive.html",
-        val_anomalies=val_anomalies
-    )
+  
+    plot_validation_anomalies(val_anomalies)
