@@ -7,7 +7,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import seaborn as sns
 from matplotlib.gridspec import GridSpec
 
-def analyze_residuals(actual, predictions, output_dir=None, station_id='main'):
+def analyze_residuals(actual, predictions, output_dir=None, station_id='main', features_df=None):
     """
     Analyze the residuals (errors) between actual and predicted water levels.
     
@@ -16,6 +16,7 @@ def analyze_residuals(actual, predictions, output_dir=None, station_id='main'):
         predictions: Series containing predicted water level values
         output_dir: Optional output directory path
         station_id: Station identifier for plot title
+        features_df: DataFrame containing additional features like temperature and rainfall
         
     Returns:
         Path to the saved PNG file
@@ -31,9 +32,23 @@ def analyze_residuals(actual, predictions, output_dir=None, station_id='main'):
     # Calculate residuals
     residuals = actual - predictions
     
-    # Set up figure with multiple subplots
-    fig = plt.figure(figsize=(12, 12))
-    gs = GridSpec(3, 2, height_ratios=[2, 1, 1])
+    # Determine number of rows based on whether we have feature data
+    if features_df is not None and not features_df.empty:
+        # Check which features are available
+        has_temp = 'temperature' in features_df.columns
+        has_rain = 'rainfall' in features_df.columns
+        
+        # Calculate number of additional rows needed (1 row for every 2 feature plots)
+        additional_plots = sum([has_temp, has_rain])
+        additional_rows = (additional_plots + 1) // 2  # Integer division, rounds down
+        
+        # Set up figure with multiple subplots including space for feature plots
+        fig = plt.figure(figsize=(12, 12 + 3 * additional_rows + 2))  # Added 2 more rows for ACF plots
+        gs = GridSpec(3 + additional_rows + 1, 2, height_ratios=[2] + [1] * (2 + additional_rows + 1))
+    else:
+        # Original figure setup
+        fig = plt.figure(figsize=(12, 14))  # Increased height for ACF plots
+        gs = GridSpec(4, 2, height_ratios=[2, 1, 1, 1])
     
     # 1. Time series of residuals
     ax1 = fig.add_subplot(gs[0, :])
@@ -86,11 +101,155 @@ def analyze_residuals(actual, predictions, output_dir=None, station_id='main'):
     ax5.set_xlabel('Predicted Water Level [mm]', fontweight='bold')
     ax5.set_ylabel('Residual [mm]', fontweight='bold')
     
+    # NEW: Add autocorrelation plots to check for white noise
+    try:
+        from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+        
+        # Get base row for ACF plots (after existing plots)
+        acf_row = 3
+        
+        # Drop NaN values for autocorrelation calculation
+        residuals_no_nan = residuals.dropna()
+        
+        # Ensure residuals are evenly spaced in time (required for ACF)
+        if not residuals_no_nan.index.is_monotonic_increasing:
+            print("Reindexing residuals to ensure monotonic time index for ACF calculation")
+            residuals_no_nan = residuals_no_nan.sort_index()
+        
+        # If we have huge data, sample to avoid performance issues
+        if len(residuals_no_nan) > 5000:
+            print(f"Sampling residuals for ACF calculation (from {len(residuals_no_nan)} to 5000 points)")
+            residuals_no_nan = residuals_no_nan.sample(5000)
+            residuals_no_nan = residuals_no_nan.sort_index()
+        
+        # Calculate the number of lags to show (min of 30 or half the length)
+        max_lags = min(30, len(residuals_no_nan) // 2)
+        
+        # ACF plot
+        ax_acf = fig.add_subplot(gs[acf_row, 0])
+        plot_acf(residuals_no_nan, lags=max_lags, alpha=0.05, ax=ax_acf, title='', zero=True)
+        ax_acf.set_title('Autocorrelation Function (ACF)', fontweight='bold')
+        ax_acf.set_xlabel('Lag', fontweight='bold')
+        ax_acf.set_ylabel('Correlation', fontweight='bold')
+        ax_acf.grid(True, alpha=0.3)
+        
+        # PACF plot 
+        ax_pacf = fig.add_subplot(gs[acf_row, 1])
+        plot_pacf(residuals_no_nan, lags=max_lags, alpha=0.05, ax=ax_pacf, title='', zero=True)
+        ax_pacf.set_title('Partial Autocorrelation Function (PACF)', fontweight='bold')
+        ax_pacf.set_xlabel('Lag', fontweight='bold')
+        ax_pacf.set_ylabel('Correlation', fontweight='bold')
+        ax_pacf.grid(True, alpha=0.3)
+        
+        # Check for white noise using Ljung-Box test
+        from statsmodels.stats.diagnostic import acorr_ljungbox
+        # Calculate Ljung-Box statistic for lags up to 24 (e.g., 24 hours)
+        lb_test = acorr_ljungbox(residuals_no_nan, lags=[6, 12, 24], return_df=True)
+        
+        # Add a text box with Ljung-Box test results
+        lb_text = "Ljung-Box Test (H0: Residuals are white noise):\n"
+        for i, lag in enumerate([6, 12, 24]):
+            p_value = lb_test.iloc[i]['lb_pvalue']
+            lb_text += f"Lag {lag}: p-value = {p_value:.4f} ({'Reject H0' if p_value < 0.05 else 'Fail to reject H0'})\n"
+        
+        ax_acf.text(0.98, 0.02, lb_text, transform=ax_acf.transAxes, fontsize=9,
+                   verticalalignment='bottom', horizontalalignment='right',
+                   bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5'))
+        
+        # Increment the base row for feature plots if they exist
+        acf_row += 1
+        
+    except ImportError as e:
+        print(f"Warning: Could not create autocorrelation plots due to missing package: {str(e)}")
+        acf_row = 3
+    except Exception as e:
+        print(f"Warning: Error creating autocorrelation plots: {str(e)}")
+        acf_row = 3
+    
+    # Add feature-based plots if features are available
+    if features_df is not None and not features_df.empty:
+        # Ensure the indices match
+        features_aligned = features_df.loc[residuals.index].copy()
+        
+        # Plot counter for positioning
+        plot_counter = 0
+        
+        # Plot residuals vs temperature if available
+        if 'temperature' in features_aligned.columns:
+            row = acf_row + plot_counter // 2
+            col = plot_counter % 2
+            
+            ax_temp = fig.add_subplot(gs[row, col])
+            temp_data = features_aligned['temperature'].dropna()
+            res_aligned = residuals.loc[temp_data.index]
+            
+            ax_temp.scatter(temp_data, res_aligned, alpha=0.3, s=10, color='#1f77b4')
+            ax_temp.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+            ax_temp.set_title('Residuals vs Temperature', fontweight='bold')
+            ax_temp.set_xlabel('Temperature [°C]', fontweight='bold')
+            ax_temp.set_ylabel('Residual [mm]', fontweight='bold')
+            
+            # Add linear regression line
+            if len(temp_data) > 1:
+                m, b = np.polyfit(temp_data, res_aligned, 1)
+                ax_temp.plot(temp_data, m*temp_data + b, color='green', linestyle='-', linewidth=1.5,
+                         label=f'Trend: y = {m:.2f}x + {b:.2f}')
+                ax_temp.legend()
+            
+            plot_counter += 1
+        
+        # Plot residuals vs rainfall if available
+        if 'rainfall' in features_aligned.columns:
+            ax_rain = fig.add_subplot(gs[acf_row, 0])
+            rain_data = features_aligned['rainfall'].dropna()
+            res_aligned = residuals.loc[rain_data.index]
+            
+            # Filter out zero rainfall for better visualization
+            nonzero_mask = rain_data > 0
+            if nonzero_mask.sum() > 10:  # Only if we have enough non-zero data points
+                ax_rain.scatter(rain_data[nonzero_mask], res_aligned[nonzero_mask], 
+                           alpha=0.3, s=10, color='#1f77b4')
+                ax_rain.set_xscale('log')  # Log scale for rainfall
+                ax_rain.set_title('Residuals vs Rainfall (non-zero)', fontweight='bold')
+            else:
+                ax_rain.scatter(rain_data, res_aligned, alpha=0.3, s=10, color='#1f77b4')
+                ax_rain.set_title('Residuals vs Rainfall', fontweight='bold')
+            
+                ax_rain.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+                ax_rain.set_xlabel('Rainfall [mm]', fontweight='bold')
+                ax_rain.set_ylabel('Residual [mm]', fontweight='bold')
+                
+            plot_counter += 1
+        
+        # Plot residuals vs vst_raw if it's a different column than 'actual'
+        if 'vst_raw' in features_aligned.columns and not actual.equals(features_aligned['vst_raw']):
+            row = acf_row + plot_counter // 2
+            col = plot_counter % 2
+            
+            ax_vst = fig.add_subplot(gs[row, col])
+            vst_data = features_aligned['vst_raw'].dropna()
+            res_aligned = residuals.loc[vst_data.index]
+            
+            ax_vst.scatter(vst_data, res_aligned, alpha=0.3, s=10, color='#1f77b4')
+            ax_vst.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+            ax_vst.set_title('Residuals vs VST Raw', fontweight='bold')
+            ax_vst.set_xlabel('VST Raw [mm]', fontweight='bold')
+            ax_vst.set_ylabel('Residual [mm]', fontweight='bold')
+            
+            # Add linear regression line
+            if len(vst_data) > 1:
+                m, b = np.polyfit(vst_data, res_aligned, 1)
+                ax_vst.plot(vst_data, m*vst_data + b, color='green', linestyle='-', linewidth=1.5,
+                        label=f'Trend: y = {m:.2f}x + {b:.2f}')
+                ax_vst.legend()
+            
+            plot_counter += 1
+    
     # Add overall statistics as text
     stats_text = (
-        f"RMSE: {np.sqrt(mean_squared_error(actual, predictions)):.2f} mm\n"
-        f"MAE: {mean_absolute_error(actual, predictions):.2f} mm\n"
-        f"R²: {r2_score(actual, predictions):.4f}\n"
+        f"RMSE: {np.sqrt(mean_squared_error(actual.dropna(), predictions.loc[actual.dropna().index])):.2f} mm\n"
+        f"MAE: {mean_absolute_error(actual.dropna(), predictions.loc[actual.dropna().index]):.2f} mm\n"
+        f"R²: {r2_score(actual.dropna(), predictions.loc[actual.dropna().index]):.4f}\n"
         f"Mean Error: {np.mean(residuals):.2f} mm\n"
         f"Error Std Dev: {np.std(residuals):.2f} mm"
     )
@@ -105,135 +264,6 @@ def analyze_residuals(actual, predictions, output_dir=None, station_id='main'):
     plt.close()
     
     print(f"Saved residual analysis to: {output_path}")
-    return output_path
-
-def analyze_peak_detection(actual, predictions, rainfall=None, output_dir=None, station_id='main', threshold_percentile=80):
-    """
-    Analyze how well the model detects and predicts peak water levels.
-    
-    Args:
-        actual: Series containing actual water level values
-        predictions: Series containing predicted water level values
-        rainfall: Optional series of rainfall data for the same period
-        output_dir: Optional output directory path
-        station_id: Station identifier for plot title
-        threshold_percentile: Percentile to define a "peak" (default: 80)
-        
-    Returns:
-        Path to the saved PNG file
-    """
-    # Set default output directory if not provided
-    if output_dir is None:
-        output_dir = Path("Project_Code - CORRECT/results/diagnostics")
-        output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate timestamp for unique filename
-    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Define peaks as values above the threshold percentile
-    peak_threshold = np.percentile(actual, threshold_percentile)
-    
-    # Identify peaks
-    peak_mask = actual > peak_threshold
-    peak_dates = actual.index[peak_mask]
-    
-    # Calculate errors for peak and non-peak periods
-    peak_errors = np.abs(actual[peak_mask] - predictions[peak_mask])
-    non_peak_errors = np.abs(actual[~peak_mask] - predictions[~peak_mask])
-    
-    # Calculate metrics
-    peak_mae = np.mean(peak_errors)
-    peak_rmse = np.sqrt(np.mean(np.square(peak_errors)))
-    non_peak_mae = np.mean(non_peak_errors)
-    non_peak_rmse = np.sqrt(np.mean(np.square(non_peak_errors)))
-    
-    # Create figure with subplots
-    if rainfall is not None:
-        fig = plt.figure(figsize=(12, 12))
-        gs = GridSpec(3, 2, height_ratios=[0.5, 2, 1])
-        
-        # Rainfall subplot
-        ax_rain = fig.add_subplot(gs[0, :])
-        ax_rain.bar(rainfall.index, rainfall.values, width=0.5, alpha=0.6, color='#1f77b4')
-        ax_rain.set_title('Rainfall', fontweight='bold')
-        ax_rain.set_ylabel('Rainfall [mm]', fontweight='bold')
-        ax_rain.grid(True, alpha=0.3)
-        ax_rain.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-        ax_rain.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-        plt.setp(ax_rain.xaxis.get_majorticklabels(), visible=False)
-    else:
-        fig = plt.figure(figsize=(12, 10))
-        gs = GridSpec(2, 2, height_ratios=[2, 1])
-    
-    # Time series with peaks highlighted
-    ax1 = fig.add_subplot(gs[1, :] if rainfall is not None else gs[0, :])
-    ax1.plot(actual.index, actual.values, label='Actual', color='#1f77b4', linewidth=1.5)
-    ax1.plot(predictions.index, predictions.values, label='Predicted', color='#d62728', linewidth=1.5, alpha=0.8)
-    
-    # Highlight peaks
-    ax1.fill_between(actual.index, peak_threshold, actual.max() + 100, alpha=0.2, color='red', 
-                    label=f'Peak Regions (>{threshold_percentile}th percentile)')
-    ax1.axhline(y=peak_threshold, color='red', linestyle='--', alpha=0.8, 
-               label=f'Peak Threshold: {peak_threshold:.0f} mm')
-    
-    ax1.set_title(f'Water Level Peaks Analysis - Station {station_id}', fontweight='bold')
-    ax1.set_ylabel('Water Level [mm]', fontweight='bold')
-    ax1.legend(loc='upper right')
-    ax1.grid(True, alpha=0.3)
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
-    
-    # Error comparison: peak vs non-peak
-    ax2 = fig.add_subplot(gs[2, 0] if rainfall is not None else gs[1, 0])
-    bar_data = [peak_mae, non_peak_mae]
-    bars = ax2.bar(['Peak Periods', 'Non-Peak Periods'], bar_data, color=['#ff9999', '#66b3ff'])
-    ax2.set_title('MAE Comparison', fontweight='bold')
-    ax2.set_ylabel('Mean Absolute Error [mm]', fontweight='bold')
-    ax2.grid(True, axis='y', alpha=0.3)
-    
-    # Add text labels on bars
-    for bar, value in zip(bars, bar_data):
-        ax2.text(bar.get_x() + bar.get_width()/2, value + 5, f'{value:.1f}', 
-                ha='center', va='bottom', fontweight='bold')
-    
-    # Error comparison: RMSE
-    ax3 = fig.add_subplot(gs[2, 1] if rainfall is not None else gs[1, 1])
-    bar_data = [peak_rmse, non_peak_rmse]
-    bars = ax3.bar(['Peak Periods', 'Non-Peak Periods'], bar_data, color=['#ff9999', '#66b3ff'])
-    ax3.set_title('RMSE Comparison', fontweight='bold')
-    ax3.set_ylabel('Root Mean Squared Error [mm]', fontweight='bold')
-    ax3.grid(True, axis='y', alpha=0.3)
-    
-    # Add text labels on bars
-    for bar, value in zip(bars, bar_data):
-        ax3.text(bar.get_x() + bar.get_width()/2, value + 5, f'{value:.1f}', 
-                ha='center', va='bottom', fontweight='bold')
-    
-    # Add overall statistics as text
-    peak_count = sum(peak_mask)
-    total_count = len(actual)
-    peak_percent = (peak_count / total_count) * 100
-    
-    stats_text = (
-        f"Total observations: {total_count}\n"
-        f"Peak observations: {peak_count} ({peak_percent:.1f}%)\n"
-        f"Peak threshold: {peak_threshold:.1f} mm\n"
-        f"Peak MAE: {peak_mae:.1f} mm (vs {non_peak_mae:.1f} mm for non-peak)\n"
-        f"Peak RMSE: {peak_rmse:.1f} mm (vs {non_peak_rmse:.1f} mm for non-peak)"
-    )
-    
-    fig.text(0.02, 0.02, stats_text, fontsize=10, 
-             bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5'))
-    
-    plt.tight_layout()
-    
-    # Save the figure
-    output_path = output_dir / f'peak_analysis_{station_id}_{timestamp}.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"Saved peak detection analysis to: {output_path}")
     return output_path
 
 def create_error_heatmap(actual, predictions, output_dir=None, station_id='main'):
@@ -338,136 +368,271 @@ def create_error_heatmap(actual, predictions, output_dir=None, station_id='main'
     print(f"Saved error heatmap to: {output_path}")
     return output_path
 
-def analyze_response_to_rainfall(actual, predictions, rainfall, output_dir=None, station_id='main'):
+def analyze_individual_residuals(actual, predictions, output_dir=None, station_id='main', features_df=None):
     """
-    Analyze how well the model responds to rainfall events.
+    Create individual plots for each residual analysis component.
     
     Args:
         actual: Series containing actual water level values
         predictions: Series containing predicted water level values
-        rainfall: Series containing rainfall data
         output_dir: Optional output directory path
         station_id: Station identifier for plot title
+        features_df: DataFrame containing additional features like temperature and rainfall
         
     Returns:
-        Path to the saved PNG file
+        Dictionary of paths to the saved PNG files
     """
     # Set default output directory if not provided
     if output_dir is None:
-        output_dir = Path("Project_Code - CORRECT/results/diagnostics")
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = Path("results/diagnostics")
+    
+    output_dir = Path(output_dir) / "individual_residuals"
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate timestamp for unique filename
     timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     
-    # Identify significant rainfall events (e.g., > 10mm)
-    significant_rainfall = 10  # mm
-    rainfall_events = rainfall[rainfall > significant_rainfall]
+    # Calculate residuals
+    residuals = actual - predictions
     
-    if len(rainfall_events) == 0:
-        print("No significant rainfall events found. Adjusting threshold...")
-        # If no events with > 10mm, use the top 10 rainfall events
-        rainfall_events = rainfall.nlargest(10)
+    # Dictionary to store file paths
+    plot_paths = {}
     
-    # Create figure
-    fig = plt.figure(figsize=(12, 10))
-    gs = GridSpec(2, 1, height_ratios=[1, 2])
-    
-    # Rainfall subplot
-    ax_rain = fig.add_subplot(gs[0])
-    ax_rain.bar(rainfall.index, rainfall.values, width=0.5, alpha=0.6, color='#1f77b4')
-    
-    # Highlight significant rainfall events
-    for event_time in rainfall_events.index:
-        ax_rain.axvline(x=event_time, color='red', alpha=0.5, linestyle='--')
-    
-    ax_rain.set_title('Rainfall with Significant Events', fontweight='bold')
-    ax_rain.set_ylabel('Rainfall [mm]', fontweight='bold')
-    ax_rain.grid(True, alpha=0.3)
-    ax_rain.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-    ax_rain.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    plt.setp(ax_rain.xaxis.get_majorticklabels(), visible=False)
-    
-    # Water level subplot
-    ax_wl = fig.add_subplot(gs[1])
-    ax_wl.plot(actual.index, actual.values, label='Actual', color='#1f77b4', linewidth=1.5)
-    ax_wl.plot(predictions.index, predictions.values, label='Predicted', color='#d62728', linewidth=1.5, alpha=0.8)
-    
-    # Highlight the same rainfall events
-    for event_time in rainfall_events.index:
-        ax_wl.axvline(x=event_time, color='red', alpha=0.5, linestyle='--')
-    
-    ax_wl.set_title(f'Water Level Response to Rainfall - Station {station_id}', fontweight='bold')
-    ax_wl.set_ylabel('Water Level [mm]', fontweight='bold')
-    ax_wl.set_xlabel('Date', fontweight='bold')
-    ax_wl.legend(loc='upper right')
-    ax_wl.grid(True, alpha=0.3)
-    ax_wl.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-    ax_wl.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    plt.setp(ax_wl.xaxis.get_majorticklabels(), rotation=45, ha='right')
-    
-    # Calculate post-rainfall errors
-    window_days = 3  # Days after rainfall to analyze
-    post_rain_errors = []
-    normal_errors = []
-    
-    # Create a mask for all post-rainfall periods
-    post_rain_mask = pd.Series(False, index=actual.index)
-    
-    for event_time in rainfall_events.index:
-        window_end = event_time + pd.Timedelta(days=window_days)
-        post_rain_period = (actual.index > event_time) & (actual.index <= window_end)
-        post_rain_mask = post_rain_mask | post_rain_period
-        
-        # Calculate errors for this event
-        if any(post_rain_period):
-            event_errors = actual[post_rain_period] - predictions[post_rain_period]
-            post_rain_errors.extend(event_errors.values)
-    
-    # Normal periods are those not in post-rainfall windows
-    normal_period = ~post_rain_mask
-    normal_errors = (actual[normal_period] - predictions[normal_period]).values
-    
-    # Calculate metrics
-    post_rain_mae = np.mean(np.abs(post_rain_errors)) if post_rain_errors else np.nan
-    normal_mae = np.mean(np.abs(normal_errors)) if len(normal_errors) > 0 else np.nan
-    post_rain_rmse = np.sqrt(np.mean(np.square(post_rain_errors))) if post_rain_errors else np.nan
-    normal_rmse = np.sqrt(np.mean(np.square(normal_errors))) if len(normal_errors) > 0 else np.nan
-    
-    # Add statistics as text
-    stats_text = (
-        f"Significant rainfall threshold: {significant_rainfall} mm\n"
-        f"Number of rainfall events: {len(rainfall_events)}\n"
-        f"Post-rainfall window: {window_days} days\n"
-        f"Post-rainfall MAE: {post_rain_mae:.1f} mm\n"
-        f"Normal period MAE: {normal_mae:.1f} mm\n"
-        f"Post-rainfall RMSE: {post_rain_rmse:.1f} mm\n"
-        f"Normal period RMSE: {normal_rmse:.1f} mm"
-    )
-    
-    fig.text(0.02, 0.02, stats_text, fontsize=10, 
-             bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5'))
-    
+    # 1. Time series of residuals
+    plt.figure(figsize=(12, 6))
+    plt.plot(residuals.index, residuals.values, 'o-', markersize=2, alpha=0.6, color='#1f77b4')
+    plt.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+    plt.title(f'Residuals Over Time - Station {station_id}', fontweight='bold')
+    plt.ylabel('Residual (Actual - Predicted) [mm]', fontweight='bold')
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+    plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    plt.setp(plt.gca().xaxis.get_majorticklabels(), rotation=45, ha='right')
+    plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
-    # Save the figure
-    output_path = output_dir / f'rainfall_response_{station_id}_{timestamp}.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    time_path = output_dir / f'residuals_time_{station_id}_{timestamp}.png'
+    plt.savefig(time_path, dpi=300)
     plt.close()
+    plot_paths['time_series'] = time_path
     
-    print(f"Saved rainfall response analysis to: {output_path}")
-    return output_path
+    # 2. Histogram of residuals
+    plt.figure(figsize=(10, 6))
+    sns.histplot(residuals, kde=True, color='#1f77b4', stat='density')
+    plt.title('Distribution of Residuals', fontweight='bold')
+    plt.xlabel('Residual [mm]', fontweight='bold')
+    plt.ylabel('Density', fontweight='bold')
+    
+    # Add normal distribution fit
+    from scipy import stats
+    mu, std = stats.norm.fit(residuals.dropna())
+    x = np.linspace(residuals.min(), residuals.max(), 100)
+    p = stats.norm.pdf(x, mu, std)
+    plt.plot(x, p, 'k--', linewidth=1.5, label=f'Normal: μ={mu:.1f}, σ={std:.1f}')
+    plt.axvline(x=0, color='red', linestyle='--', alpha=0.8)
+    plt.legend()
+    plt.tight_layout()
+    
+    hist_path = output_dir / f'residuals_histogram_{station_id}_{timestamp}.png'
+    plt.savefig(hist_path, dpi=300)
+    plt.close()
+    plot_paths['histogram'] = hist_path
+    
+    # 3. Q-Q plot
+    plt.figure(figsize=(10, 6))
+    from scipy import stats
+    ax = plt.gca()
+    stats.probplot(residuals.dropna(), plot=ax)
+    plt.title('Q-Q Plot of Residuals', fontweight='bold')
+    plt.xlabel('Theoretical Quantiles', fontweight='bold')
+    plt.ylabel('Sample Quantiles', fontweight='bold')
+    plt.tight_layout()
+    
+    qq_path = output_dir / f'residuals_qq_{station_id}_{timestamp}.png'
+    plt.savefig(qq_path, dpi=300)
+    plt.close()
+    plot_paths['qq_plot'] = qq_path
+    
+    # 4. Residuals vs Actual
+    plt.figure(figsize=(10, 6))
+    plt.scatter(actual, residuals, alpha=0.3, s=10, color='#1f77b4')
+    plt.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+    plt.title('Residuals vs Actual Values', fontweight='bold')
+    plt.xlabel('Actual Water Level [mm]', fontweight='bold')
+    plt.ylabel('Residual [mm]', fontweight='bold')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    vs_actual_path = output_dir / f'residuals_vs_actual_{station_id}_{timestamp}.png'
+    plt.savefig(vs_actual_path, dpi=300)
+    plt.close()
+    plot_paths['vs_actual'] = vs_actual_path
+    
+    # 5. Residuals vs Predicted
+    plt.figure(figsize=(10, 6))
+    plt.scatter(predictions, residuals, alpha=0.3, s=10, color='#1f77b4')
+    plt.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+    plt.title('Residuals vs Predicted Values', fontweight='bold')
+    plt.xlabel('Predicted Water Level [mm]', fontweight='bold')
+    plt.ylabel('Residual [mm]', fontweight='bold')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    vs_pred_path = output_dir / f'residuals_vs_predicted_{station_id}_{timestamp}.png'
+    plt.savefig(vs_pred_path, dpi=300)
+    plt.close()
+    plot_paths['vs_predicted'] = vs_pred_path
+    
+    # 6. ACF and PACF plots
+    try:
+        from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+        
+        # Drop NaN values for autocorrelation calculation
+        residuals_no_nan = residuals.dropna()
+        
+        # Ensure residuals are evenly spaced in time (required for ACF)
+        if not residuals_no_nan.index.is_monotonic_increasing:
+            print("Reindexing residuals to ensure monotonic time index for ACF calculation")
+            residuals_no_nan = residuals_no_nan.sort_index()
+        
+        # If we have huge data, sample to avoid performance issues
+        if len(residuals_no_nan) > 5000:
+            print(f"Sampling residuals for ACF calculation (from {len(residuals_no_nan)} to 5000 points)")
+            residuals_no_nan = residuals_no_nan.sample(5000)
+            residuals_no_nan = residuals_no_nan.sort_index()
+        
+        # Calculate the number of lags to show (min of 30 or half the length)
+        max_lags = min(30, len(residuals_no_nan) // 2)
+        
+        # ACF plot
+        plt.figure(figsize=(10, 6))
+        plot_acf(residuals_no_nan, lags=max_lags, alpha=0.05, title='')
+        plt.title('Autocorrelation Function (ACF)', fontweight='bold')
+        plt.xlabel('Lag', fontweight='bold')
+        plt.ylabel('Correlation', fontweight='bold')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        acf_path = output_dir / f'residuals_acf_{station_id}_{timestamp}.png'
+        plt.savefig(acf_path, dpi=300)
+        plt.close()
+        plot_paths['acf'] = acf_path
+        
+        # PACF plot
+        plt.figure(figsize=(10, 6))
+        plot_pacf(residuals_no_nan, lags=max_lags, alpha=0.05, title='')
+        plt.title('Partial Autocorrelation Function (PACF)', fontweight='bold')
+        plt.xlabel('Lag', fontweight='bold')
+        plt.ylabel('Correlation', fontweight='bold')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        pacf_path = output_dir / f'residuals_pacf_{station_id}_{timestamp}.png'
+        plt.savefig(pacf_path, dpi=300)
+        plt.close()
+        plot_paths['pacf'] = pacf_path
+        
+    except Exception as e:
+        print(f"Warning: Could not create autocorrelation plots: {str(e)}")
+    
+    # 7. Residuals vs features if available
+    if features_df is not None and not features_df.empty:
+        # Ensure the indices match
+        features_aligned = features_df.loc[residuals.index].copy()
+        
+        # Plot residuals vs temperature if available
+        if 'temperature' in features_aligned.columns:
+            plt.figure(figsize=(10, 6))
+            temp_data = features_aligned['temperature'].dropna()
+            res_aligned = residuals.loc[temp_data.index]
+            
+            plt.scatter(temp_data, res_aligned, alpha=0.3, s=10, color='#1f77b4')
+            plt.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+            plt.title('Residuals vs Temperature', fontweight='bold')
+            plt.xlabel('Temperature [°C]', fontweight='bold')
+            plt.ylabel('Residual [mm]', fontweight='bold')
+            plt.grid(True, alpha=0.3)
+            
+            # Add linear regression line
+            if len(temp_data) > 1:
+                m, b = np.polyfit(temp_data, res_aligned, 1)
+                plt.plot(temp_data, m*temp_data + b, color='green', linestyle='-', linewidth=1.5,
+                       label=f'Trend: y = {m:.2f}x + {b:.2f}')
+                plt.legend()
+            
+            plt.tight_layout()
+            
+            temp_path = output_dir / f'residuals_vs_temp_{station_id}_{timestamp}.png'
+            plt.savefig(temp_path, dpi=300)
+            plt.close()
+            plot_paths['vs_temperature'] = temp_path
+        
+        # Plot residuals vs rainfall if available
+        if 'rainfall' in features_aligned.columns:
+            plt.figure(figsize=(10, 6))
+            rain_data = features_aligned['rainfall'].dropna()
+            res_aligned = residuals.loc[rain_data.index]
+            
+            # Filter out zero rainfall for better visualization
+            nonzero_mask = rain_data > 0
+            if nonzero_mask.sum() > 10:  # Only if we have enough non-zero data points
+                plt.scatter(rain_data[nonzero_mask], res_aligned[nonzero_mask], 
+                       alpha=0.3, s=10, color='#1f77b4')
+                plt.xscale('log')  # Log scale for rainfall
+                plt.title('Residuals vs Rainfall (non-zero)', fontweight='bold')
+            else:
+                plt.scatter(rain_data, res_aligned, alpha=0.3, s=10, color='#1f77b4')
+                plt.title('Residuals vs Rainfall', fontweight='bold')
+            
+            plt.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+            plt.xlabel('Rainfall [mm]', fontweight='bold')
+            plt.ylabel('Residual [mm]', fontweight='bold')
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            
+            rain_path = output_dir / f'residuals_vs_rainfall_{station_id}_{timestamp}.png'
+            plt.savefig(rain_path, dpi=300)
+            plt.close()
+            plot_paths['vs_rainfall'] = rain_path
+        
+        # Plot residuals vs vst_raw if it's a different column than 'actual'
+        if 'vst_raw' in features_aligned.columns and not actual.equals(features_aligned['vst_raw']):
+            plt.figure(figsize=(10, 6))
+            vst_data = features_aligned['vst_raw'].dropna()
+            res_aligned = residuals.loc[vst_data.index]
+            
+            plt.scatter(vst_data, res_aligned, alpha=0.3, s=10, color='#1f77b4')
+            plt.axhline(y=0, color='red', linestyle='--', alpha=0.8)
+            plt.title('Residuals vs VST Raw', fontweight='bold')
+            plt.xlabel('VST Raw [mm]', fontweight='bold')
+            plt.ylabel('Residual [mm]', fontweight='bold')
+            plt.grid(True, alpha=0.3)
+            
+            # Add linear regression line
+            if len(vst_data) > 1:
+                m, b = np.polyfit(vst_data, res_aligned, 1)
+                plt.plot(vst_data, m*vst_data + b, color='green', linestyle='-', linewidth=1.5,
+                       label=f'Trend: y = {m:.2f}x + {b:.2f}')
+                plt.legend()
+            
+            plt.tight_layout()
+            
+            vst_path = output_dir / f'residuals_vs_vst_{station_id}_{timestamp}.png'
+            plt.savefig(vst_path, dpi=300)
+            plt.close()
+            plot_paths['vs_vst_raw'] = vst_path
+    
+    print(f"Individual residual plots saved to: {output_dir}")
+    return plot_paths
 
-def create_taylor_diagram(actual, predictions, station_id='main', output_dir=None):
+def create_actual_vs_predicted_plot(actual, predictions, output_dir=None, station_id='main'):
     """
-    Create a Taylor diagram to visualize model performance.
-    If skill_metrics package is not available, creates a simplified alternative plot.
+    Create a single plot comparing actual vs predicted water levels with additional metrics.
     
     Args:
         actual: Series containing actual water level values
         predictions: Series containing predicted water level values
-        station_id: Station identifier for plot title
         output_dir: Optional output directory path
+        station_id: Station identifier for plot title
         
     Returns:
         Path to the saved PNG file
@@ -480,248 +645,79 @@ def create_taylor_diagram(actual, predictions, station_id='main', output_dir=Non
     # Generate timestamp for unique filename
     timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     
-    # Drop NaN values
-    valid_mask = ~(np.isnan(actual) | np.isnan(predictions))
-    actual_valid = actual[valid_mask].values
-    predictions_valid = predictions[valid_mask].values
+    # Create a new figure
+    plt.figure(figsize=(12, 10))
     
-    # Calculate statistics
-    std_ref = np.std(actual_valid)
-    std_pred = np.std(predictions_valid)
+    # Create a scatter plot of actual vs predicted
+    plt.scatter(actual, predictions, alpha=0.4, s=15, color='#1f77b4')
     
-    # Calculate correlation coefficient
-    corr = np.corrcoef(actual_valid, predictions_valid)[0, 1]
+    # Add a perfect prediction line (y=x)
+    max_val = max(actual.max(), predictions.max())
+    min_val = min(actual.min(), predictions.min())
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=1.5, label='Perfect prediction (y=x)')
     
-    # Calculate normalized RMSD (unbiased)
-    centered_actual = actual_valid - np.mean(actual_valid)
-    centered_pred = predictions_valid - np.mean(predictions_valid)
-    norm_rmsd = np.sqrt(np.mean((centered_actual - centered_pred) ** 2)) / std_ref
+    # Add regression line to show trend
+    from sklearn.linear_model import LinearRegression
+    import numpy as np
     
-    # Calculate metrics for statistics text
-    rmse = np.sqrt(mean_squared_error(actual_valid, predictions_valid))
-    mae = mean_absolute_error(actual_valid, predictions_valid)
-    r2 = r2_score(actual_valid, predictions_valid)
+    # Filter out NaN values
+    mask = ~np.isnan(actual) & ~np.isnan(predictions)
+    if sum(mask) > 1:  # Ensure we have at least 2 points for regression
+        actual_valid = actual[mask].values.reshape(-1, 1)
+        predictions_valid = predictions[mask].values.reshape(-1, 1)
+        
+        reg = LinearRegression().fit(actual_valid, predictions_valid)
+        pred_line = reg.predict(np.array([[min_val], [max_val]]))
+        plt.plot([min_val, max_val], [pred_line[0][0], pred_line[1][0]], 'g-', linewidth=1.5, 
+                 label=f'Regression line (slope={reg.coef_[0][0]:.2f}, intercept={reg.intercept_[0]:.2f})')
     
-    # Try to use skill_metrics if available
-    try:
-        import skill_metrics as sm
-        
-        # Setup figure
-        plt.figure(figsize=(10, 8))
-        
-        # Define labels and colors
-        labels = ['Observations', 'Predictions']
-        colors = ['k', 'r']  # Use single-letter codes for black and red
-        
-        # Data for Taylor diagram
-        sdev = np.array([std_ref, std_pred])
-        crmsd = np.array([0.0, norm_rmsd * std_ref])
-        ccoef = np.array([1.0, corr])
-        
-        # Create Taylor diagram
-        sm.taylor_diagram(sdev, crmsd, ccoef, 
-                         markerLabel=labels, markerColor=colors,
-                         markerLegend='on', styleOBS='-', 
-                         titleOBS='Reference', showlabelsRMS='on')
-        
-        # Add title
-        plt.title(f'Taylor Diagram - Station {station_id}', fontweight='bold', fontsize=14)
-        
-    except ImportError:
-        # Create alternative visualization
-        print("SkillMetrics package not found. Creating alternative performance visualization.")
-        
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        # Create a scatter plot
-        ax.scatter([std_ref], [1.0], s=150, c='blue', marker='*', label='Observations')
-        ax.scatter([std_pred], [corr], s=100, c='red', marker='o', label='Predictions')
-        
-        # Add labels for points
-        ax.annotate('Observations', xy=(std_ref, 1.0), xytext=(std_ref + 10, 1.0),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3"))
-        ax.annotate('Predictions', xy=(std_pred, corr), xytext=(std_pred + 10, corr - 0.1),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3"))
-        
-        # Set up the axes
-        ax.set_xlabel('Standard Deviation', fontweight='bold')
-        ax.set_ylabel('Correlation Coefficient', fontweight='bold')
-        ax.set_title(f'Model Performance Metrics - Station {station_id}', fontweight='bold')
-        
-        # Add reference lines
-        ax.axhline(y=1.0, color='gray', linestyle='--', alpha=0.7)
-        ax.axvline(x=std_ref, color='gray', linestyle='--', alpha=0.7)
-        
-        # Set axis limits
-        ax.set_ylim(0, 1.1)
-        max_std = max(std_ref, std_pred) * 1.2
-        ax.set_xlim(0, max_std)
-        
-        # Add grid
-        ax.grid(True, alpha=0.3)
-        
-        # Add legend
-        ax.legend(loc='upper right')
+    # Add axis labels and title
+    plt.xlabel('Actual Water Level [mm]', fontweight='bold', fontsize=12)
+    plt.ylabel('Predicted Water Level [mm]', fontweight='bold', fontsize=12)
+    plt.title(f'Actual vs Predicted Water Levels - Station {station_id}', fontweight='bold', fontsize=14)
     
-    # Add statistics text
+    # Add grid
+    plt.grid(True, alpha=0.3)
+    
+    # Add performance metrics as text box
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    
+    # Calculate metrics
+    rmse = np.sqrt(mean_squared_error(actual.dropna(), predictions.loc[actual.dropna().index]))
+    mae = mean_absolute_error(actual.dropna(), predictions.loc[actual.dropna().index])
+    r2 = r2_score(actual.dropna(), predictions.loc[actual.dropna().index])
+    
+    # Calculate Nash-Sutcliffe Efficiency (NSE)
+    nse = 1 - (np.sum((actual.dropna() - predictions.loc[actual.dropna().index]) ** 2) / 
+              np.sum((actual.dropna() - np.mean(actual.dropna())) ** 2))
+    
+    # Add metrics text box
     stats_text = (
-        f"Model Performance Metrics\n"
-        f"---------------------------\n"
         f"RMSE: {rmse:.2f} mm\n"
         f"MAE: {mae:.2f} mm\n"
         f"R²: {r2:.4f}\n"
-        f"Correlation: {corr:.4f}\n"
-        f"Std. Dev. (Obs): {std_ref:.2f} mm\n"
-        f"Std. Dev. (Pred): {std_pred:.2f} mm"
+        f"NSE: {nse:.4f}"
     )
-    
-    # Position statistics text in the upper left corner
-    plt.figtext(0.02, 0.95, stats_text, fontsize=10, 
-               bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5'))
-    
-    # Save the figure
-    output_path = output_dir / f'performance_metrics_{station_id}_{timestamp}.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"Saved performance metrics visualization to: {output_path}")
-    return output_path
-
-def analyze_specific_events(actual, predictions, rainfall=None, output_dir=None, station_id='main', n_events=5):
-    """
-    Create detailed visualizations of top flood events to analyze model performance during these critical periods.
-    
-    Args:
-        actual: Series containing actual water level values
-        predictions: Series containing predicted water level values
-        rainfall: Optional series of rainfall data for the same period
-        output_dir: Optional output directory path
-        station_id: Station identifier for plot title
-        n_events: Number of top events to analyze
-        
-    Returns:
-        Path to the saved PNG file
-    """
-    # Set default output directory if not provided
-    if output_dir is None:
-        output_dir = Path("Project_Code - CORRECT/results/diagnostics")
-        output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate timestamp for unique filename
-    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Find top n_events peaks in the data
-    # First, we need to identify isolated peaks by smoothing the data a bit
-    from scipy.signal import find_peaks
-    
-    # Use a rolling window to smooth the data
-    actual_smoothed = actual.rolling(window=24, center=True).mean().fillna(method='ffill').fillna(method='bfill')
-    
-    # Find peaks in the smoothed data
-    peaks, _ = find_peaks(actual_smoothed, distance=72, prominence=50)  # 72 hours between peaks, prominence of 50mm
-    
-    if len(peaks) == 0:
-        print("No significant peaks found. Adjusting parameters...")
-        peaks, _ = find_peaks(actual_smoothed, distance=48, prominence=20)  # Relax criteria
-        
-    if len(peaks) == 0:
-        print("Still no peaks found. Using the highest points in the data.")
-        # Just use the top n_events points
-        peaks = actual.nlargest(n_events).index
-        peak_values = actual[peaks]
-    else:
-        peak_indices = actual.index[peaks]
-        peak_values = actual[peak_indices]
-        
-        # Sort peaks by height and get the top n_events
-        sorted_peaks = sorted(zip(peak_indices, peak_values), key=lambda x: x[1], reverse=True)
-        peak_indices = [p[0] for p in sorted_peaks[:n_events]]
-        peak_values = [p[1] for p in sorted_peaks[:n_events]]
-    
-    # Create figure for all events
-    fig, axes = plt.subplots(n_events, 1, figsize=(12, 4*n_events))
-    
-    # If only one event, make axes iterable
-    if n_events == 1:
-        axes = [axes]
-    
-    # Analyze each peak event
-    for i, peak_time in enumerate(peak_indices[:n_events]):
-        # Define window around peak (7 days before and after)
-        window_start = peak_time - pd.Timedelta(days=7)
-        window_end = peak_time + pd.Timedelta(days=7)
-        
-        # Get data in window
-        window_mask = (actual.index >= window_start) & (actual.index <= window_end)
-        actual_window = actual[window_mask]
-        predictions_window = predictions[window_mask]
-        
-        # Calculate metrics for this event
-        event_rmse = np.sqrt(mean_squared_error(actual_window, predictions_window.loc[actual_window.index]))
-        event_mae = mean_absolute_error(actual_window, predictions_window.loc[actual_window.index])
-        peak_error = abs(actual_window.max() - predictions_window.loc[actual_window.index].max())
-        timing_error = abs((actual_window.idxmax() - predictions_window.loc[actual_window.index].idxmax()).total_seconds() / 3600)  # hours
-        
-        # Plot this event
-        ax = axes[i]
-        ax.plot(actual_window.index, actual_window, label='Actual', color='#1f77b4', linewidth=1.5)
-        ax.plot(predictions_window.index, predictions_window, label='Predicted', color='#d62728', linewidth=1.5, alpha=0.8)
-        
-        # Mark the peak points
-        ax.scatter([actual_window.idxmax()], [actual_window.max()], color='blue', s=80, zorder=5, label='Actual Peak')
-        ax.scatter([predictions_window.idxmax()], [predictions_window.max()], color='red', s=80, zorder=5, label='Predicted Peak')
-        
-        # Add rainfall if available
-        if rainfall is not None:
-            rainfall_window = rainfall[window_mask]
-            ax2 = ax.twinx()
-            ax2.bar(rainfall_window.index, rainfall_window, alpha=0.3, color='#2ca02c', width=0.5)
-            ax2.set_ylabel('Rainfall (mm)', color='#2ca02c')
-            ax2.tick_params(axis='y', labelcolor='#2ca02c')
-            ax2.set_ylim(bottom=0)
-            # Invert y-axis for rainfall to show bars going down from top
-            current_ylim = ax2.get_ylim()
-            ax2.set_ylim(current_ylim[1], current_ylim[0])
-        
-        # Set labels and title
-        event_date = peak_time.strftime('%Y-%m-%d')
-        ax.set_title(f'Flood Event {i+1}: {event_date} - Peak: {actual_window.max():.0f}mm', fontweight='bold')
-        ax.set_ylabel('Water Level (mm)', fontweight='bold')
-        
-        if i == n_events - 1:  # Only add xlabel to the bottom plot
-            ax.set_xlabel('Date', fontweight='bold')
-        
-        # Format x-axis
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
-        
-        # Add metrics as text
-        metrics_text = (
-            f"Event RMSE: {event_rmse:.1f}mm\n"
-            f"Event MAE: {event_mae:.1f}mm\n"
-            f"Peak Magnitude Error: {peak_error:.1f}mm\n"
-            f"Peak Timing Error: {timing_error:.1f} hours"
-        )
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-        ax.text(0.02, 0.97, metrics_text, transform=ax.transAxes, fontsize=9,
-                verticalalignment='top', bbox=props)
+    plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, fontsize=12,
+            verticalalignment='top', horizontalalignment='left',
+            bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5'))
         
         # Add legend
-        ax.legend(loc='upper right')
+    plt.legend(loc='lower right')
         
-        # Add grid
-        ax.grid(True, alpha=0.3)
-    
+    # Ensure equal aspect ratio
+    plt.axis('equal')
     plt.tight_layout()
     
     # Save the figure
-    output_path = output_dir / f'event_analysis_{station_id}_{timestamp}.png'
+    output_path = output_dir / f'actual_vs_predicted_{station_id}_{timestamp}.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Saved specific event analysis to: {output_path}")
+    print(f"Saved actual vs predicted plot to: {output_path}")
     return output_path
 
-def generate_all_diagnostics(actual, predictions, output_dir=None, station_id='main', rainfall=None, n_event_plots=3):
+def generate_all_diagnostics(actual, predictions, output_dir=None, station_id='main', rainfall=None, features_df=None):
     """
     Generate a comprehensive set of diagnostic visualizations for a water level prediction model.
     
@@ -731,7 +727,7 @@ def generate_all_diagnostics(actual, predictions, output_dir=None, station_id='m
         output_dir: Optional output directory path
         station_id: Station identifier for plot titles
         rainfall: Optional series of rainfall data for the same period
-        n_event_plots: Number of top water level events to analyze (default: 3)
+        features_df: DataFrame containing additional features for residual analysis (e.g., temperature)
         
     Returns:
         dict: Dictionary with paths to all generated visualization files
@@ -754,32 +750,31 @@ def generate_all_diagnostics(actual, predictions, output_dir=None, station_id='m
     try:
         # 1. Analyze residuals
         print("  - Analyzing prediction residuals...")
+        
+        # Prepare features dataframe if rainfall is available but no features_df is provided
+        if features_df is None and rainfall is not None:
+            features_df = pd.DataFrame({'rainfall': rainfall})
+            if 'vst_raw' not in features_df.columns:
+                features_df['vst_raw'] = actual
+        
         residuals_path = analyze_residuals(
             actual=actual,
             predictions=predictions,
             output_dir=output_dir,
-            station_id=station_id
+            station_id=station_id,
+            features_df=features_df
         )
         visualization_paths['residuals'] = residuals_path
         
-        # 2. Analyze peak detection performance
-        print("  - Analyzing peak detection performance...")
-        if rainfall is not None:
-            peak_path = analyze_peak_detection(
-                actual=actual,
-                predictions=predictions,
-                rainfall=rainfall,
-                output_dir=output_dir,
-                station_id=station_id
-            )
-        else:
-            peak_path = analyze_peak_detection(
+        # 2. Create actual vs predicted plot
+        print("  - Creating actual vs predicted plot...")
+        actual_pred_path = create_actual_vs_predicted_plot(
                 actual=actual,
                 predictions=predictions,
                 output_dir=output_dir,
                 station_id=station_id
             )
-        visualization_paths['peak_detection'] = peak_path
+        visualization_paths['actual_vs_predicted'] = actual_pred_path
         
         # 3. Create error heatmap by time patterns
         print("  - Creating error pattern heatmap...")
@@ -791,56 +786,8 @@ def generate_all_diagnostics(actual, predictions, output_dir=None, station_id='m
         )
         visualization_paths['error_heatmap'] = heatmap_path
         
-        # 4. Analyze specific flood events
-        print(f"  - Analyzing top {n_event_plots} water level events...")
-        events_path = analyze_specific_events(
-            actual=actual,
-            predictions=predictions,
-            rainfall=rainfall,
-            output_dir=output_dir,
-            station_id=station_id,
-            n_events=n_event_plots
-        )
-        visualization_paths['specific_events'] = events_path
-        
-        # 5. Analyze model response to rainfall if rainfall data is available
-        if rainfall is not None:
-            print("  - Analyzing model response to rainfall events...")
-            rainfall_path = analyze_response_to_rainfall(
-                actual=actual,
-                predictions=predictions,
-                rainfall=rainfall,
-                output_dir=output_dir,
-                station_id=station_id
-            )
-            visualization_paths['rainfall_response'] = rainfall_path
-        
-        # 6. Create performance metrics visualization (Taylor diagram or alternative)
-        try:
-            print("  - Creating performance metrics visualization...")
-            metrics_path = create_taylor_diagram(
-                actual=actual,
-                predictions=predictions,
-                station_id=station_id,
-                output_dir=output_dir
-            )
-            visualization_paths['performance_metrics'] = metrics_path
-        except Exception as e:
-            print(f"    Error creating performance metrics visualization: {str(e)}")
-        
         # Success message
         print(f"\nAll diagnostic visualizations saved to: {output_dir}")
-        
-        # Create an HTML index file that links to all visualizations
-        try:
-            index_path = create_diagnostics_index(
-                visualization_paths=visualization_paths,
-                station_id=station_id,
-                output_dir=output_dir
-            )
-            visualization_paths['index'] = index_path
-        except Exception as e:
-            print(f"Error creating index file: {str(e)}")
         
     except Exception as e:
         print(f"Error during diagnostic visualization generation: {str(e)}")
@@ -849,20 +796,21 @@ def generate_all_diagnostics(actual, predictions, output_dir=None, station_id='m
     
     return visualization_paths
 
-def generate_comparative_diagnostics(actual, predictions_dict, output_dir=None, station_id='main', rainfall=None, n_event_plots=3):
+def generate_comparative_diagnostics(actual, predictions_dict, output_dir=None, station_id='main', rainfall=None, features_df=None):
     """
-    Generate comparative diagnostic visualizations for multiple prediction models.
+    Generate comparison diagnostic visualizations between multiple model predictions.
     
     Args:
         actual: Series containing actual water level values
-        predictions_dict: Dictionary of prediction Series with model names as keys
+        predictions_dict: Dictionary with model names as keys and prediction Series as values
         output_dir: Optional output directory path
-        station_id: Station identifier for plot titles
+        station_id: Station identifier
         rainfall: Optional series of rainfall data for the same period
-        n_event_plots: Number of top water level events to analyze (default: 3)
+        n_event_plots: Number of top water level events to analyze
+        features_df: DataFrame containing additional features for residual analysis
         
     Returns:
-        dict: Dictionary with paths to all generated visualization files, organized by model
+        dict: Dictionary with paths to all generated visualization files
     """
     # Set default output directory if not provided
     if output_dir is None:
@@ -870,13 +818,10 @@ def generate_comparative_diagnostics(actual, predictions_dict, output_dir=None, 
     
     # Make sure output directory exists
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create a subdirectory for comparative visualizations
     comparison_dir = output_dir / "comparison"
-    comparison_dir.mkdir(exist_ok=True)
+    comparison_dir.mkdir(parents=True, exist_ok=True)
     
-    # Dictionary to store visualization paths for all models
+    # Dictionary to store all visualization paths for all models
     all_visualization_paths = {}
     
     # Generate timestamp for logging
@@ -896,17 +841,10 @@ def generate_comparative_diagnostics(actual, predictions_dict, output_dir=None, 
                 output_dir=model_dir,
                 station_id=f"{station_id}_{model_name}",
                 rainfall=rainfall,
-                n_event_plots=n_event_plots
+                features_df=features_df
             )
             
             all_visualization_paths[model_name] = visualization_paths
-        
-        # Create a comparative index HTML file
-        index_path = create_comparative_index(
-            all_visualization_paths=all_visualization_paths,
-            station_id=station_id,
-            output_dir=comparison_dir
-        )
         
         print(f"\nComparative analysis complete. Results saved to: {output_dir}")
         
@@ -916,159 +854,3 @@ def generate_comparative_diagnostics(actual, predictions_dict, output_dir=None, 
         traceback.print_exc()
     
     return all_visualization_paths
-
-def create_diagnostics_index(visualization_paths, station_id, output_dir):
-    """
-    Create an HTML index file linking to all diagnostic visualizations.
-    
-    Args:
-        visualization_paths: Dictionary with paths to visualization files
-        station_id: Station identifier
-        output_dir: Output directory
-        
-    Returns:
-        Path to the created index HTML file
-    """
-    output_dir = Path(output_dir)
-    index_path = output_dir / f"diagnostics_index_{station_id}.html"
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Water Level Model Diagnostics - Station {station_id}</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 20px; }}
-            h1, h2 {{ color: #2c3e50; }}
-            .visualization {{ margin-bottom: 30px; }}
-            .visualization img {{ max-width: 100%; border: 1px solid #ddd; }}
-            .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
-            @media (max-width: 1200px) {{ .grid-container {{ grid-template-columns: 1fr; }} }}
-        </style>
-    </head>
-    <body>
-        <h1>Water Level Model Diagnostics - Station {station_id}</h1>
-        <p>Generated on {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        
-        <div class="grid-container">
-    """
-    
-    # Add visualizations to the HTML content
-    for viz_type, viz_path in visualization_paths.items():
-        if viz_type == 'index':
-            continue
-            
-        rel_path = viz_path.relative_to(output_dir)
-        html_content += f"""
-            <div class="visualization">
-                <h2>{viz_type.replace('_', ' ').title()}</h2>
-                <a href="{rel_path}" target="_blank">
-                    <img src="{rel_path}" alt="{viz_type} visualization" />
-                </a>
-            </div>
-        """
-    
-    html_content += """
-        </div>
-    </body>
-    </html>
-    """
-    
-    with open(index_path, 'w') as f:
-        f.write(html_content)
-    
-    print(f"Created diagnostics index at: {index_path}")
-    return index_path
-
-def create_comparative_index(all_visualization_paths, station_id, output_dir):
-    """
-    Create an HTML index file for comparing model diagnostics.
-    
-    Args:
-        all_visualization_paths: Dictionary with visualization paths for each model
-        station_id: Station identifier
-        output_dir: Output directory
-        
-    Returns:
-        Path to the created index HTML file
-    """
-    output_dir = Path(output_dir)
-    index_path = output_dir / f"comparative_index_{station_id}.html"
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Comparative Model Diagnostics - Station {station_id}</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 20px; }}
-            h1, h2, h3 {{ color: #2c3e50; }}
-            .visualization {{ margin-bottom: 50px; }}
-            table {{ border-collapse: collapse; width: 100%; }}
-            th, td {{ padding: 15px; text-align: left; border-bottom: 1px solid #ddd; }}
-            th {{ background-color: #f2f2f2; }}
-            img {{ max-width: 100%; border: 1px solid #ddd; }}
-        </style>
-    </head>
-    <body>
-        <h1>Comparative Model Diagnostics - Station {station_id}</h1>
-        <p>Generated on {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    """
-    
-    # Get common visualization types across all models
-    all_viz_types = set()
-    for model_paths in all_visualization_paths.values():
-        all_viz_types.update(model_paths.keys())
-    
-    # Remove 'index' from visualization types
-    if 'index' in all_viz_types:
-        all_viz_types.remove('index')
-    
-    # Organize visualizations by type for comparison
-    for viz_type in sorted(all_viz_types):
-        html_content += f"""
-        <div class="visualization">
-            <h2>{viz_type.replace('_', ' ').title()} Comparison</h2>
-            <table>
-                <tr>
-                    <th>Model</th>
-                    <th>Visualization</th>
-                </tr>
-        """
-        
-        for model_name, model_paths in all_visualization_paths.items():
-            if viz_type in model_paths:
-                viz_path = model_paths[viz_type]
-                # Get path relative to the comparison directory
-                try:
-                    rel_path = Path("..") / viz_path.relative_to(output_dir.parent)
-                except ValueError:
-                    # If the path is not relative to output_dir.parent, use the absolute path
-                    rel_path = viz_path
-                
-                html_content += f"""
-                <tr>
-                    <td>{model_name}</td>
-                    <td>
-                        <a href="{rel_path}" target="_blank">
-                            <img src="{rel_path}" alt="{viz_type} for {model_name}" />
-                        </a>
-                    </td>
-                </tr>
-                """
-        
-        html_content += """
-            </table>
-        </div>
-        """
-    
-    html_content += """
-    </body>
-    </html>
-    """
-    
-    with open(index_path, 'w') as f:
-        f.write(html_content)
-    
-    print(f"Created comparative index at: {index_path}")
-    return index_path 

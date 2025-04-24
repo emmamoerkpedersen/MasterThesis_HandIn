@@ -123,8 +123,7 @@ class DataPreprocessor:
             #print(f"  - Updated feature columns with time features: {self.feature_cols}")
             # Update the feature scaler with the new feature columns
             self.update_feature_scaler()
-
-
+            
         feature_cols = self.feature_cols
         target_feature = self.output_features
         all_features = list(set(feature_cols + [target_feature]))        
@@ -162,7 +161,7 @@ class DataPreprocessor:
         
         # Get the most up-to-date feature columns from feature engineer
         feature_cols = self.feature_engineer.feature_cols
-        target_col = self.output_features   
+        target_col = self.output_features
         
         #print(f"\nUsing features for model:")
         #print(f"Total features: {len(feature_cols)}")
