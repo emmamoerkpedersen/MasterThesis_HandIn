@@ -89,21 +89,16 @@ class DataPreprocessor:
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
         # Fill temperature and rainfall Nan with bfill and ffill
-        data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
+        #data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
+        data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         #print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
         #Aggregate temperature to 30 days
-        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
-        #print(f"  - Aggregated temperature to 30 days")
-
-       
-
-        # Aggregate temperature to 30 days
-        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
+        #data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
         #print(f"  - Aggregated temperature to 30 days")
 
         # Add cumulative rainfall features if enabled in config
@@ -139,6 +134,10 @@ class DataPreprocessor:
         all_features = list(set(feature_cols + [target_feature]))        
         #Filter data to only include the features and target feature
         data = data[all_features]
+
+        # test_data = data
+        # val_data = data
+        # train_data = data
 
         # Split data based on years
         test_data = data[(data.index.year == 2024)]
@@ -216,31 +215,49 @@ class DataPreprocessor:
     
     def _create_sequences(self, features, targets):
          """
-         Create sequences using the configured sequence length.
+         Create sequences for forecasting with overlapping input sequences and future targets.
+         
+         Args:
+             features: Input features, shape (num_samples, num_features)
+             targets: Target values, shape (num_samples, num_targets)
+             
+         Returns:
+             X: Input sequences, shape (num_sequences, sequence_length, num_features)
+             y: Target sequences, shape (num_sequences, prediction_window, num_targets)
          """
-         sequence_length = self.config.get('sequence_length', 5000)  # Get from config or default to 5000
+         sequence_length = self.config.get('sequence_length', 500)
+         prediction_window = self.config.get('prediction_window', 15)
          data_length = len(features)
          
+         # Check if we have enough data
+         if data_length < sequence_length + prediction_window:
+             raise ValueError(f"Not enough data points ({data_length}) for sequence length ({sequence_length}) and prediction window ({prediction_window})")
+         
          X, y = [], []
- 
-         # Create sequences based on configured sequence length
-         for i in range(0, data_length, sequence_length):
-             end_idx = min(i + sequence_length, data_length)
-             feature_seq = features[i:end_idx]
-             target_seq = targets[i:end_idx]
- 
-             # Pad sequences if needed
-             if end_idx - i < sequence_length:
-                 pad_length = sequence_length - (end_idx - i)
-                 feature_seq = np.pad(feature_seq, ((0, pad_length), (0, 0)), mode='constant', constant_values=0)
-                 target_seq = np.pad(target_seq, (0, pad_length), mode='constant', constant_values=np.nan)
- 
+         
+         # Create overlapping sequences
+         # For each sequence, we use timesteps i to i+sequence_length-1 to predict timesteps i+sequence_length to i+sequence_length+prediction_window-1
+         for i in range(0, data_length - sequence_length - prediction_window + 1):
+             # Input sequence: from i to i+sequence_length-1
+             feature_seq = features[i:i+sequence_length]
+             
+             # Target sequence: from i+sequence_length to i+sequence_length+prediction_window-1
+             target_seq = targets[i+sequence_length:i+sequence_length+prediction_window]
+             
              X.append(feature_seq)
              y.append(target_seq)
- 
-         X = np.array(X)  # Shape: (num_sequences, sequence_length, num_features)
-         y = np.array(y)[..., np.newaxis]  # Shape: (num_sequences, sequence_length, 1)
- 
+         
+         if not X:
+             raise ValueError("No sequences could be created. Check sequence length, prediction window, and data size.")
+         
+         X = np.array(X)
+         y = np.array(y)
+         
+         # Ensure y has shape (num_sequences, prediction_window, num_targets)
+         # If y is 2D, add a dimension for output_size
+         if len(y.shape) == 2:
+             y = y[..., np.newaxis]
+         
          return X, y
 
     def _add_time_features(self, data):

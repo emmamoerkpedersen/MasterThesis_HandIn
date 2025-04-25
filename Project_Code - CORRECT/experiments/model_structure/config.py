@@ -106,19 +106,6 @@ SYNTHETIC_ERROR_PARAMS = {
     }
 }
 
-# Three-Pass Anomaly Correction Parameters
-ANOMALY_CORRECTION_PARAMS = {
-    'contamination': 0.05,         # Expected proportion of anomalies (default: 5%)
-    'method': 'isolation_forest',  # Anomaly detection method ('isolation_forest', 'one_class_svm', 'statistical')
-    'smoothing_window': 5,         # Window size for residual smoothing
-    'correction_window': 24,       # Hours to look ahead/behind for context during correction
-    'min_segment_length': 3,       # Minimum length of anomaly segment to correct (in hours)
-    'visualization': {
-        'max_segments': 5,         # Maximum number of individual segments to visualize
-        'context_hours': 24        # Hours of context to show before/after anomaly in segment plots
-    }
-}
-
 # Physical Constraints
 PHYSICAL_LIMITS = {
     'min_value': 0,  # Water level can't be negative
@@ -128,28 +115,32 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
+    'hidden_size': 36,        
+    'num_layers': 2,           
+    'dropout': 0.25,           
+    'batch_size': 10,
+    'sequence_length': 100,
+    'prediction_window': 10,  # Number of future time steps to predict
+    'epochs': 500,
+    'patience': 20,            
 
-    'hidden_size': 128,         
-    'num_layers': 3,            
-    'dropout': 0.25,             
-    'batch_size': 16,
-    'sequence_length': 5000,
-    'epochs': 100,
-    'patience': 15,            
-
-    'warmup_length': 100,
+    'z_score_threshold': 1.5,
+    'warmup_length': 0,
     'learning_rate': 0.001,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
 
-    'use_time_features': True,  
-    'use_cumulative_features': True, 
-    # Add lag features for better prediction
-    'use_lagged_features': True,  
-    'lag_hours': [1, 2, 3, 6, 12, 24],  # Lag periods in hours
-    
+    'objective_function': 'mse_loss',  
+    #'peak_weight': 4.0,         
+    'grad_clip_value': 1.148,   
+    #'use_smoothing': True,      
+   # 'smoothing_alpha': 0.5,     
+
+
+    'use_time_features': False,
+    'use_cumulative_features': False, 
     'feature_cols': [
-        'rainfall'
+        'vst_raw', 'rainfall'
         
     ],
     'output_features': ['vst_raw'],
