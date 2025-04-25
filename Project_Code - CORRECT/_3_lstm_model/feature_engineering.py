@@ -113,3 +113,37 @@ class FeatureEngineer:
                 self.feature_cols.append(col)
         
         return data
+
+    def add_lagged_features(self, data, target_col='vst_raw', lags=[1, 2, 3, 6, 12, 24]):
+        """
+        Add lagged water level features to help capture temporal dependencies at different scales.
+        
+        Args:
+            data: DataFrame containing time series data
+            target_col: Column name for water level data (default: 'vst_raw')
+            lags: List of lag periods to create features for (in hours)
+            
+        Returns:
+            DataFrame with added lagged features
+        """
+        # Create a copy of the data to avoid SettingWithCopyWarning
+        data = data.copy()
+        
+        # Check if target column exists in the data
+        if target_col in data.columns:
+            # Create lagged features for each specified lag period
+            for lag in lags:
+                feature_name = f'water_level_lag_{lag}h'
+                data.loc[:, feature_name] = data[target_col].shift(lag)
+                
+                # Fill NaN values with forward fill then backward fill
+                data.loc[:, feature_name] = data[feature_name].ffill().bfill()
+                
+                # Add to feature columns if not already there
+                if feature_name not in self.feature_cols:
+                    self.feature_cols.append(feature_name)
+                    print(f"Added {feature_name} as a feature")
+        else:
+            print(f"Warning: '{target_col}' column not found, cannot create lagged features")
+        
+        return data

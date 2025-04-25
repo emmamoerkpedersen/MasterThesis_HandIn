@@ -8,12 +8,12 @@ These methods can be applied to model residuals to identify unexpected patterns.
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.ensemble import IsolationForest
 from sklearn.svm import OneClassSVM
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, precision_score, recall_score
+from experiments.Iterative_imputation.visualization_utils import visualize_anomalies
 
 def detect_anomalies_isolation_forest(
     data,
@@ -204,57 +204,6 @@ def detect_anomalies_from_residuals(
     
     return result_df
 
-def visualize_anomalies(result_df, title='Anomaly Detection Results', figsize=(12, 10)):
-    """
-    Visualize the anomaly detection results.
-    
-    Args:
-        result_df: DataFrame with actual values, predictions, residuals, and anomaly indicators
-        title: plot title (default 'Anomaly Detection Results')
-        figsize: figure size as tuple (width, height) (default (12, 10))
-        
-    Returns:
-        matplotlib Figure object
-    """
-    fig, axes = plt.subplots(3, 1, figsize=figsize, sharex=True)
-    
-    # Plot 1: Actual vs Predicted values
-    axes[0].plot(result_df.index, result_df['actual'], 'b-', label='Actual')
-    axes[0].plot(result_df.index, result_df['predicted'], 'r-', label='Predicted')
-    
-    # Highlight anomalies in the actual data
-    anomaly_points = result_df[result_df['anomaly'] == 1]
-    axes[0].scatter(anomaly_points.index, anomaly_points['actual'], 
-                   color='orange', marker='o', s=50, label='Anomalies')
-    
-    axes[0].set_title(f'{title} - Actual vs Predicted')
-    axes[0].set_ylabel('Value')
-    axes[0].legend()
-    axes[0].grid(True)
-    
-    # Plot 2: Residuals with anomalies highlighted
-    axes[1].plot(result_df.index, result_df['residual'], 'g-', label='Residual')
-    axes[1].plot(result_df.index, result_df['smoothed_residual'], 'k--', alpha=0.5, label='Smoothed Residual')
-    
-    # Highlight anomalies in residuals
-    axes[1].scatter(anomaly_points.index, anomaly_points['residual'], 
-                   color='red', marker='x', s=50, label='Anomalies')
-    
-    axes[1].set_title('Residuals (Actual - Predicted)')
-    axes[1].set_ylabel('Residual')
-    axes[1].legend()
-    axes[1].grid(True)
-    
-    # Plot 3: Anomaly indicator (binary)
-    axes[2].fill_between(result_df.index, 0, result_df['anomaly'], color='red', alpha=0.3)
-    axes[2].set_title('Anomaly Indicator')
-    axes[2].set_ylabel('Anomaly (1=Yes)')
-    axes[2].set_ylim(-0.1, 1.1)
-    axes[2].grid(True)
-    
-    plt.tight_layout()
-    return fig
-
 def evaluate_anomaly_detection(anomaly_indicators, known_anomalies):
     """
     Evaluate anomaly detection performance using known anomalies.
@@ -326,19 +275,16 @@ def run_anomaly_detection_pipeline(
             contamination=contamination
         )
         
-        # Generate visualization
-        fig = visualize_anomalies(
-            result_df, 
-            title=f'Anomaly Detection - {method.replace("_", " ").title()}'
-        )
-        
-        # Save the visualization if path is provided
+        # Generate visualization if path is provided
         if output_path:
             output_dir = Path(output_path)
             output_dir.mkdir(parents=True, exist_ok=True)
             fig_path = output_dir / f"anomalies_{method}.png"
-            fig.savefig(fig_path)
-            plt.close(fig)
+            visualize_anomalies(
+                result_df, 
+                title=f'Anomaly Detection - {method.replace("_", " ").title()}',
+                output_path=fig_path
+            )
             print(f"  Saved visualization to {fig_path}")
         
         # Store results

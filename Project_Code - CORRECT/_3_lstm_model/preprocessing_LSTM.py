@@ -124,6 +124,16 @@ class DataPreprocessor:
             # Update the feature scaler with the new feature columns
             self.update_feature_scaler()
             
+        # Add lagged features if enabled in config
+        if self.config.get('use_lagged_features', False):
+            lags = self.config.get('lag_hours', [1, 2, 3, 6, 12, 24])
+            data = self.feature_engineer.add_lagged_features(data, 
+                                                          target_col=self.output_features,
+                                                          lags=lags)
+            # Update feature columns with new lagged features
+            self.feature_cols = self.feature_engineer.feature_cols.copy()
+            self.update_feature_scaler()
+            
         feature_cols = self.feature_cols
         target_feature = self.output_features
         all_features = list(set(feature_cols + [target_feature]))        
@@ -158,16 +168,20 @@ class DataPreprocessor:
         
         if self.config.get('use_cumulative_features', False):
             data = self._add_cumulative_features(data)
+            
+        # Add lagged features if enabled
+        if self.config.get('use_lagged_features', False):
+            lags = self.config.get('lag_hours', [1, 2, 3, 6, 12, 24])
+            data = self.feature_engineer.add_lagged_features(data, 
+                                                           target_col=self.output_features,
+                                                           lags=lags)
+            # Update feature columns with new lagged features
+            self.feature_cols = self.feature_engineer.feature_cols.copy()
+            self.update_feature_scaler()
         
         # Get the most up-to-date feature columns from feature engineer
         feature_cols = self.feature_engineer.feature_cols
         target_col = self.output_features
-        
-        #print(f"\nUsing features for model:")
-        #print(f"Total features: {len(feature_cols)}")
-        #print("Feature list:")
-        #for col in feature_cols:
-        #    print(f"  - {col}")
         
         # Ensure all feature columns exist in data
         missing_cols = [col for col in feature_cols if col not in data.columns]
@@ -178,56 +192,24 @@ class DataPreprocessor:
         features = data[feature_cols]
         target = pd.DataFrame(data[target_col])
         
-        # Print diagnostic information about NaN values in target
-        nan_count = target[target_col].isna().sum()
-        total_count = len(target)
-        #print(f"\nTarget NaN diagnostics before scaling:")
-        #print(f"  {target_col}: {nan_count}/{total_count} NaN values ({nan_count/total_count*100:.2f}%)")
-        
-        if nan_count == total_count:
-            #print("  WARNING: All target values are NaN!")
-            target[target_col] = target[target_col].fillna(0)
-            #print("  Filled NaN values with 0 to allow scaling to proceed")
-
         # Scale data using FeatureScaler
         if is_training:
             scaled_features, scaled_target = self.feature_scaler.fit_transform(features, target)
         else:
-            scaled_features, scaled_target = self.feature_scaler.transform(features, target)
+            # For validation/test, check if the scaler has been fitted
+            if not hasattr(self.feature_scaler, 'feature_scaler') or self.feature_scaler.feature_scaler is None:
+                # If not fitted, we need to fit it first on this data (not ideal but prevents errors)
+                print("Warning: Feature scaler not fitted. Fitting on current data.")
+                scaled_features, scaled_target = self.feature_scaler.fit_transform(features, target)
+            else:
+                scaled_features, scaled_target = self.feature_scaler.transform(features, target)
             
-        # Print diagnostic information about NaN values in scaled target
-        nan_count_scaled = np.isnan(scaled_target).sum()
-        total_count_scaled = len(scaled_target)
-        #print(f"\nTarget NaN diagnostics after scaling:")
-        #print(f"  {target_col}: {nan_count_scaled}/{total_count_scaled} NaN values ({nan_count_scaled/total_count_scaled*100:.2f}%)")
-        
-        if nan_count_scaled == total_count_scaled:
-            #print("  WARNING: All scaled target values are NaN!")
+        # Handle NaN values in scaled target
+        if np.all(np.isnan(scaled_target)):
             scaled_target = np.nan_to_num(scaled_target, nan=0)
-            #print("  Filled NaN values with 0 to allow model training to proceed")
-
-        # Print feature ranges after scaling
-        #print("\nFeature ranges after scaling:")
-        #for i, col in enumerate(feature_cols):
-        #    min_val = scaled_features[:, i].min()
-        #    max_val = scaled_features[:, i].max()
-        #    mean_val = scaled_features[:, i].mean()
-        #    std_val = scaled_features[:, i].std()
-        #    print(f"  {col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
-        
-        # Print target range after scaling
-        #min_val = np.nanmin(scaled_target)
-        #max_val = np.nanmax(scaled_target)
-        #mean_val = np.nanmean(scaled_target)
-        #std_val = np.nanstd(scaled_target)
-        #print(f"Target range after scaling:")
-        #print(f"  {target_col}: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}, std={std_val:.4f}")
-        
+            
         # Create sequences
         X, y = self._create_sequences(scaled_features, scaled_target)
-
-        # Only print basic shape info for debugging
-        #print(f"{'Training' if is_training else 'Validation'} data: {X.shape[0]} sequences of length {X.shape[1]}")
         
         # Convert to tensors and move to device
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)

@@ -3,19 +3,19 @@ Configuration settings for error detection and imputation.
 """
 
 # Error Detection Parameters
-DETECTION_PARAMS = {
-    'spike': {
-        'window_size': 24,
-        'threshold': 3.0
-    },
-    'gap': {
-        'max_gap_hours': 1
-    },
-    'flatline': {
-        'min_duration': 2,
-        'max_duration': 48
-    }
-}
+#DETECTION_PARAMS = {
+#    'spike': {
+#        'window_size': 24,
+#        'threshold': 3.0
+#    },
+#    'gap': {
+#        'max_gap_hours': 1
+#    },
+#    'flatline': {
+#        'min_duration': 2,
+#        'max_duration': 48
+#    }
+#}
 
 # Imputation Parameters
 IMPUTATION_PARAMS = {
@@ -110,7 +110,7 @@ SYNTHETIC_ERROR_PARAMS = {
 ANOMALY_CORRECTION_PARAMS = {
     'contamination': 0.05,         # Expected proportion of anomalies (default: 5%)
     'method': 'isolation_forest',  # Anomaly detection method ('isolation_forest', 'one_class_svm', 'statistical')
-    'smoothing_window': 5,         # Window size for residual smoothing
+    'smoothing_window': 0,         # Window size for residual smoothing
     'correction_window': 24,       # Hours to look ahead/behind for context during correction
     'min_segment_length': 3,       # Minimum length of anomaly segment to correct (in hours)
     'visualization': {
@@ -130,7 +130,7 @@ PHYSICAL_LIMITS = {
 LSTM_CONFIG = {
 
     'hidden_size': 128,         
-    'num_layers': 3,            
+    'num_layers': 2,            
     'dropout': 0.25,             
     'batch_size': 16,
     'sequence_length': 5000,

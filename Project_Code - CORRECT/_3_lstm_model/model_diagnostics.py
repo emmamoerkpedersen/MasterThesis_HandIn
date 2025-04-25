@@ -211,7 +211,7 @@ def analyze_residuals(actual, predictions, output_dir=None, station_id='main', f
                            alpha=0.3, s=10, color='#1f77b4')
                 ax_rain.set_xscale('log')  # Log scale for rainfall
                 ax_rain.set_title('Residuals vs Rainfall (non-zero)', fontweight='bold')
-            else:
+        else:
                 ax_rain.scatter(rain_data, res_aligned, alpha=0.3, s=10, color='#1f77b4')
                 ax_rain.set_title('Residuals vs Rainfall', fontweight='bold')
             
@@ -219,7 +219,7 @@ def analyze_residuals(actual, predictions, output_dir=None, station_id='main', f
                 ax_rain.set_xlabel('Rainfall [mm]', fontweight='bold')
                 ax_rain.set_ylabel('Residual [mm]', fontweight='bold')
                 
-            plot_counter += 1
+        plot_counter += 1
         
         # Plot residuals vs vst_raw if it's a different column than 'actual'
         if 'vst_raw' in features_aligned.columns and not actual.equals(features_aligned['vst_raw']):
