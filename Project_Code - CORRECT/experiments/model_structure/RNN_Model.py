@@ -354,10 +354,18 @@ def train_model(X_train, y_train, X_val, y_val, input_size, output_size, val_dat
         for i in range(X_train.shape[0]):
             inputs = X_train[i].unsqueeze(0).to(device)
             target = y_train[i].unsqueeze(0).to(device)
+            
+            # Ensure target has the same sequence length as the model's output
+            if target.shape[1] != prediction_window:
+                target = target[:, :prediction_window, :]
+            
             if len(target.shape) == 2:
                 target = target.unsqueeze(-1)
 
             output = model(inputs)
+            print(f"Input shape: {inputs.shape}")
+            print(f"Target shape: {target.shape}")
+            print(f"Output shape: {output.shape}")
             loss = criterion(output, target)
             optimizer.zero_grad()
             loss.backward()
@@ -389,6 +397,11 @@ def train_model(X_train, y_train, X_val, y_val, input_size, output_size, val_dat
                 batch_end = min(i + batch_size, X_val.shape[0])
                 inputs = X_val[i:batch_end].to(device)
                 targets = y_val[i:batch_end].to(device)
+                
+                # Ensure targets have the same sequence length as the model's output
+                if targets.shape[1] != prediction_window:
+                    targets = targets[:, :prediction_window, :]
+                
                 if len(targets.shape) == 2:
                     targets = targets.unsqueeze(-1)
                 
@@ -397,6 +410,9 @@ def train_model(X_train, y_train, X_val, y_val, input_size, output_size, val_dat
                 print(f"Batch target shape: {targets.shape}")
                 
                 output = model(inputs)
+                print(f"Validation input shape: {inputs.shape}")
+                print(f"Validation target shape: {targets.shape}")
+                print(f"Validation output shape: {output.shape}")
                 loss = criterion(output, targets)
                 val_loss += loss.item() * (batch_end - i)  # Scale loss by batch size
                 valid_val_samples += (batch_end - i)
@@ -519,8 +535,6 @@ def plot_validation_anomalies(val_anomalies):
             - anomaly_points: List of detected anomalies
     """
     print("\n=== Creating Validation Anomalies Plot ===")
-    print(f"Number of data points: {len(val_anomalies['dates'])}")
-    print(f"Number of anomaly points: {len(val_anomalies['anomaly_points'])}")
     
     # Create figure with secondary y-axis
     fig = make_subplots(rows=1, cols=1)
@@ -566,7 +580,7 @@ def plot_validation_anomalies(val_anomalies):
             x=dates,
             y=val_anomalies['predictions'].flatten(),
             name='Predictions',
-            line=dict(color='red', width=1),
+            line=dict(color='orange', width=1),
             opacity=0.7
         )
     )
@@ -585,9 +599,9 @@ def plot_validation_anomalies(val_anomalies):
                 mode='markers',
                 name='Anomaly Points',
                 marker=dict(
-                    color='yellow',
+                    color='red',
                     size=10,
-                    symbol='star'
+                    symbol='diamond'
                 )
             )
         )

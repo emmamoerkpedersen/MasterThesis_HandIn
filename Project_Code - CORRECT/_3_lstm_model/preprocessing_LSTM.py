@@ -93,9 +93,9 @@ class DataPreprocessor:
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
         data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
+        #data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
+        #data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         #print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
         #Aggregate temperature to 30 days
         #data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
@@ -181,7 +181,7 @@ class DataPreprocessor:
             scaled_features, scaled_target = self.feature_scaler.transform(features, target)
             
         # Create sequences
-        X, y = self._create_sequences(scaled_features, scaled_target)
+        X, y = self._create_overlap_sequences(scaled_features, scaled_target)
 
         # # Debug print for NaN values in sequences
         # print("\nChecking for NaN values in sequences:")
@@ -231,7 +231,7 @@ class DataPreprocessor:
          return X, y
 
 
-    def _create__overlap_sequences(self, features, targets):
+    def _create_overlap_sequences(self, features, targets):
          """
          Create sequences for forecasting with overlapping input sequences and future targets.
          
@@ -245,6 +245,8 @@ class DataPreprocessor:
          """
          sequence_length = self.config.get('sequence_length', 500)
          prediction_window = self.config.get('prediction_window', 15)
+         # Add a stride parameter to control overlap - default to 1/10 of sequence length
+         stride = self.config.get('sequence_stride', max(1, sequence_length // 10))
          data_length = len(features)
          
          # Check if we have enough data
@@ -253,9 +255,9 @@ class DataPreprocessor:
          
          X, y = [], []
          
-         # Create overlapping sequences
+         # Create sequences with configurable stride
          # For each sequence, we use timesteps i to i+sequence_length-1 to predict timesteps i+sequence_length to i+sequence_length+prediction_window-1
-         for i in range(0, data_length - sequence_length - prediction_window + 1):
+         for i in range(0, data_length - sequence_length - prediction_window + 1, stride):
              # Input sequence: from i to i+sequence_length-1
              feature_seq = features[i:i+sequence_length]
              
