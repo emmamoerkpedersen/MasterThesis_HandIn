@@ -132,8 +132,8 @@ class DataPreprocessor:
 
         # Split data based on years
         test_data = data[(data.index.year == 2024)]
-        val_data = data[(data.index.year >= 2023) & (data.index.year <= 2024)]  # Validation is 2022-2023
-        train_data = data[data.index.year < 2023]  # Training is everything before 2022
+        val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
+        train_data = data[data.index.year < 2022]  # Training is everything before 2022
         
         print(f"\nSplit Summary:")
         print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
@@ -181,7 +181,7 @@ class DataPreprocessor:
             scaled_features, scaled_target = self.feature_scaler.transform(features, target)
             
         # Create sequences
-        X, y = self._create_overlap_sequences(scaled_features, scaled_target)
+        X, y = self._create_sequences(scaled_features, scaled_target)
 
         # # Debug print for NaN values in sequences
         # print("\nChecking for NaN values in sequences:")
