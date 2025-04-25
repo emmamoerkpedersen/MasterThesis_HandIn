@@ -119,9 +119,10 @@ LSTM_CONFIG = {
     'num_layers': 2,           
     'dropout': 0.25,           
     'batch_size': 10,
-    'sequence_length': 100,
+    'sequence_length': 500,
     'prediction_window': 10,  # Number of future time steps to predict
-    'epochs': 500,
+    'sequence_stride': 10,
+    'epochs': 100,
     'patience': 20,            
 
     'z_score_threshold': 1.5,
@@ -148,11 +149,11 @@ LSTM_CONFIG = {
     'feature_stations': [
         {
             'station_id': '21006845',
-            'features': ['vst_raw', 'rainfall']
+            'features': ['vst_raw']
         },
         {
             'station_id': '21006847',
-            'features': ['vst_raw', 'rainfall']
+            'features': ['vst_raw']
         }
     ]
 }
