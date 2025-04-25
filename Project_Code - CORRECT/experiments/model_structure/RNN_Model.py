@@ -488,7 +488,7 @@ def train_model(X_train, y_train, X_val, y_val, input_size, output_size, val_dat
 # ======================= 
 def plot_validation_anomalies(val_anomalies):
     """
-    Create an interactive plot of validation anomalies data using Plotly.
+    Create an interactive plot of validation anomalies data using Plotly and save it as PNG using matplotlib.
     
     Args:
         val_anomalies: Dictionary containing validation anomalies data with keys:
@@ -500,109 +500,58 @@ def plot_validation_anomalies(val_anomalies):
     """
     print("\n=== Creating Validation Anomalies Plot ===")
     
-    # Create figure with secondary y-axis
-    fig = make_subplots(rows=1, cols=1)
-
-    # Convert dates to datetime objects and handle any None values
+    # Create matplotlib figure
+    plt.figure(figsize=(12, 6))
+    
+    # Convert dates to strings for plotting
     dates = pd.to_datetime(val_anomalies['dates'])
-    
-    # Create masks for valid data points (non-nan and non-zero)
-    original_mask = ~np.isnan(val_anomalies['original']) & (val_anomalies['original'] != 0)
-    edited_mask = ~np.isnan(val_anomalies['edited']) & (val_anomalies['edited'] != 0)
-    predictions_mask = ~np.isnan(val_anomalies['predictions']) & (val_anomalies['predictions'] != 0)
-    
+
+    # Ensure all time series are 1D numpy arrays
+    original = np.array(val_anomalies['original']).flatten()
+    edited = np.array(val_anomalies['edited']).flatten()
+    predictions = np.array(val_anomalies['predictions']).flatten()
+
+    # Sanity check
+    assert len(dates) == len(original) == len(edited) == len(predictions)
+
     print("\nAdding traces to plot...")
     # Plot original values
-    fig.add_trace(
-        go.Scatter(
-            x=dates[original_mask],
-            y=val_anomalies['original'][original_mask],
-            name='Original Values',
-            line=dict(color='blue', width=1),
-            opacity=0.7
-        )
-    )
+    plt.plot(dates, original, 'b-', label='Original Values', alpha=0.7, linewidth=1)
     
     # Plot edited values
-    fig.add_trace(
-        go.Scatter(
-            x=dates[edited_mask],
-            y=val_anomalies['edited'][edited_mask],
-            name='Edited Values',
-            line=dict(color='green', width=1),
-            opacity=0.7
-        )
-    )
+    plt.plot(dates, edited, 'g-', label='Edited Values', alpha=0.7, linewidth=1)
     
     # Plot predictions
-    fig.add_trace(
-        go.Scatter(
-            x=dates[predictions_mask],
-            y=val_anomalies['predictions'][predictions_mask],
-            name='Predictions',
-            line=dict(color='orange', width=1),
-            opacity=0.7
-        )
-    )
+    plt.plot(dates, predictions, 'orange', label='Predictions', alpha=0.7, linewidth=1)
     
     # Plot anomaly points
     if val_anomalies['anomaly_points']:
         print("Adding anomaly points to plot...")
         anomaly_dates = pd.to_datetime([point[0] for point in val_anomalies['anomaly_points']])
         anomaly_values = [point[1] for point in val_anomalies['anomaly_points']]
-        
-        fig.add_trace(
-            go.Scatter(
-                x=anomaly_dates,
-                y=anomaly_values,
-                mode='markers',
-                name='Anomaly Points',
-                marker=dict(
-                    color='red',
-                    size=10,
-                    symbol='diamond'
-                )
-            )
-        )
+        plt.scatter(anomaly_dates, anomaly_values, color='red', s=100, marker='d', label='Anomaly Points')
     
     print("\nUpdating plot layout...")
     # Update layout
-    fig.update_layout(
-        title='Validation Anomalies Analysis',
-        xaxis_title='Date',
-        yaxis_title='Value',
-        hovermode='x unified',
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01
-        ),
-        template='plotly_white',
-        width=1200,
-        height=600
-    )
+    plt.title('Validation Anomalies Analysis')
+    plt.xlabel('Date')
+    plt.ylabel('Value')
+    plt.legend(loc='upper left')
+    plt.grid(True, alpha=0.3)
     
-    # Update x-axis to show proper date formatting
-    fig.update_xaxes(
-        rangeslider_visible=True,
-        rangeselector=dict(
-            buttons=list([
-                dict(count=1, label="1d", step="day", stepmode="backward"),
-                dict(count=7, label="1w", step="day", stepmode="backward"),
-                dict(count=1, label="1m", step="month", stepmode="backward"),
-                dict(step="all")
-            ])
-        )
-    )
+    # Format x-axis dates
+    plt.gcf().autofmt_xdate()
+    
+    print("Saving plot...")
+    # Save the plot
+    plt.savefig('validation_anomalies.png', dpi=300, bbox_inches='tight')
     
     print("Displaying plot...")
     # Show the plot
-    pio.show(fig)
+    plt.show()
     
-    print("Plot creation complete!")
-    return fig
+    print("Plot creation and saving complete!")
+    return plt.gcf()
 
 
 # =======================
