@@ -145,7 +145,7 @@ LSTM_CONFIG = {
     'use_time_features': True,  
     'use_cumulative_features': True, 
     # Add lag features for better prediction
-    'use_lagged_features': True,  
+    'use_lagged_features':False,
     'lag_hours': [1, 2, 3, 6, 12, 24],  # Lag periods in hours
     
     'feature_cols': [

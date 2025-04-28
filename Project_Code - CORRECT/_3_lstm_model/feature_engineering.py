@@ -114,36 +114,68 @@ class FeatureEngineer:
         
         return data
 
-    def add_lagged_features(self, data, target_col='vst_raw', lags=[1, 2, 3, 6, 12, 24]):
-        """
-        Add lagged water level features to help capture temporal dependencies at different scales.
+    def add_lagged_features(self, data, target_col, lags=None):
+        """Add lagged features and derived features to the dataset."""
+        if lags is None:
+            lags = [1, 2, 4, 8, 12, 24]  # Default lags in hours
         
-        Args:
-            data: DataFrame containing time series data
-            target_col: Column name for water level data (default: 'vst_raw')
-            lags: List of lag periods to create features for (in hours)
-            
-        Returns:
-            DataFrame with added lagged features
-        """
-        # Create a copy of the data to avoid SettingWithCopyWarning
-        data = data.copy()
+        df = data.copy()
         
-        # Check if target column exists in the data
-        if target_col in data.columns:
-            # Create lagged features for each specified lag period
-            for lag in lags:
-                feature_name = f'water_level_lag_{lag}h'
-                data.loc[:, feature_name] = data[target_col].shift(lag)
-                
-                # Fill NaN values with forward fill then backward fill
-                data.loc[:, feature_name] = data[feature_name].ffill().bfill()
-                
-                # Add to feature columns if not already there
-                if feature_name not in self.feature_cols:
-                    self.feature_cols.append(feature_name)
-                    print(f"Added {feature_name} as a feature")
-        else:
-            print(f"Warning: '{target_col}' column not found, cannot create lagged features")
+        # Convert lags from hours to timesteps (4 timesteps per hour for 15-min data)
+        timesteps = [lag * 4 for lag in lags]
         
-        return data
+        # Add lagged features
+        for lag in timesteps:
+            lag_name = f'water_level_lag_{lag//4}h'
+            df[lag_name] = df[target_col].shift(lag)
+            print(f"Added lag feature: {lag_name}")  # Debug print
+            self.feature_cols.append(lag_name)
+        
+        # Add moving averages at different windows with more intermediate values
+        ma_windows = [12, 24, 48, 72, 96, 144, 192, 384]  # 3h, 6h, 12h, 18h, 24h, 36h, 48h, 96h
+        for window in ma_windows:
+            ma_name = f'water_level_ma_{window//4}h'
+            df[ma_name] = df[target_col].rolling(window=window, min_periods=1).mean()
+            print(f"Added MA feature: {ma_name}")  # Debug print
+            self.feature_cols.append(ma_name)
+        
+        # Add more granular rate of change features
+        # Very short-term changes
+        df['water_level_roc_15min'] = df[target_col].diff()
+        df['water_level_roc_30min'] = df[target_col].diff(2)
+        
+        # Short to medium-term changes
+        df['water_level_roc_1h'] = df[target_col].diff(4)
+        df['water_level_roc_2h'] = df[target_col].diff(8)
+        df['water_level_roc_4h'] = df[target_col].diff(16)
+        
+        # Longer-term changes
+        df['water_level_roc_6h'] = df[target_col].diff(24)
+        df['water_level_roc_12h'] = df[target_col].diff(48)
+        
+        # Rate of change of moving averages to capture trend changes
+        df['water_level_ma_roc_6h'] = df[f'water_level_ma_6h'].diff()   # 6h MA change
+        df['water_level_ma_roc_24h'] = df[f'water_level_ma_24h'].diff() # 24h MA change
+        
+        # Add acceleration (change in rate of change)
+        df['water_level_acc_15min'] = df['water_level_roc_15min'].diff()
+        df['water_level_acc_1h'] = df['water_level_roc_1h'].diff()
+        
+        # Add these new features to feature_cols
+        roc_features = [
+            'water_level_roc_15min', 'water_level_roc_30min', 
+            'water_level_roc_1h', 'water_level_roc_2h', 'water_level_roc_4h',
+            'water_level_roc_6h', 'water_level_roc_12h',
+            'water_level_ma_roc_6h', 'water_level_ma_roc_24h',
+            'water_level_acc_15min', 'water_level_acc_1h'
+        ]
+        print(f"Added ROC features: {roc_features}")  # Debug print
+        self.feature_cols.extend(roc_features)
+        
+        # Forward fill any NaN values created by lagging/differencing
+        df = df.fillna(method='ffill')
+        # Backward fill any remaining NaN values at the start
+        df = df.fillna(method='bfill')
+        
+        print(f"Total features after adding all: {len(self.feature_cols)}")  # Debug print
+        return df

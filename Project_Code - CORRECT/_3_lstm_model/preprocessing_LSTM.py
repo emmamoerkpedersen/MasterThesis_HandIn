@@ -123,10 +123,11 @@ class DataPreprocessor:
         if self.config.get('use_lagged_features', False):
             lags = self.config.get('lag_hours', [1, 2, 3, 6, 12, 24])
             data = self.feature_engineer.add_lagged_features(data, 
-                                                          target_col=self.output_features,
-                                                          lags=lags)
+                                                           target_col=self.output_features,
+                                                           lags=lags)
             # Update feature columns with new lagged features
             self.feature_cols = self.feature_engineer.feature_cols.copy()
+            print(f"Updated feature columns after adding lagged features: {self.feature_cols}")  # Debug print
             self.update_feature_scaler()
             
         feature_cols = self.feature_cols
@@ -134,7 +135,7 @@ class DataPreprocessor:
         all_features = list(set(feature_cols + [target_feature]))        
         #Filter data to only include the features and target feature
         data = data[all_features]
-
+        
         # test_data = data
         # val_data = data
         # train_data = data
