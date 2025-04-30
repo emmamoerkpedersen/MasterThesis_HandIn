@@ -160,7 +160,7 @@ class FeatureEngineer:
         # Add acceleration (change in rate of change)
         df['water_level_acc_15min'] = df['water_level_roc_15min'].diff()
         df['water_level_acc_1h'] = df['water_level_roc_1h'].diff()
-        
+                
         # Add these new features to feature_cols
         roc_features = [
             'water_level_roc_15min', 'water_level_roc_30min', 

@@ -26,13 +26,15 @@ DEFAULT_CONFIG = {
     'batch_size': 96,          # Reduced from 64 to save memory
     'sequence_length': 400,  # 5 days of data (increased from 396)
     'prediction_window': 1,    # Predict up to 12 steps ahead
-    'sequence_stride':15,      # Stride for creating sequences
+    'sequence_stride':50,      # Stride for creating sequences
     'epochs': 100,           # Maximum epochs
     'patience': 10,             # Early stopping patience
     'z_score_threshold': 6.7,   # Anomaly detection threshold
     'learning_rate': 0.001,     
     
-    # Model features
+    # Model architecture configuration
+    'use_filter_lstm': False,    # Whether to use the filter LSTM stream
+    'use_attention': True,      # Whether to use attention mechanisms
     'use_feature_importance': False,  # Disable feature importance calculation by default
     
     # Feature engineering
@@ -43,7 +45,8 @@ DEFAULT_CONFIG = {
     
     # Features to use
     'feature_cols': [
-        'rainfall'
+        'rainfall',
+        'temperature'
     ],
     'output_features': ['vst_raw'],
 
@@ -140,7 +143,7 @@ def parse_args():
     parser.add_argument('--output_dir', type=str, default='forecast_results',
                         help='Directory to save results')
     
-    parser.add_argument('--mode', type=str, choices=['train', 'predict', 'test_error', 'multi_horizon'], 
+    parser.add_argument('--mode', type=str, choices=['train', 'predict', 'test_error', 'multi_horizon', 'ablation'], 
                         default='test_error', help='Mode to run in')
     
     parser.add_argument('--prediction_mode', type=str, choices=['standard', 'iterative'],
@@ -151,6 +154,13 @@ def parse_args():
     
     parser.add_argument('--horizons', type=str, default='1,12,24,48,72',
                         help='Comma-separated list of forecast horizons to evaluate')
+    
+    # Add new arguments for ablation study
+    parser.add_argument('--use_filter_lstm', type=bool, default=True,
+                        help='Whether to use the filter LSTM stream')
+    
+    parser.add_argument('--use_attention', type=bool, default=True,
+                        help='Whether to use attention mechanisms')
     
     return parser.parse_args()
 
@@ -423,7 +433,7 @@ def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, outp
     
     return test_results, metrics_df
 
-def load_and_filter_data(preprocessor, project_root, station_id, remove_low_importance_features=False):
+def load_and_filter_data(preprocessor, project_root, station_id, remove_low_importance_features=True):
     """Load data and filter out low importance features"""
     train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
     
@@ -455,6 +465,216 @@ def load_and_filter_data(preprocessor, project_root, station_id, remove_low_impo
     
     return train_data, val_data, test_data
 
+def run_ablation_study(forecaster, visualizer, train_data, val_data, test_data, output_dir):
+    """
+    Run ablation study with different model configurations.
+    
+    Args:
+        forecaster: WaterLevelForecaster instance
+        visualizer: ForecastVisualizer instance
+        train_data: Training data
+        val_data: Validation data
+        test_data: Test data
+        output_dir: Directory to save results
+    """
+    # Define configurations to test
+    configs = [
+        {'use_filter_lstm': False, 'use_attention': False, 'name': 'base_lstm'},
+        {'use_filter_lstm': False, 'use_attention': True, 'name': 'attention_only'},
+        {'use_filter_lstm': True, 'use_attention': False, 'name': 'filter_lstm_only'},
+        {'use_filter_lstm': True, 'use_attention': True, 'name': 'full_model'}
+    ]
+    
+    results = {}
+    
+    for config in configs:
+        print(f"\nTesting configuration: {config['name']}")
+        print(f"Filter LSTM: {'enabled' if config['use_filter_lstm'] else 'disabled'}")
+        print(f"Attention: {'enabled' if config['use_attention'] else 'disabled'}")
+        
+        # Create a fresh config for this configuration
+        current_config = forecaster.config.copy()
+        current_config.update({
+            'use_filter_lstm': config['use_filter_lstm'],
+            'use_attention': config['use_attention']
+        })
+        
+        # Create a new forecaster instance with the current configuration
+        current_forecaster = WaterLevelForecaster(current_config)
+        current_forecaster.preprocessor = forecaster.preprocessor
+        
+        # Create model directory
+        model_dir = output_dir / config['name']
+        model_dir.mkdir(exist_ok=True)
+        
+        # Train model
+        print("\nTraining model...")
+        model = current_forecaster.train(train_data, val_data, None, None)
+        
+        # Test on validation data
+        print("\nEvaluating on validation data...")
+        val_results = current_forecaster.predict(val_data)
+        
+        # Test on test data
+        print("\nEvaluating on test data...")
+        test_results = current_forecaster.predict(test_data)
+        
+        # Save results
+        results[config['name']] = {
+            'val_results': val_results,
+            'test_results': test_results
+        }
+        
+        # Create visualizations
+        print("\nCreating visualizations...")
+        visualizer.plot_forecast_with_anomalies(
+            val_results,
+            title=f"Validation Results - {config['name']}",
+            save_path=model_dir / "validation_forecast.png"
+        )
+        
+        visualizer.plot_forecast_with_anomalies(
+            test_results,
+            title=f"Test Results - {config['name']}",
+            save_path=model_dir / "test_forecast.png"
+        )
+        
+        # Save model
+        current_forecaster.save_model(model_dir / "model.pth")
+        
+        # Calculate and save metrics
+        val_metrics = calculate_metrics(val_results)
+        test_metrics = calculate_metrics(test_results)
+        
+        metrics_df = pd.DataFrame({
+            'Validation': val_metrics,
+            'Test': test_metrics
+        })
+        metrics_df.to_csv(model_dir / "metrics.csv")
+        
+        print(f"\nMetrics for {config['name']}:")
+        print(metrics_df)
+    
+    # Compare results across configurations
+    compare_configurations(results, output_dir)
+    
+    return results
+
+def calculate_metrics(results):
+    """Calculate performance metrics for a set of results."""
+    metrics = {}
+    
+    # Get actual and predicted values
+    actual = results['clean_data'].values.flatten()
+    predicted = results['forecasts']['step_1'].values.flatten()
+    
+    # Calculate MAE
+    metrics['MAE'] = np.mean(np.abs(actual - predicted))
+    
+    # Calculate RMSE
+    metrics['RMSE'] = np.sqrt(np.mean((actual - predicted) ** 2))
+    
+    # Calculate R-squared
+    ss_res = np.sum((actual - predicted) ** 2)
+    ss_tot = np.sum((actual - np.mean(actual)) ** 2)
+    metrics['R2'] = 1 - (ss_res / ss_tot)
+    
+    # Calculate anomaly detection metrics
+    anomalies = results['detected_anomalies']
+    metrics['Anomalies_Detected'] = anomalies['is_anomaly'].sum()
+    metrics['Anomaly_Rate'] = metrics['Anomalies_Detected'] / len(anomalies)
+    
+    return metrics
+
+def compare_configurations(results, output_dir):
+    """Compare results across different model configurations."""
+    # Create comparison plots directory
+    comparison_dir = output_dir / "comparisons"
+    comparison_dir.mkdir(exist_ok=True)
+    
+    # Collect metrics for all configurations
+    comparison_data = {
+        'Configuration': [],
+        'Dataset': [],
+        'MAE': [],
+        'RMSE': [],
+        'R2': [],
+        'Anomalies_Detected': [],
+        'Anomaly_Rate': []
+    }
+    
+    for config_name, config_results in results.items():
+        # Add validation metrics
+        val_metrics = calculate_metrics(config_results['val_results'])
+        comparison_data['Configuration'].append(config_name)
+        comparison_data['Dataset'].append('Validation')
+        comparison_data['MAE'].append(val_metrics['MAE'])
+        comparison_data['RMSE'].append(val_metrics['RMSE'])
+        comparison_data['R2'].append(val_metrics['R2'])
+        comparison_data['Anomalies_Detected'].append(val_metrics['Anomalies_Detected'])
+        comparison_data['Anomaly_Rate'].append(val_metrics['Anomaly_Rate'])
+        
+        # Add test metrics
+        test_metrics = calculate_metrics(config_results['test_results'])
+        comparison_data['Configuration'].append(config_name)
+        comparison_data['Dataset'].append('Test')
+        comparison_data['MAE'].append(test_metrics['MAE'])
+        comparison_data['RMSE'].append(test_metrics['RMSE'])
+        comparison_data['R2'].append(test_metrics['R2'])
+        comparison_data['Anomalies_Detected'].append(test_metrics['Anomalies_Detected'])
+        comparison_data['Anomaly_Rate'].append(test_metrics['Anomaly_Rate'])
+    
+    # Create comparison DataFrame
+    comparison_df = pd.DataFrame(comparison_data)
+    comparison_df.to_csv(comparison_dir / "configuration_comparison.csv", index=False)
+    
+    # Create comparison plots
+    metrics_to_plot = ['MAE', 'RMSE', 'R2']
+    plt.figure(figsize=(15, 5))
+    
+    for i, metric in enumerate(metrics_to_plot, 1):
+        plt.subplot(1, 3, i)
+        
+        # Get unique configurations
+        configs = comparison_df['Configuration'].unique()
+        x = np.arange(len(configs))
+        width = 0.35
+        
+        # Plot bars for validation and test
+        val_data = comparison_df[comparison_df['Dataset'] == 'Validation'][metric].values
+        test_data = comparison_df[comparison_df['Dataset'] == 'Test'][metric].values
+        
+        plt.bar(x - width/2, val_data, width, label='Validation', alpha=0.7)
+        plt.bar(x + width/2, test_data, width, label='Test', alpha=0.7)
+        
+        plt.title(f'{metric} Comparison')
+        plt.xticks(x, configs, rotation=45)
+        plt.ylabel(metric)
+        
+        if i == 1:  # Only show legend for first subplot
+            plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig(comparison_dir / "metrics_comparison.png", bbox_inches='tight')
+    plt.close()
+    
+    # Print summary
+    print("\nConfiguration Comparison Summary:")
+    print(comparison_df.to_string(index=False))
+    
+    # Calculate and print relative improvements
+    base_metrics = comparison_df[comparison_df['Configuration'] == 'base_lstm']
+    for metric in ['MAE', 'RMSE']:
+        print(f"\nRelative {metric} Improvement:")
+        for config in configs:
+            if config != 'base_lstm':
+                config_metrics = comparison_df[comparison_df['Configuration'] == config]
+                for dataset in ['Validation', 'Test']:
+                    base_value = base_metrics[base_metrics['Dataset'] == dataset][metric].values[0]
+                    config_value = config_metrics[config_metrics['Dataset'] == dataset][metric].values[0]
+                    improvement = ((base_value - config_value) / base_value) * 100
+                    print(f"{config} vs base_lstm ({dataset}): {improvement:.2f}% improvement")
+
 def main():
     # Parse command line arguments
     args = parse_args()
@@ -476,12 +696,15 @@ def main():
     print(f"Mode: {args.mode}")
     print(f"Prediction mode: {args.prediction_mode}")
     
-    # Initialize forecasting model and visualizer
+    # Update config with command line arguments
     config = DEFAULT_CONFIG.copy()
+    if args.mode == 'ablation':
+        config.update({
+            'use_filter_lstm': args.use_filter_lstm,
+            'use_attention': args.use_attention
+        })
     
-    # Update config to accommodate the largest horizon
-    config['prediction_window'] = max(horizons)
-    
+    # Initialize forecasting model and visualizer
     forecaster = WaterLevelForecaster(config)
     visualizer = ForecastVisualizer(config)
     
@@ -492,12 +715,14 @@ def main():
     print("Loading and filtering data...")
     train_data, val_data, test_data = load_and_filter_data(preprocessor, project_dir, station_id)
     
-    #Print the features and model config used
-    print(f"Features used: {preprocessor.feature_cols}")
-    print(f"Model config: {config}")
-    
     # Run in the specified mode
-    if args.mode == 'train':
+    if args.mode == 'ablation':
+        # Run ablation study
+        ablation_dir = output_path / "ablation_study"
+        ablation_dir.mkdir(exist_ok=True)
+        results = run_ablation_study(forecaster, visualizer, train_data, val_data, test_data, ablation_dir)
+        
+    elif args.mode == 'train':
         # Train mode - train and save model, then test on validation data
         train_and_save_model(forecaster, train_data, val_data, project_dir, station_id, output_path)
         

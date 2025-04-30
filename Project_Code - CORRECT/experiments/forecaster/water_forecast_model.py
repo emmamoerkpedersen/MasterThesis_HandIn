@@ -16,10 +16,13 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 
 class ForecastingLSTM(nn.Module):
     """
-    Dual-stream LSTM model with attention for water level forecasting.
-    One stream processes raw inputs, another maintains a filtered state.
+    LSTM model for water level forecasting with configurable components:
+    - Optional filter LSTM stream
+    - Multi-head attention mechanisms
     """
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout, use_feature_importance=False):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout, 
+                 use_feature_importance=False, use_filter_lstm=False, use_attention=False,
+                 num_attention_heads=4):  # Added num_attention_heads parameter
         super(ForecastingLSTM, self).__init__()
         self.model_name = 'ForecastingLSTM'
         self.input_size = input_size
@@ -27,6 +30,9 @@ class ForecastingLSTM(nn.Module):
         self.output_size = output_size
         self.num_layers = num_layers
         self.use_feature_importance = use_feature_importance
+        self.use_filter_lstm = use_filter_lstm
+        self.use_attention = use_attention
+        self.num_attention_heads = num_attention_heads
         
         # Main LSTM for processing raw input
         self.main_lstm = nn.LSTM(
@@ -37,14 +43,15 @@ class ForecastingLSTM(nn.Module):
             dropout=dropout if num_layers > 1 else 0
         )
         
-        # Filter LSTM for maintaining stable state
-        self.filter_lstm = nn.LSTM(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0
-        )
+        # Filter LSTM for maintaining stable state (optional)
+        if use_filter_lstm:
+            self.filter_lstm = nn.LSTM(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+                dropout=dropout if num_layers > 1 else 0
+            )
         
         # Feature importance layers - only if enabled
         if use_feature_importance:
@@ -55,26 +62,41 @@ class ForecastingLSTM(nn.Module):
                 nn.Softmax(dim=1)  # Ensure weights sum to 1 across features
             )
         
-        # Attention mechanism for each stream
-        self.main_attention = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.Tanh(),
-            nn.Linear(hidden_size, 1)
-        )
+        # Multi-head attention mechanisms (optional)
+        if use_attention:
+            # Create multiple attention heads for main LSTM
+            self.main_attention_heads = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear(hidden_size, hidden_size),
+                    nn.Tanh(),
+                    nn.Linear(hidden_size, 1)
+                ) for _ in range(num_attention_heads)
+            ])
+            
+            # Projection layer to combine attention heads
+            self.main_attention_combine = nn.Linear(hidden_size * num_attention_heads, hidden_size)
+            
+            if use_filter_lstm:
+                # Create multiple attention heads for filter LSTM
+                self.filter_attention_heads = nn.ModuleList([
+                    nn.Sequential(
+                        nn.Linear(hidden_size, hidden_size),
+                        nn.Tanh(),
+                        nn.Linear(hidden_size, 1)
+                    ) for _ in range(num_attention_heads)
+                ])
+                
+                # Projection layer to combine filter attention heads
+                self.filter_attention_combine = nn.Linear(hidden_size * num_attention_heads, hidden_size)
         
-        self.filter_attention = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.Tanh(),
-            nn.Linear(hidden_size, 1)
-        )
-        
-        # Gating mechanism to combine streams
-        self.gate_network = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size),
-            nn.Tanh(),
-            nn.Linear(hidden_size, 1),
-            nn.Sigmoid()
-        )
+        # Gating mechanism to combine streams (only if using filter_lstm)
+        if use_filter_lstm:
+            self.gate_network = nn.Sequential(
+                nn.Linear(hidden_size * 2, hidden_size),
+                nn.Tanh(),
+                nn.Linear(hidden_size, 1),
+                nn.Sigmoid()
+            )
         
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
@@ -86,18 +108,34 @@ class ForecastingLSTM(nn.Module):
         self.feature_importance_scores = None
         self.temporal_attention_weights = None
     
-    def apply_attention(self, lstm_out, attention_layer):
-        # Calculate attention weights
-        attention_weights = attention_layer(lstm_out)
-        attention_weights = torch.softmax(attention_weights, dim=1)
+    def apply_multi_head_attention(self, lstm_out, attention_heads, attention_combine):
+        """Apply multi-head attention and combine results."""
+        if not self.use_attention:
+            return lstm_out[:, -1, :]
+            
+        # Apply each attention head
+        head_outputs = []
+        attention_weights = []
         
-        # Store temporal attention weights
+        for head in attention_heads:
+            # Calculate attention weights for this head
+            weights = head(lstm_out)
+            weights = torch.softmax(weights, dim=1)
+            attention_weights.append(weights)
+            
+            # Apply attention weights
+            attended = torch.bmm(weights.transpose(1, 2), lstm_out)
+            head_outputs.append(attended)
+        
+        # Concatenate all head outputs
+        multi_head_output = torch.cat(head_outputs, dim=2)
+        
+        # Store temporal attention weights (average across heads)
         if self.training:
-            self.temporal_attention_weights = attention_weights.detach()
+            self.temporal_attention_weights = torch.mean(torch.stack(attention_weights), dim=0).detach()
         
-        # Apply attention weights
-        attended = torch.bmm(attention_weights.transpose(1, 2), lstm_out)
-        return attended.squeeze(1)
+        # Combine through projection layer
+        return attention_combine(multi_head_output).squeeze(1)
     
     def forward(self, x):
         batch_size, seq_len, num_features = x.size()
@@ -123,18 +161,35 @@ class ForecastingLSTM(nn.Module):
         
         # Process through main LSTM
         main_out, _ = self.main_lstm(x_weighted)
-        main_attended = self.apply_attention(main_out, self.main_attention)
         
-        # Process through filter LSTM
-        filter_out, _ = self.filter_lstm(x_weighted)
-        filter_attended = self.apply_attention(filter_out, self.filter_attention)
+        if self.use_attention:
+            main_attended = self.apply_multi_head_attention(
+                main_out, 
+                self.main_attention_heads,
+                self.main_attention_combine
+            )
+        else:
+            main_attended = main_out[:, -1, :]  # Use last hidden state if no attention
         
-        # Calculate gating weights
-        combined = torch.cat([main_attended, filter_attended], dim=1)
-        gate = self.gate_network(combined)
-        
-        # Combine streams using gate
-        final_output = gate * main_attended + (1 - gate) * filter_attended
+        if self.use_filter_lstm:
+            # Process through filter LSTM
+            filter_out, _ = self.filter_lstm(x_weighted)
+            
+            if self.use_attention:
+                filter_attended = self.apply_multi_head_attention(
+                    filter_out,
+                    self.filter_attention_heads,
+                    self.filter_attention_combine
+                )
+            else:
+                filter_attended = filter_out[:, -1, :]  # Use last hidden state if no attention
+            
+            # Calculate gating weights and combine streams
+            combined = torch.cat([main_attended, filter_attended], dim=1)
+            gate = self.gate_network(combined)
+            final_output = gate * main_attended + (1 - gate) * filter_attended
+        else:
+            final_output = main_attended
         
         if self.training:
             final_output = self.dropout(final_output)
@@ -145,13 +200,13 @@ class ForecastingLSTM(nn.Module):
         return forecasts
     
     def get_feature_importance(self):
-        """Return the current feature importance scores."""
+        """Return the current feature importance scores. Used for feature importance analysis, else returns None"""
         if self.feature_importance_scores is None:
             return None
         return self.feature_importance_scores.cpu().numpy()
     
     def get_temporal_attention(self):
-        """Return the current temporal attention weights."""
+        """Return the current temporal attention weights. Used for temporal attention analysis, else returns None"""
         if self.temporal_attention_weights is None:
             return None
         return self.temporal_attention_weights.cpu().numpy()
@@ -215,6 +270,8 @@ class WaterLevelForecaster:
         dropout = self.config.get('dropout', 0.2)
         output_size = self.prediction_window  # Predict multiple steps ahead
         use_feature_importance = self.config.get('use_feature_importance', False)
+        use_filter_lstm = self.config.get('use_filter_lstm', True)
+        use_attention = self.config.get('use_attention', True)
         
         # Initialize and return the model
         model = ForecastingLSTM(
@@ -223,7 +280,9 @@ class WaterLevelForecaster:
             num_layers=num_layers,
             output_size=output_size,
             dropout=dropout,
-            use_feature_importance=use_feature_importance
+            use_feature_importance=use_feature_importance,
+            use_filter_lstm=use_filter_lstm,
+            use_attention=use_attention
         ).to(self.device)
         
         self.model = model
