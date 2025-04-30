@@ -374,6 +374,7 @@ class WaterLevelForecaster:
             num_batches = (len(X_train) + batch_size - 1) // batch_size
             
             for i in range(num_batches):
+
                 start_idx = i * batch_size
                 end_idx = min(start_idx + batch_size, len(X_train))
                 
@@ -392,14 +393,21 @@ class WaterLevelForecaster:
                 if y_pred.shape != y_batch.shape:
                     y_pred = y_pred.view(y_batch.shape)
                 
-                loss = criterion(y_pred, y_batch)
-                loss.backward()
+                # Create mask for valid targets (non-NaN)
+                valid_mask = ~torch.isnan(y_batch)
                 
-                # Gradient clipping to prevent exploding gradients
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                
-                optimizer.step()
-                train_loss += loss.item()
+                # Only calculate loss for valid targets
+                if valid_mask.any():
+                    valid_y_pred = y_pred[valid_mask]
+                    valid_y_batch = y_batch[valid_mask]
+                    loss = criterion(valid_y_pred, valid_y_batch)
+                    loss.backward()
+                    
+                    # Gradient clipping to prevent exploding gradients
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                    
+                    optimizer.step()
+                    train_loss += loss.item()
             
             avg_train_loss = train_loss / num_batches
             
@@ -409,18 +417,40 @@ class WaterLevelForecaster:
             
             # Validation
             self.model.eval()
+            val_loss = 0
+            valid_val_samples = 0
+            
             with torch.no_grad():
-                val_preds = self.model(X_val)
-                
-                # Reshape if needed
-                if val_preds.shape != y_val.shape:
-                    val_preds = val_preds.view(y_val.shape)
-                
-                val_loss = criterion(val_preds, y_val).item()
+                for i in range(num_batches):
+                    start_idx = i * batch_size
+                    end_idx = min(start_idx + batch_size, len(X_val))
+                    
+                    X_batch = X_val[start_idx:end_idx]
+                    y_batch = y_val[start_idx:end_idx]
+                    
+                    y_pred = self.model(X_batch)
+                    
+                    # Reshape if needed
+                    if y_pred.shape != y_batch.shape:
+                        y_pred = y_pred.view(y_batch.shape)
+                    
+                    # Create mask for valid targets (non-NaN)
+                    valid_mask = ~torch.isnan(y_batch)
+                    
+                    # Only calculate loss for valid targets
+                    if valid_mask.any():
+                        valid_y_pred = y_pred[valid_mask]
+                        valid_y_batch = y_batch[valid_mask]
+                        loss = criterion(valid_y_pred, valid_y_batch)
+                        val_loss += loss.item()
+                        valid_val_samples += 1
+            
+            # Calculate average validation loss only over valid samples
+            avg_val_loss = val_loss / valid_val_samples if valid_val_samples > 0 else float('inf')
             
             # Print progress with feature importance
             if (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.6f}, Val Loss: {val_loss:.6f}")
+                print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
                 # Print top 5 most important features
                 feature_importance = list(zip(self.preprocessor.feature_cols, epoch_importance))
                 feature_importance.sort(key=lambda x: x[1], reverse=True)
@@ -429,8 +459,8 @@ class WaterLevelForecaster:
                     print(f"{feature}: {importance:.4f}")
             
             # Early stopping check
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
                 epochs_no_improve = 0
                 best_model_weights = self.model.state_dict().copy()
             else:
