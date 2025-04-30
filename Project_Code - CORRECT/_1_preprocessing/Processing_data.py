@@ -311,8 +311,6 @@ def preprocess_data():
         # Count points removed during frost periods
         #points_removed_frost = points_before - len(station_data['vst_raw'])
         
-         # Create vst_raw_feature with NaN values filled with -1
-        station_data['vst_raw_feature'] = station_data['vst_raw'].fillna(-1)
 
         print(f"\nProcessed {station_name}:")
         print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
