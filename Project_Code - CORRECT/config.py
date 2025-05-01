@@ -149,19 +149,19 @@ LSTM_CONFIG = {
     'lag_hours': [1, 2, 3, 6, 12, 24],  # Lag periods in hours
     
     'feature_cols': [
-        'rainfall'
-        
+        'rainfall',
+        'vst_raw_feature'
     ],
     'output_features': ['vst_raw'],
 
     'feature_stations': [
         {
             'station_id': '21006845',
-            'features': ['vst_raw', 'rainfall']
+            'features': ['rainfall']
         },
         {
             'station_id': '21006847',
-            'features': ['vst_raw', 'rainfall']
+            'features': ['rainfall']
         }
     ]
 }

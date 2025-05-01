@@ -46,7 +46,8 @@ DEFAULT_CONFIG = {
     # Features to use
     'feature_cols': [
         'rainfall',
-        'temperature'
+        'temperature',
+        'vst_raw_feature'
     ],
     'output_features': ['vst_raw'],
 
@@ -54,11 +55,11 @@ DEFAULT_CONFIG = {
     'feature_stations': [
         {
             'station_id': '21006845',
-            'features': ['vst_raw', 'rainfall']
+            'features': [ 'rainfall']
         },
         {
             'station_id': '21006847',
-            'features': ['vst_raw', 'rainfall']
+            'features': ['rainfall']
         }
     ],
     

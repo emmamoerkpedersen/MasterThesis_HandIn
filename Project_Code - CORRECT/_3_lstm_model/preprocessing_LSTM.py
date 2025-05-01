@@ -64,6 +64,8 @@ class DataPreprocessor:
         # Concatenate all station data columns
         df = pd.concat(station_data.values(), axis=1)
 
+
+
         # Add feature station data
         for station in self.config['feature_stations']:
             feature_station_id = station['station_id']
@@ -91,15 +93,18 @@ class DataPreprocessor:
         # Fill temperature and rainfall Nan with bfill and ffill
         #data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
-        data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
-        #data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
-        data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
-        #data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
+        #data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
+        #data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
+        #data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         #print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
         #Aggregate temperature to 30 days
-        #data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
+        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
         #print(f"  - Aggregated temperature to 30 days")
+
+        # vst_raw_feature is already preprocessed and NaN values are handled in Processing_data.py
+        # No need to fill NaN values again here
 
         # Add cumulative rainfall features if enabled in config
         if self.config.get('use_cumulative_features', False):
