@@ -455,6 +455,9 @@ class WaterLevelForecaster:
             
             # Validation
             self.model.eval()
+            val_loss = 0
+            valid_val_samples = 0
+            
             with torch.no_grad():
                 val_preds = self.model(X_val)
                 
@@ -481,8 +484,8 @@ class WaterLevelForecaster:
                     tqdm.write(f"{feature}: {importance:.4f}")
             
             # Early stopping check
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
                 epochs_no_improve = 0
                 best_model_weights = self.model.state_dict().copy()
                 # Add a checkmark to indicate improvement

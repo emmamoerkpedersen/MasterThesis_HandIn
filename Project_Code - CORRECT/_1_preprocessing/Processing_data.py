@@ -1,4 +1,3 @@
-
 import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -298,20 +297,29 @@ def preprocess_data():
         station_data['vst_raw'], n_spikes, (lower_bound, upper_bound) = detect_spikes(station_data['vst_raw'])
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
-        # Detect freezing periods
-        temp_data = station_data['temperature']
-        frost_periods = detect_frost_periods(temp_data)
-        # Count points before frost period removal
-        points_before = len(station_data['vst_raw'])
-        #Remove VST data during frost periods
-        for start, end in frost_periods:
-            station_data['vst_raw'] = station_data['vst_raw'][
-                ~((station_data['vst_raw'].index >= start) & 
-                    (station_data['vst_raw'].index <= end))
-            ]
-        # Count points removed during frost periods
-        points_removed_frost = points_before - len(station_data['vst_raw'])
         
+        # Create vst_raw_feature as a separate feature
+        # This will be used as an input feature, independent of the target vst_raw
+        station_data['vst_raw_feature'] = station_data['vst_raw'].copy()
+        station_data['vst_raw_feature'].columns = ['vst_raw_feature']  # Rename the column
+        # Fill any remaining NaN values with -1 for the feature
+        station_data['vst_raw_feature'] = station_data['vst_raw_feature'].fillna(-1)
+        
+        # # Detect freezing periods
+        # temp_data = station_data['temperature']
+        # frost_periods = detect_frost_periods(temp_data)
+        # # Count points before frost period removal
+        # points_before = len(station_data['vst_raw'])
+        # #Remove VST data during frost periods
+        # for start, end in frost_periods:
+        #     station_data['vst_raw'] = station_data['vst_raw'][
+        #         ~((station_data['vst_raw'].index >= start) & 
+        #             (station_data['vst_raw'].index <= end))
+        #     ]
+        # Count points removed during frost periods
+        #points_removed_frost = points_before - len(station_data['vst_raw'])
+        
+
         print(f"\nProcessed {station_name}:")
         print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
         print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
