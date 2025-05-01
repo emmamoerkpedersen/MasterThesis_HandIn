@@ -5,6 +5,7 @@ import pandas as pd
 from pathlib import Path
 import sys
 import os
+from tqdm.auto import tqdm  # Import tqdm for progress bars
 
 # Add the necessary paths
 current_dir = Path(__file__).resolve().parent
@@ -45,13 +46,33 @@ class ForecastingLSTM(nn.Module):
         
         # Filter LSTM for maintaining stable state (optional)
         if use_filter_lstm:
+            # Make filter LSTM deeper and with different architecture
+            filter_hidden_size = hidden_size  # Keep same hidden size for simplicity
+            filter_num_layers = num_layers    # Keep same number of layers for simplicity
+            
+            # Simple input transformation instead of complex smoother
+            self.input_transform = nn.Linear(input_size, input_size)
+            
             self.filter_lstm = nn.LSTM(
                 input_size=input_size,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
+                hidden_size=filter_hidden_size,
+                num_layers=filter_num_layers,
                 batch_first=True,
-                dropout=dropout if num_layers > 1 else 0
+                dropout=dropout * 1.2 if filter_num_layers > 1 else 0  # Slightly higher dropout
             )
+            
+            # Remove complex memory bank mechanism for now
+            
+            # Simplified gating mechanism
+            self.gate_network = nn.Sequential(
+                nn.Linear(hidden_size * 2, hidden_size),
+                nn.Tanh(),
+                nn.Linear(hidden_size, 1),
+                nn.Sigmoid()
+            )
+            
+            # Add fixed stability bias to favor filter LSTM during anomalies
+            self.stability_bias = 0.3  # Fixed value instead of learnable parameter
         
         # Feature importance layers - only if enabled
         if use_feature_importance:
@@ -88,15 +109,6 @@ class ForecastingLSTM(nn.Module):
                 
                 # Projection layer to combine filter attention heads
                 self.filter_attention_combine = nn.Linear(hidden_size * num_attention_heads, hidden_size)
-        
-        # Gating mechanism to combine streams (only if using filter_lstm)
-        if use_filter_lstm:
-            self.gate_network = nn.Sequential(
-                nn.Linear(hidden_size * 2, hidden_size),
-                nn.Tanh(),
-                nn.Linear(hidden_size, 1),
-                nn.Sigmoid()
-            )
         
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
@@ -172,8 +184,12 @@ class ForecastingLSTM(nn.Module):
             main_attended = main_out[:, -1, :]  # Use last hidden state if no attention
         
         if self.use_filter_lstm:
+            # Apply simple input transformation
+            x_transformed = self.input_transform(x_weighted.reshape(-1, num_features))
+            x_transformed = x_transformed.reshape(batch_size, seq_len, num_features)
+            
             # Process through filter LSTM
-            filter_out, _ = self.filter_lstm(x_weighted)
+            filter_out, _ = self.filter_lstm(x_transformed)
             
             if self.use_attention:
                 filter_attended = self.apply_multi_head_attention(
@@ -184,10 +200,20 @@ class ForecastingLSTM(nn.Module):
             else:
                 filter_attended = filter_out[:, -1, :]  # Use last hidden state if no attention
             
-            # Calculate gating weights and combine streams
+            # Calculate difference between main and filter outputs as a proxy for anomaly detection
+            # Higher difference suggests potential anomalies
+            output_diff = torch.abs(main_attended - filter_attended).mean(dim=1, keepdim=True)
+            anomaly_factor = torch.sigmoid(output_diff * 5.0) * self.stability_bias
+            
+            # Simple gating mechanism with stability bias
             combined = torch.cat([main_attended, filter_attended], dim=1)
             gate = self.gate_network(combined)
-            final_output = gate * main_attended + (1 - gate) * filter_attended
+            
+            # Adjust gate based on detected anomalies - increase filter influence during anomalies
+            adjusted_gate = gate * (1.0 - anomaly_factor)
+            
+            # Combine streams with adjusted gate
+            final_output = adjusted_gate * main_attended + (1.0 - adjusted_gate) * filter_attended
         else:
             final_output = main_attended
         
@@ -256,6 +282,10 @@ class WaterLevelForecaster:
             'tier2': 0.6,  # Medium confidence for tier 2
             'tier3': 0.4   # Lower threshold for tier 3
         }
+        
+        # Add a memory of recent predictions for stability
+        self.recent_predictions = []
+        self.recent_window = config.get('recent_predictions_window', 20)
 
     def build_model(self, input_size):
         """
@@ -323,12 +353,15 @@ class WaterLevelForecaster:
         y_val_df = pd.DataFrame(val_data[self.preprocessor.output_features])
         
         # Scale data
+        print("Scaling training and validation data...")
         X_train_scaled, y_train_scaled = self.preprocessor.feature_scaler.fit_transform(X_train_df, y_train_df)
         X_val_scaled, y_val_scaled = self.preprocessor.feature_scaler.transform(X_val_df, y_val_df)
         
         try:
             # Create sequences with overlap for forecasting
+            print("Creating training sequences...")
             X_train, y_train = self.preprocessor._create_overlap_sequences(X_train_scaled, y_train_scaled)
+            print("Creating validation sequences...")
             X_val, y_val = self.preprocessor._create_overlap_sequences(X_val_scaled, y_val_scaled)
         except Exception as e:
             print(f"Error creating overlap sequences: {e}")
@@ -343,6 +376,7 @@ class WaterLevelForecaster:
                 print(f"Adjusted prediction window to {self.prediction_window}")
         
         # Convert to PyTorch tensors
+        print("Converting to PyTorch tensors...")
         X_train = torch.FloatTensor(X_train).to(self.device)
         y_train = torch.FloatTensor(y_train).to(self.device)
         X_val = torch.FloatTensor(X_val).to(self.device)
@@ -351,6 +385,7 @@ class WaterLevelForecaster:
         # Build model if not already built
         input_size = X_train.shape[2]
         if self.model is None:
+            print(f"Building model with input size {input_size}...")
             self.build_model(input_size=input_size)
         
         # Initialize optimizer and loss function
@@ -364,7 +399,12 @@ class WaterLevelForecaster:
         
         feature_importance_per_epoch = []
         
-        for epoch in range(num_epochs):
+        print(f"Starting training for {num_epochs} epochs (patience: {patience})...")
+        
+        # Create progress bar for epochs
+        epoch_pbar = tqdm(range(num_epochs), desc="Training", unit="epoch")
+        
+        for epoch in epoch_pbar:
             # Training
             self.model.train()
             train_loss = 0
@@ -373,7 +413,10 @@ class WaterLevelForecaster:
             # Process in batches
             num_batches = (len(X_train) + batch_size - 1) // batch_size
             
-            for i in range(num_batches):
+            # Create progress bar for batches
+            batch_pbar = tqdm(range(num_batches), leave=False, desc=f"Epoch {epoch+1}/{num_epochs}", unit="batch")
+            
+            for i in batch_pbar:
                 start_idx = i * batch_size
                 end_idx = min(start_idx + batch_size, len(X_train))
                 
@@ -400,6 +443,9 @@ class WaterLevelForecaster:
                 
                 optimizer.step()
                 train_loss += loss.item()
+                
+                # Update batch progress bar
+                batch_pbar.set_postfix({"loss": f"{loss.item():.6f}"})
             
             avg_train_loss = train_loss / num_batches
             
@@ -418,25 +464,37 @@ class WaterLevelForecaster:
                 
                 val_loss = criterion(val_preds, y_val).item()
             
-            # Print progress with feature importance
+            # Update epoch progress bar
+            epoch_pbar.set_postfix({
+                "train_loss": f"{avg_train_loss:.6f}", 
+                "val_loss": f"{val_loss:.6f}",
+                "no_improve": epochs_no_improve
+            })
+            
+            # Print feature importance info every 10 epochs
             if (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.6f}, Val Loss: {val_loss:.6f}")
                 # Print top 5 most important features
                 feature_importance = list(zip(self.preprocessor.feature_cols, epoch_importance))
                 feature_importance.sort(key=lambda x: x[1], reverse=True)
-                print("\nTop 5 important features:")
+                tqdm.write("\nTop 5 important features:")
                 for feature, importance in feature_importance[:5]:
-                    print(f"{feature}: {importance:.4f}")
+                    tqdm.write(f"{feature}: {importance:.4f}")
             
             # Early stopping check
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 epochs_no_improve = 0
                 best_model_weights = self.model.state_dict().copy()
+                # Add a checkmark to indicate improvement
+                epoch_pbar.set_postfix({
+                    "train_loss": f"{avg_train_loss:.6f}", 
+                    "val_loss": f"{val_loss:.6f} ✓",
+                    "no_improve": 0
+                })
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve >= patience:
-                    print(f"Early stopping at epoch {epoch+1}")
+                    tqdm.write(f"Early stopping at epoch {epoch+1}")
                     break
         
         # Store feature importance history
@@ -479,6 +537,7 @@ class WaterLevelForecaster:
         Returns:
             Dictionary with forecasts, anomalies, original data, and error-injected data
         """
+        print("Preparing for prediction...")
         self.model.eval()
         prediction_importance = []
         
@@ -493,6 +552,7 @@ class WaterLevelForecaster:
         
         # Inject errors if requested
         if inject_errors:
+            print("Injecting synthetic errors...")
             working_data = self._inject_errors(working_data, error_periods)
         
         # Store the data with errors
@@ -503,38 +563,67 @@ class WaterLevelForecaster:
         y_test_df = pd.DataFrame(working_data[self.preprocessor.output_features])
         
         # Scale data
+        print("Scaling test data...")
         X_test_scaled, y_test_scaled = self.preprocessor.feature_scaler.transform(X_test_df, y_test_df)
         
         # Get sequence length from config
         sequence_length = self.config.get('sequence_length', 200)
         
-        # We'll make predictions for each timestep in the test data
-        # by using a sliding window approach
+        # Optimize prediction process by batching
+        batch_size = self.config.get('prediction_batch_size', 64)  # Default to 64 if not specified
+        
+        # Determine how many sliding windows we'll need
+        num_windows = len(X_test_scaled) - sequence_length + 1
+        
+        print(f"Making predictions with {num_windows} sliding windows...")
+        
         forecasts = []
         timestamps = []
         
+        # Process in batches for faster prediction
         with torch.no_grad():
-            for i in range(len(X_test_scaled) - sequence_length + 1):
-                # Extract sequence
-                X_seq = X_test_scaled[i:i+sequence_length]
+            # Create a progress bar for prediction windows
+            window_pbar = tqdm(range(0, num_windows, batch_size), desc="Predicting", unit="batch")
+            
+            for batch_start in window_pbar:
+                batch_end = min(batch_start + batch_size, num_windows)
+                batch_forecasts = []
+                batch_timestamps = []
                 
-                # Convert to tensor and reshape
-                X_seq_tensor = torch.FloatTensor(X_seq).unsqueeze(0).to(self.device)
+                # Create batch of sequences
+                batch_sequences = []
+                for i in range(batch_start, batch_end):
+                    # Extract sequence
+                    X_seq = X_test_scaled[i:i+sequence_length]
+                    batch_sequences.append(X_seq)
+                    batch_timestamps.append(working_data.index[i+sequence_length-1])
                 
-                # Make prediction
-                pred = self.model(X_seq_tensor)
+                # Convert batch to tensor
+                if batch_sequences:
+                    X_batch = torch.FloatTensor(np.array(batch_sequences)).to(self.device)
+                    
+                    # Make predictions for the entire batch at once
+                    batch_preds = self.model(X_batch)
+                    
+                    # Get feature importance
+                    importance = self.model.get_feature_importance()
+                    if importance is not None:
+                        prediction_importance.append(importance)
+                    
+                    # Add predictions to results
+                    for pred in batch_preds.cpu().numpy():
+                        batch_forecasts.append(pred)
                 
-                # Get feature importance for this prediction
-                importance = self.model.get_feature_importance()
-                if importance is not None:
-                    prediction_importance.append(importance)
+                forecasts.extend(batch_forecasts)
+                timestamps.extend(batch_timestamps)
                 
-                # Store the result
-                forecasts.append(pred.cpu().numpy()[0])
-                timestamps.append(working_data.index[i+sequence_length-1])
+                # Update progress bar
+                window_pbar.set_postfix({"windows": f"{batch_end}/{num_windows}"})
         
         # Convert to numpy arrays
         forecasts = np.array(forecasts)
+        
+        print("Processing prediction results...")
         
         # For each timestep, we now have predictions for the next 'steps_ahead' steps
         # Convert to DataFrame for easier manipulation
@@ -566,6 +655,7 @@ class WaterLevelForecaster:
         # Get the clean data for the same timestamps
         clean_data = original_clean_data[self.preprocessor.output_features].loc[forecast_df.index]
         
+        print("Detecting anomalies...")
         # Detect anomalies by comparing error-injected data with predictions
         if inject_errors:
             # Compare predictions to clean data to evaluate prediction quality
@@ -590,6 +680,8 @@ class WaterLevelForecaster:
             print("\nTop 10 Most Important Features:")
             for feature, importance in feature_importance[:10]:
                 print(f"{feature}: {importance:.4f}")
+        
+        print("Prediction completed successfully.")
         
         # Return results
         results = {
@@ -737,15 +829,31 @@ class WaterLevelForecaster:
         z_scores_abs = (absolute_residuals - median_residual) / mad_residual
         z_scores_pct = (percent_error - median_percent) / mad_percent
         
+        # Add simplified streak detection
+        streak_window = 5  # Look at consecutive points
+        streak_factor = np.zeros_like(z_scores_abs)
+        
+        for i in range(streak_window, len(z_scores_abs)):
+            # Look at maximum z-score in previous window
+            prev_max_z = max(
+                np.max(z_scores_abs[i-streak_window:i]),
+                np.max(z_scores_pct[i-streak_window:i])
+            )
+            
+            # If previous window had high z-scores, increase streak factor
+            if prev_max_z > self.anomaly_threshold * 0.7:
+                streak_factor[i] = min(1.0, prev_max_z / self.anomaly_threshold)
+        
         # Determine anomaly type based on which z-score is higher
         offset_anomalies = z_scores_abs > z_scores_pct
         scaling_anomalies = z_scores_pct > z_scores_abs
         
-        # Calculate a combined score favoring the higher of the two
-        z_scores = np.maximum(z_scores_abs, z_scores_pct)
+        # Calculate a combined score with simpler streak influence
+        combined_z = np.maximum(z_scores_abs, z_scores_pct)
+        combined_z = combined_z * (1 + streak_factor * 0.5)  # Lower impact from streak factor
         
         # Identify anomalies based on threshold
-        anomaly_flags = z_scores > self.anomaly_threshold
+        anomaly_flags = combined_z > self.anomaly_threshold
         
         # Determine anomaly types
         anomaly_types = np.full(len(actual), 'normal', dtype=object)
@@ -760,7 +868,8 @@ class WaterLevelForecaster:
             'percent_error': percent_error,
             'z_score_abs': z_scores_abs,
             'z_score_pct': z_scores_pct,
-            'z_score': z_scores,
+            'streak_factor': streak_factor,
+            'z_score': combined_z,
             'is_anomaly': anomaly_flags,
             'anomaly_type': anomaly_types
         }, index=actual_values.index if hasattr(actual_values, 'index') else None)
@@ -877,6 +986,8 @@ class WaterLevelForecaster:
         Returns:
             dict: Dictionary containing prediction results and metadata
         """
+        print(f"Starting iterative prediction with max {max_iterations} iterations...")
+        
         results = {
             'timestamps': X.index,
             'clean_data': pd.DataFrame(X[self.preprocessor.output_features]) if y is None else pd.DataFrame(y),
@@ -886,6 +997,7 @@ class WaterLevelForecaster:
         }
         
         # Initial prediction
+        print("Performing initial prediction...")
         current_features = X.copy()
         initial_pred_results = self.predict(current_features)
         # Extract the first step predictions from the forecasts DataFrame
@@ -903,8 +1015,11 @@ class WaterLevelForecaster:
                 'importances': initial_pred_results['feature_importance']
             })
         
+        # Create iteration progress bar
+        iter_pbar = tqdm(range(2, max_iterations + 1), desc="Iterations", unit="iter")
+        
         # Iterative prediction
-        for i in range(2, max_iterations + 1):
+        for i in iter_pbar:
             # Add previous prediction as feature
             prev_pred = results['predictions_by_iteration'][f'iteration_{i-1}']
             current_features['prev_prediction'] = prev_pred
@@ -931,11 +1046,15 @@ class WaterLevelForecaster:
             pred_change = np.abs(new_pred - prev_pred).mean()
             results['convergence_info'][f'iteration_{i}'] = pred_change
             
+            # Update progress bar with convergence info
+            iter_pbar.set_postfix({"change": f"{pred_change:.6f}"})
+            
             if pred_change < convergence_threshold:
                 print(f"Converged after {i} iterations (change: {pred_change:.6f})")
                 break
         
         # Detect anomalies using the final predictions
+        print("Detecting anomalies based on final predictions...")
         final_predictions = results['predictions_by_iteration'].iloc[:, -1]  # Get last iteration
         if y is not None:
             results['detected_anomalies'] = self.detect_anomalies(
@@ -949,4 +1068,5 @@ class WaterLevelForecaster:
                 predicted_values=final_predictions
             )
         
+        print("Iterative prediction completed successfully.")
         return results 

@@ -516,14 +516,14 @@ class ForecastVisualizer:
         plt.axvspan(start, end, color='red', alpha=0.1, label='Error Period')
         
         # Add metrics as text with better formatting
-        bbox_props = dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8)
-        if mae_normal is not None:
-            plt.text(0.02, 0.98, f'Normal MAE: {mae_normal:.2f}', 
-                    transform=plt.gca().transAxes, verticalalignment='top',
-                    bbox=bbox_props)
-        plt.text(0.02, 0.95, f'Error Period MAE: {mae_during_error:.2f}', 
-                transform=plt.gca().transAxes, verticalalignment='top',
-                bbox=bbox_props)
+        #bbox_props = dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8)
+        #if mae_normal is not None:
+        #    plt.text(0.02, 0.98, f'Normal MAE: {mae_normal:.2f}', 
+        #            transform=plt.gca().transAxes, verticalalignment='top',
+        #            bbox=bbox_props)
+        #plt.text(0.02, 0.95, f'Error Period MAE: {mae_during_error:.2f}', 
+        #        transform=plt.gca().transAxes, verticalalignment='top',
+        #        bbox=bbox_props)
         
         # Customize the plot with enhanced styling
         plt.title(f"Impact of {period['type'].capitalize()} Error\n{period['description']}", 
@@ -1104,3 +1104,139 @@ class ForecastVisualizer:
             if count > 0:
                 features_in_range = [f for f, v in feature_importance if min_val <= v < max_val]
                 print(f"  Features: {', '.join(features_in_range)}")
+    
+    def plot_forecast_simple_plotly(self, results, title="Water Level Forecasting", save_path=None, forecast_step=None):
+        """
+        A simplified interactive Plotly plot showing only predictions vs actual water levels.
+        
+        Args:
+            results: Dictionary with forecasts from the predict method
+            title: Plot title
+            save_path: Path to save the plot as HTML
+            forecast_step: Specific forecast step to plot (e.g., 'step_1', 'step_24'). 
+                          If None, uses the last step available.
+        """
+        try:
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+        except ImportError:
+            print("Plotly is not installed. Please install it using 'pip install plotly'.")
+            return None
+            
+        # Extract data
+        original_data = results['clean_data']
+        forecast_data = results['forecasts']
+        
+        # Determine which forecast step to plot
+        if forecast_step is not None and forecast_step in forecast_data.columns:
+            step_to_plot = forecast_step
+        elif 'step_1' in forecast_data.columns:
+            step_to_plot = 'step_1'  # Default to 1-step ahead
+        else:
+            # Use the last column as the forecast
+            step_to_plot = forecast_data.columns[-1]
+        
+        # Get step label for display
+        step_label = step_to_plot.replace('step_', '')
+        
+        # Create figure
+        fig = go.Figure()
+        
+        # Add actual water levels
+        fig.add_trace(go.Scatter(
+            x=original_data.index,
+            y=original_data.values.flatten(),
+            mode='lines',
+            name='Actual Water Levels',
+            line=dict(color='blue', width=2)
+        ))
+        
+        # Add forecast
+        fig.add_trace(go.Scatter(
+            x=forecast_data.index,
+            y=forecast_data[step_to_plot].values,
+            mode='lines',
+            name=f'{step_label}-Step Ahead Forecast',
+            line=dict(color='green', width=2)
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title=title,
+            xaxis_title='Date',
+            yaxis_title='Water Level',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            template='plotly_white',
+            height=600,
+            width=1000,
+            hovermode='x unified'
+        )
+        
+        # Add grid
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+        
+        # Save if path provided
+        if save_path:
+            fig.write_html(save_path)
+        
+        return fig
+    
+    def plot_forecast_simple(self, results, title="Water Level Forecasting", save_path=None, forecast_step=None):
+        """
+        A simplified plot showing only predictions vs actual water levels.
+        
+        Args:
+            results: Dictionary with forecasts from the predict method
+            title: Plot title
+            save_path: Path to save the plot
+            forecast_step: Specific forecast step to plot (e.g., 'step_1', 'step_24'). 
+                           If None, uses the last step available.
+        """
+        # Extract data
+        original_data = results['clean_data']
+        forecast_data = results['forecasts']
+        
+        # Create figure
+        plt.figure(figsize=(16, 8))
+        
+        # Plot water levels
+        plt.plot(original_data.index, original_data.values, 'b-', 
+                label='Actual Water Levels', linewidth=1.5)
+        
+        # Determine which forecast step to plot
+        if forecast_step is not None and forecast_step in forecast_data.columns:
+            step_to_plot = forecast_step
+        elif 'step_1' in forecast_data.columns:
+            step_to_plot = 'step_1'  # Default to 1-step ahead
+        else:
+            # Use the last column as the forecast
+            step_to_plot = forecast_data.columns[-1]
+        
+        # Plot the forecast
+        step_label = step_to_plot.replace('step_', '')
+        plt.plot(forecast_data.index, forecast_data[step_to_plot].values, 'g-', 
+                label=f'{step_label}-Step Ahead Forecast', linewidth=1.5)
+        
+        # Add labels and grid
+        plt.title(title, fontsize=16)
+        plt.ylabel('Water Level', fontsize=14)
+        plt.xlabel('Date', fontsize=14)
+        plt.grid(True, alpha=0.3)
+        plt.legend(loc='best')
+        
+        # Format dates on x-axis
+        plt.gca().xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%Y-%m'))
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        
+        return plt

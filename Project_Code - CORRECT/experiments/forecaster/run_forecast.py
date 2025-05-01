@@ -21,12 +21,12 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 DEFAULT_CONFIG = {
     # Model parameters
     'hidden_size': 64,          # Reduced from 128 to save memory
-    'num_layers': 2,            
+    'num_layers': 4,            
     'dropout': 0.2,             
     'batch_size': 96,          # Reduced from 64 to save memory
-    'sequence_length': 400,  # 5 days of data (increased from 396)
+    'sequence_length': 100,  # 5 days of data (increased from 396)
     'prediction_window': 1,    # Predict up to 12 steps ahead
-    'sequence_stride':50,      # Stride for creating sequences
+    'sequence_stride':1,      # Stride for creating sequences
     'epochs': 100,           # Maximum epochs
     'patience': 10,             # Early stopping patience
     'z_score_threshold': 6.7,   # Anomaly detection threshold
@@ -36,12 +36,12 @@ DEFAULT_CONFIG = {
     'use_filter_lstm': False,    # Whether to use the filter LSTM stream
     'use_attention': True,      # Whether to use attention mechanisms
     'use_feature_importance': False,  # Disable feature importance calculation by default
-    
+
     # Feature engineering
     'use_time_features': True,  
     'use_cumulative_features': True, 
     'use_lagged_features': True,  
-    'lag_hours': [2, 6, 12, 24, 48, 72],  # Added 6h lag for better intermediate context
+    'lag_hours': [2, 6, 12, 24, 48, 72, 96, 168, 336, 720],  # Added longer lags (96h, 7d, 14d, 30d)
     
     # Features to use
     'feature_cols': [
@@ -70,29 +70,24 @@ DEFAULT_CONFIG = {
         'water_level_acc_15min',
         'water_level_acc_1h',
         
-        # Redundant lag features
+        # Redundant lag features (keep longer ones)
         'water_level_lag_12h',
-        'water_level_lag_24h',
         
         # Time features
         'month_sin',
         'month_cos',
-        'day_of_year_sin',
-        'day_of_year_cos',
         
         # Long-term rainfall features
         'rainfall_180day',
         'feature1_rain_180day',
         'feature2_rain_180day',
-        'feature1_rain_365day',
         
         # Low importance station features
         'feature_station_21006847_vst_raw',
         
         # Redundant MA features
         'water_level_ma_18h',
-        'water_level_ma_36h',
-        'water_level_ma_48h'
+        'water_level_ma_36h'
     ]
 }
 
@@ -190,6 +185,7 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     # Then get predictions with injected errors
     print("Getting predictions with injected errors...")
     val_data_with_errors = forecaster._inject_errors(val_data.copy(), error_periods)
+    
     if prediction_mode == 'iterative':
         val_results_with_errors = forecaster.predict_iteratively(val_data_with_errors)
     else:
@@ -203,6 +199,10 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
         'clean_forecast': val_results_clean['forecasts'],
         'detected_anomalies': val_results_with_errors['detected_anomalies']
     }
+    
+    # Add anomaly windows if available (from resilient mode)
+    if 'anomaly_windows' in val_results_with_errors:
+        combined_results['anomaly_windows'] = val_results_with_errors['anomaly_windows']
     
     # Create plots directory
     plots_dir = output_dir / "plots"
@@ -251,6 +251,37 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
         title="Water Level Forecasting with Injected Errors - Interactive",
         save_path=interactive_dir / "water_forecast_with_errors.html"
     )
+    
+    # Create simplified plots without anomalies
+    print("\nCreating simplified visualizations (predictions vs actual only)...")
+    # Static simplified plot
+    visualizer.plot_forecast_simple(
+        combined_results,
+        title="Water Level Forecast vs Actual (Simplified) - Validation",
+        save_path=plots_dir / "water_forecast_validation_simple.png"
+    )
+    
+    # Interactive simplified plot
+    visualizer.plot_forecast_simple_plotly(
+        combined_results,
+        title="Water Level Forecast vs Actual - Interactive (Simplified) - Validation",
+        save_path=interactive_dir / "water_forecast_validation_simple.html"
+    )
+    
+    # Special visualizations for resilient mode
+    if prediction_mode == 'resilient' and 'anomaly_windows' in combined_results:
+        print("\nCreating anomaly handling comparison visualization...")
+        visualizer.plot_anomaly_handling_comparison(
+            combined_results,
+            title="Long-Lasting Anomaly Handling Comparison",
+            save_path=plots_dir / "anomaly_handling_comparison.png"
+        )
+        
+        visualizer.plot_anomaly_handling_comparison_plotly(
+            combined_results,
+            title="Long-Lasting Anomaly Handling Comparison - Interactive",
+            save_path=interactive_dir / "anomaly_handling_comparison.html"
+        )
     
     # Plot focused views for each error period
     print("\nCreating focused error period plots...")
@@ -314,6 +345,43 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
         save_path=interactive_dir / "water_forecast_test.html"
     )
     
+    # Create simplified plots without anomalies
+    print("\nCreating simplified visualizations (predictions vs actual only)...")
+    # Static simplified plot
+    visualizer.plot_forecast_simple(
+        test_results,
+        title="Water Level Forecast vs Actual (Simplified)",
+        save_path=plots_dir / "water_forecast_simple.png"
+    )
+    
+    # Interactive simplified plot
+    visualizer.plot_forecast_simple_plotly(
+        test_results,
+        title="Water Level Forecast vs Actual - Interactive (Simplified)",
+        save_path=interactive_dir / "water_forecast_simple.html"
+    )
+    
+    # Generate multi-step forecasts if available in the results
+    multi_step_columns = [col for col in test_results['forecasts'].columns if col.startswith('step_')]
+    if len(multi_step_columns) > 1:
+        print("\nCreating multi-step forecast visualizations...")
+        # Plot for a longer horizon forecast (step_24 if available, otherwise last step)
+        long_step = 'step_24' if 'step_24' in multi_step_columns else multi_step_columns[-1]
+        
+        visualizer.plot_forecast_simple(
+            test_results,
+            title=f"Water Level {long_step.replace('step_', '')}-Step Ahead Forecast",
+            save_path=plots_dir / f"water_forecast_{long_step}.png",
+            forecast_step=long_step
+        )
+        
+        visualizer.plot_forecast_simple_plotly(
+            test_results,
+            title=f"Water Level {long_step.replace('step_', '')}-Step Ahead Forecast - Interactive",
+            save_path=interactive_dir / f"water_forecast_{long_step}.html",
+            forecast_step=long_step
+        )
+    
     # Summarize anomalies in test data
     test_anomalies = test_results['detected_anomalies'] 
     test_anomaly_count = test_anomalies['is_anomaly'].sum()
@@ -349,14 +417,44 @@ def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, outp
     horizon_dir = output_dir / "multi_horizon"
     horizon_dir.mkdir(exist_ok=True)
     
+    # Create subdirectories for different plot types
+    horizon_plots_dir = horizon_dir / "plots"
+    horizon_plots_dir.mkdir(exist_ok=True)
+    horizon_interactive_dir = horizon_dir / "interactive"
+    horizon_interactive_dir.mkdir(exist_ok=True)
+    
     # Plot multi-horizon forecast
     print("\nPlotting multi-horizon forecast...")
     visualizer.plot_multi_horizon_forecasts(
         test_results,
         horizons=horizons,
         title="Multi-Horizon Water Level Forecasting",
-        save_path=horizon_dir / "multi_horizon_forecast.png"
+        save_path=horizon_plots_dir / "multi_horizon_forecast.png"
     )
+    
+    # Create simplified plots for each horizon
+    print("\nCreating simplified horizon-specific visualizations...")
+    for horizon in horizons:
+        horizon_col = f'step_{horizon}'
+        if horizon_col in test_results['forecasts'].columns:
+            # Create a copy of test_results with only this horizon column
+            horizon_results = test_results.copy()
+            
+            # Static simplified plot for this horizon
+            visualizer.plot_forecast_simple(
+                horizon_results,
+                title=f"Water Level Forecast ({horizon}-Step Ahead)",
+                save_path=horizon_plots_dir / f"horizon_{horizon}_simple.png",
+                forecast_step=horizon_col
+            )
+            
+            # Interactive simplified plot for this horizon
+            visualizer.plot_forecast_simple_plotly(
+                horizon_results,
+                title=f"Water Level Forecast ({horizon}-Step Ahead) - Interactive",
+                save_path=horizon_interactive_dir / f"horizon_{horizon}_simple.html",
+                forecast_step=horizon_col
+            )
     
     # Plot forecast accuracy by horizon
     print("\nPlotting forecast accuracy by horizon...")
@@ -704,6 +802,10 @@ def main():
             'use_attention': args.use_attention
         })
     
+    #Print full config before running in a loop
+    for key, value in config.items():
+        print(f"{key}: {value}")
+    
     # Initialize forecasting model and visualizer
     forecaster = WaterLevelForecaster(config)
     visualizer = ForecastVisualizer(config)
@@ -768,6 +870,9 @@ def main():
         
         print(f"\n=== Validation Data with Injected Errors ({args.prediction_mode} mode) ===")
         # Run with injected errors on validation data
+        if args.prediction_mode == 'resilient':
+            print("Using resilient prediction mode with enhanced long anomaly handling")
+        
         run_validation_with_errors(forecaster, visualizer, val_data, DEFAULT_ERROR_PERIODS, val_dir, args.prediction_mode)
         
         print(f"\n=== Test Data Predictions ({args.prediction_mode} mode) ===")
