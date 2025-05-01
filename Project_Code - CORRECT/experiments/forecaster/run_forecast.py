@@ -20,34 +20,35 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 # Default configuration
 DEFAULT_CONFIG = {
     # Model parameters
-    'hidden_size': 64,          # Reduced from 128 to save memory
-    'num_layers': 4,            
+    'hidden_size': 64,          # Increased for more model capacity
+    'num_layers': 1,            # Using three layers for better modeling
     'dropout': 0.2,             
-    'batch_size': 96,          # Reduced from 64 to save memory
-    'sequence_length': 100,  # 5 days of data (increased from 396)
-    'prediction_window': 1,    # Predict up to 12 steps ahead
-    'sequence_stride':1,      # Stride for creating sequences
-    'epochs': 100,           # Maximum epochs
+    'batch_size': 16,          # Reduced batch size for better training
+    'sequence_length': 500,  # Extended sequence length to capture more history
+    'prediction_window': 1,    # Predict one step ahead
+    'sequence_stride': 50,      # Stride for creating sequences
+    'epochs': 10,           # Increased for better convergence
     'patience': 10,             # Early stopping patience
     'z_score_threshold': 6.7,   # Anomaly detection threshold
     'learning_rate': 0.001,     
     
     # Model architecture configuration
-    'use_filter_lstm': False,    # Whether to use the filter LSTM stream
-    'use_attention': True,      # Whether to use attention mechanisms
+    'use_attention': True,      # Using attention mechanisms
     'use_feature_importance': False,  # Disable feature importance calculation by default
 
     # Feature engineering
     'use_time_features': True,  
     'use_cumulative_features': True, 
     'use_lagged_features': True,  
-    'lag_hours': [2, 6, 12, 24, 48, 72, 96, 168, 336, 720],  # Added longer lags (96h, 7d, 14d, 30d)
+    'lag_hours': [72, 96, 168, 336, 720, 1440],  # Lag hours (1d, 2d, 4d, 7d, 14d, 30d, 60d)
+    
+    # Custom features to add - empty by default
+    'custom_features': [],
     
     # Features to use
     'feature_cols': [
         'rainfall',
-        'temperature',
-        'vst_raw_feature'
+        'temperature'
     ],
     'output_features': ['vst_raw'],
 
@@ -55,40 +56,17 @@ DEFAULT_CONFIG = {
     'feature_stations': [
         {
             'station_id': '21006845',
-            'features': [ 'rainfall']
+            'features': ['vst_raw', 'rainfall']
         },
         {
             'station_id': '21006847',
-            'features': ['rainfall']
+            'features': ['vst_raw', 'rainfall']
         }
     ],
     
     # Low importance features to filter out (importance < 0.01)
     'low_importance_features': [
-        # Very short-term features
-        'water_level_roc_15min',
-        'water_level_roc_30min',
-        'water_level_acc_15min',
-        'water_level_acc_1h',
-        
-        # Redundant lag features (keep longer ones)
-        'water_level_lag_12h',
-        
-        # Time features
-        'month_sin',
-        'month_cos',
-        
-        # Long-term rainfall features
-        'rainfall_180day',
-        'feature1_rain_180day',
-        'feature2_rain_180day',
-        
-        # Low importance station features
-        'feature_station_21006847_vst_raw',
-        
-        # Redundant MA features
-        'water_level_ma_18h',
-        'water_level_ma_36h'
+        #Update this list with the features that are not important based on the feature importance plot
     ]
 }
 
@@ -139,7 +117,7 @@ def parse_args():
     parser.add_argument('--output_dir', type=str, default='forecast_results',
                         help='Directory to save results')
     
-    parser.add_argument('--mode', type=str, choices=['train', 'predict', 'test_error', 'multi_horizon', 'ablation'], 
+    parser.add_argument('--mode', type=str, choices=['train', 'predict', 'test_error', 'multi_horizon'], 
                         default='test_error', help='Mode to run in')
     
     parser.add_argument('--prediction_mode', type=str, choices=['standard', 'iterative'],
@@ -151,12 +129,25 @@ def parse_args():
     parser.add_argument('--horizons', type=str, default='1,12,24,48,72',
                         help='Comma-separated list of forecast horizons to evaluate')
     
-    # Add new arguments for ablation study
-    parser.add_argument('--use_filter_lstm', type=bool, default=True,
-                        help='Whether to use the filter LSTM stream')
+    # Add new argument for multi-horizon mode
+    parser.add_argument('--train_separate_models', action='store_true',
+                        help='Train separate models for each forecast horizon in multi-horizon mode')
     
-    parser.add_argument('--use_attention', type=bool, default=True,
-                        help='Whether to use attention mechanisms')
+    # Add new arguments for feature engineering control
+    parser.add_argument('--add_ma_features', action='store_true',
+                        help='Add moving average features (use --ma_hours to specify)')
+    
+    parser.add_argument('--ma_hours', type=str, default='6,12,24',
+                       help='Comma-separated list of hours for moving average features')
+    
+    parser.add_argument('--sequence_length', type=int, default=500,
+                        help='Sequence length to use for the model (number of timesteps)')
+    
+    parser.add_argument('--use_attention', action='store_true', default=True,
+                       help='Enable attention mechanism')
+                       
+    parser.add_argument('--num_layers', type=int, default=3,
+                       help='Number of LSTM layers')
     
     return parser.parse_args()
 
@@ -170,7 +161,166 @@ def train_and_save_model(forecaster, train_data, val_data, project_root, station
     forecaster.save_model(model_path)
     print(f"Model saved to {model_path}")
     
+    # Print feature summary report
+    print("\nFeature Usage Report:")
+    total_features = len(forecaster.preprocessor.feature_cols)
+    print(f"Total features used in model: {total_features}")
+    
+    # Group features by type
+    feature_types = {
+        "Base": [],
+        "Station": [],
+        "Time": [],
+        "Cumulative": [],
+        "Lag": [],
+        "MA": [],
+        "ROC": [],
+        "Other": []
+    }
+    
+    for feature in forecaster.preprocessor.feature_cols:
+        if feature in forecaster.config['feature_cols']:
+            feature_types["Base"].append(feature)
+        elif feature.startswith('feature_station_'):
+            feature_types["Station"].append(feature)
+        elif any(time_feat in feature for time_feat in ["month", "day_of_year"]):
+            feature_types["Time"].append(feature)
+        elif any(cum_feat in feature for cum_feat in ["30day", "180day", "365day"]):
+            feature_types["Cumulative"].append(feature)
+        elif "lag" in feature:
+            feature_types["Lag"].append(feature)
+        elif "ma_" in feature and not "roc" in feature:
+            feature_types["MA"].append(feature)
+        elif "roc" in feature or "acc" in feature:
+            feature_types["ROC"].append(feature)
+        else:
+            feature_types["Other"].append(feature)
+    
+    # Print summary counts
+    for feature_type, features in feature_types.items():
+        count = len(features)
+        if count > 0:
+            percentage = (count / total_features) * 100
+            print(f"  - {feature_type} Features: {count} ({percentage:.1f}%)")
+    
+    # Print top 5 lag features as a sample
+    if feature_types["Lag"]:
+        print("\nSample Lag Features:")
+        for feature in sorted(feature_types["Lag"])[:5]:
+            print(f"  - {feature}")
+    
+    # Print model configuration
+    print("\nModel Configuration:")
+    print(f"  - Hidden Size: {forecaster.config['hidden_size']}")
+    print(f"  - Layers: {forecaster.config['num_layers']}")
+    print(f"  - Dropout: {forecaster.config['dropout']}")
+    print(f"  - Sequence Length: {forecaster.config['sequence_length']}")
+    print(f"  - Attention: {forecaster.config['use_attention']}")
+    
     return model
+
+def reconstruct_features_with_errors(forecaster, original_data, error_periods):
+    """
+    Reconstruct all features after injecting errors into raw data.
+    This ensures that all derived features are calculated from error-injected data.
+    
+    Args:
+        forecaster: WaterLevelForecaster instance
+        original_data: Original DataFrame with clean data
+        error_periods: List of error period dictionaries
+        
+    Returns:
+        DataFrame with errors injected and features recalculated
+    """
+    # Get the output feature (target column)
+    output_feature = forecaster.preprocessor.output_features[0] if isinstance(
+        forecaster.preprocessor.output_features, list) else forecaster.preprocessor.output_features
+    
+    # Create a copy of just the essential columns (raw data before feature engineering)
+    # First, determine which columns are raw data vs derived features
+    raw_columns = ['temperature', 'rainfall', output_feature]
+    
+    # Add any feature station columns
+    for station in forecaster.config['feature_stations']:
+        for feature in station['features']:
+            raw_columns.append(f"feature_station_{station['station_id']}_{feature}")
+    
+    # Create a clean base dataframe with only raw columns
+    base_df = pd.DataFrame(index=original_data.index)
+    for col in raw_columns:
+        if col in original_data.columns:
+            base_df[col] = original_data[col]
+    
+    # Now inject errors into the target column
+    print(f"Injecting errors into raw data column: {output_feature}")
+    for period in error_periods:
+        start = pd.Timestamp(period['start'])
+        end = pd.Timestamp(period['end'])
+        error_type = period['type']
+        magnitude = period['magnitude']
+        
+        # Get mask for the period
+        mask = (base_df.index >= start) & (base_df.index <= end)
+        
+        # Skip if no data points in this period
+        if not mask.any():
+            continue
+            
+        # Apply the error to the target column only
+        if error_type == 'noise':
+            # Generate random noise with the correct shape
+            noise = np.random.normal(0, magnitude, size=sum(mask))
+            # Apply noise directly
+            base_df.loc[mask, output_feature] += noise
+        
+        elif error_type == 'offset':
+            # Apply offset
+            base_df.loc[mask, output_feature] += magnitude
+        
+        elif error_type == 'scaling':
+            # Apply scaling
+            base_df.loc[mask, output_feature] *= magnitude
+        
+        elif error_type == 'missing':
+            # Set values to NaN (simulating missing data)
+            base_df.loc[mask, output_feature] = np.nan
+    
+    # Now rebuild all features from scratch
+    print("Reconstructing all features from error-injected data...")
+    
+    # Add cumulative features if enabled
+    if forecaster.config.get('use_cumulative_features', False):
+        base_df = forecaster.preprocessor._add_cumulative_features(base_df)
+    
+    # Add time features if enabled
+    if forecaster.config.get('use_time_features', False):
+        base_df = forecaster.preprocessor._add_time_features(base_df)
+    
+    # Add lagged features if enabled
+    if forecaster.config.get('use_lagged_features', False):
+        lags = forecaster.config.get('lag_hours', [1, 2, 3, 6, 12, 24])
+        
+        # Log what feature types are being included/excluded
+        print(f"  - Including lag features: {lags}")
+        
+        base_df = forecaster.preprocessor.feature_engineer.add_lagged_features(
+            base_df, 
+            target_col=output_feature, 
+            lags=lags
+        )
+    
+    # Add any custom features
+    if forecaster.config.get('custom_features'):
+        print(f"  - Adding custom features")
+        base_df = forecaster.preprocessor.feature_engineer.add_custom_features(
+            base_df,
+            target_col=output_feature,
+            feature_specs=forecaster.config['custom_features']
+        )
+    
+    print(f"Feature reconstruction complete. Data shape: {base_df.shape}")
+    
+    return base_df
 
 def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, output_dir, prediction_mode='standard'):
     """Run and visualize predictions on validation data with injected errors"""
@@ -183,10 +333,16 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     else:
         val_results_clean = forecaster.predict(val_data)
     
-    # Then get predictions with injected errors
-    print("Getting predictions with injected errors...")
-    val_data_with_errors = forecaster._inject_errors(val_data.copy(), error_periods)
+    # Get the output feature name
+    output_feature = forecaster.preprocessor.output_features[0] if isinstance(
+        forecaster.preprocessor.output_features, list) else forecaster.preprocessor.output_features
     
+    # Create a version with errors injected and features recalculated
+    print("Reconstructing data with errors...")
+    val_data_with_errors = reconstruct_features_with_errors(forecaster, val_data, error_periods)
+    
+    # Make predictions with the reconstructed error-injected data
+    print("Getting predictions with injected errors...")
     if prediction_mode == 'iterative':
         val_results_with_errors = forecaster.predict_iteratively(val_data_with_errors)
     else:
@@ -195,15 +351,12 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     # Combine results for visualization
     combined_results = {
         'clean_data': val_results_clean['clean_data'],
-        'error_injected_data': val_data_with_errors[forecaster.preprocessor.output_features],
+        'error_injected_data': val_data_with_errors[output_feature],
         'forecasts': val_results_with_errors['forecasts'],
         'clean_forecast': val_results_clean['forecasts'],
         'detected_anomalies': val_results_with_errors['detected_anomalies']
     }
     
-    # Add anomaly windows if available (from resilient mode)
-    if 'anomaly_windows' in val_results_with_errors:
-        combined_results['anomaly_windows'] = val_results_with_errors['anomaly_windows']
     
     # Create plots directory
     plots_dir = output_dir / "plots"
@@ -211,10 +364,13 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     interactive_dir = output_dir / "interactive"
     interactive_dir.mkdir(exist_ok=True)
     
+    # Create visualizations
+    print("\nCreating visualizations...")
+    
     # Create feature importance visualization if enabled and available
     if forecaster.config.get('use_feature_importance', False) and 'feature_importance' in val_results_with_errors:
         feature_importance = val_results_with_errors['feature_importance']
-        if feature_importance is not None:  # Additional check to ensure we have data
+        if feature_importance is not None:
             print("\nCreating feature importance visualization...")
             
             # Handle different feature importance formats
@@ -222,12 +378,9 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
                 # For iterative predictions, use the last iteration
                 if isinstance(feature_importance[-1], dict) and 'importances' in feature_importance[-1]:
                     feature_importance = feature_importance[-1]['importances']
-                else:
-                    # If it's a list of tuples, use as is
-                    feature_importance = feature_importance
             elif isinstance(feature_importance, dict):
                 # If it's already a dictionary, use as is
-                feature_importance = feature_importance
+                pass
             elif isinstance(feature_importance, tuple):
                 # If it's a tuple of (feature, importance), convert to dict
                 feature_importance = dict(zip(forecaster.preprocessor.feature_cols, feature_importance))
@@ -236,7 +389,7 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
                 feature_importance,
                 title="Feature Importance Analysis",
                 save_path=plots_dir / "feature_importance_analysis.png",
-                min_importance_threshold=0.01  # Features below this might be candidates for removal
+                min_importance_threshold=0.01
             )
     
     # Plot validation results
@@ -269,20 +422,7 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
         save_path=interactive_dir / "water_forecast_validation_simple.html"
     )
     
-    # Special visualizations for resilient mode
-    if prediction_mode == 'resilient' and 'anomaly_windows' in combined_results:
-        print("\nCreating anomaly handling comparison visualization...")
-        visualizer.plot_anomaly_handling_comparison(
-            combined_results,
-            title="Long-Lasting Anomaly Handling Comparison",
-            save_path=plots_dir / "anomaly_handling_comparison.png"
-        )
-        
-        visualizer.plot_anomaly_handling_comparison_plotly(
-            combined_results,
-            title="Long-Lasting Anomaly Handling Comparison - Interactive",
-            save_path=interactive_dir / "anomaly_handling_comparison.html"
-        )
+
     
     # Plot focused views for each error period
     print("\nCreating focused error period plots...")
@@ -400,19 +540,9 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
     
     return test_results
 
-def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, output_dir):
+def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, output_dir, train_separate_models=False, train_data=None, val_data=None):
     """Run and visualize predictions with multiple forecast horizons"""
     print(f"\nRunning multi-horizon analysis with horizons: {horizons}")
-    
-    # Ensure config has enough output steps
-    max_horizon = max(horizons)
-    if forecaster.prediction_window < max_horizon:
-        print(f"Adjusting prediction window from {forecaster.prediction_window} to {max_horizon}")
-        forecaster.prediction_window = max_horizon
-        forecaster.config['prediction_window'] = max_horizon
-    
-    # Make predictions on test data
-    test_results = forecaster.predict(test_data)
     
     # Create multi-horizon directory
     horizon_dir = output_dir / "multi_horizon"
@@ -424,10 +554,91 @@ def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, outp
     horizon_interactive_dir = horizon_dir / "interactive"
     horizon_interactive_dir.mkdir(exist_ok=True)
     
-    # Plot multi-horizon forecast
+    test_results_by_horizon = {}
+    metrics_by_horizon = []
+    
+    if train_separate_models and train_data is not None and val_data is not None:
+        print("\nTraining separate models optimized for each forecast horizon...")
+        
+        # Iterate through horizons and train specific models
+        for horizon in horizons:
+            print(f"\n=== Training and testing model for {horizon}-step ahead forecast ===")
+            
+            # Create a copy of the forecaster with a specific prediction window
+            horizon_config = forecaster.config.copy()
+            horizon_config['prediction_window'] = horizon
+            
+            horizon_forecaster = WaterLevelForecaster(horizon_config)
+            horizon_forecaster.preprocessor = forecaster.preprocessor
+            
+            # Create a model directory for this horizon
+            horizon_model_dir = horizon_dir / f"horizon_{horizon}_model"
+            horizon_model_dir.mkdir(exist_ok=True)
+            
+            # Train the model
+            print(f"Training {horizon}-step model...")
+            horizon_forecaster.train(train_data, val_data, None, None)
+            
+            # Save the model
+            model_path = horizon_model_dir / f"horizon_{horizon}_model.pth"
+            horizon_forecaster.save_model(model_path)
+            
+            # Make predictions
+            print(f"Making {horizon}-step predictions...")
+            horizon_results = horizon_forecaster.predict(test_data, steps_ahead=horizon)
+            
+            # Store results
+            test_results_by_horizon[horizon] = horizon_results
+            
+            # Create visualizations
+            visualizer.plot_forecast_simple(
+                horizon_results,
+                title=f"Water Level Forecast ({horizon}-Step Ahead) - Dedicated Model",
+                save_path=horizon_plots_dir / f"horizon_{horizon}_dedicated_model.png",
+                forecast_step=f"step_{min(horizon, len(horizon_results['forecasts'].columns))}"
+            )
+            
+            visualizer.plot_forecast_simple_plotly(
+                horizon_results,
+                title=f"Water Level Forecast ({horizon}-Step Ahead) - Dedicated Model - Interactive",
+                save_path=horizon_interactive_dir / f"horizon_{horizon}_dedicated_model.html",
+                forecast_step=f"step_{min(horizon, len(horizon_results['forecasts'].columns))}"
+            )
+            
+            # Calculate metrics
+            horizon_metrics = {
+                'Horizon': horizon,
+                'Model_Type': 'Dedicated',
+                'Overall_MAE': np.mean(np.abs(
+                    horizon_results['clean_data'].values - 
+                    horizon_results['forecasts'][f"step_{min(horizon, len(horizon_results['forecasts'].columns))}"].values
+                ))
+            }
+            metrics_by_horizon.append(horizon_metrics)
+    
+    # For comparison, also use the single model approach (original code)
+    print("\nUsing multi-horizon approach with a single model...")
+    # Ensure config has enough output steps
+    max_horizon = max(horizons)
+    if forecaster.prediction_window < max_horizon:
+        print(f"Adjusting prediction window from {forecaster.prediction_window} to {max_horizon}")
+        forecaster.prediction_window = max_horizon
+        forecaster.config['prediction_window'] = max_horizon
+    
+    # Make predictions on test data with single model
+    standard_results = forecaster.predict(test_data)
+    
+    # Store in results dictionary if we're comparing approaches
+    if train_separate_models:
+        test_results_by_horizon['standard'] = standard_results
+    else:
+        # If not training separate models, use standard results as the only result
+        test_results = standard_results
+    
+    # Plot multi-horizon forecast from standard model
     print("\nPlotting multi-horizon forecast...")
     visualizer.plot_multi_horizon_forecasts(
-        test_results,
+        standard_results,
         horizons=horizons,
         title="Multi-Horizon Water Level Forecasting",
         save_path=horizon_plots_dir / "multi_horizon_forecast.png"
@@ -437,9 +648,9 @@ def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, outp
     print("\nCreating simplified horizon-specific visualizations...")
     for horizon in horizons:
         horizon_col = f'step_{horizon}'
-        if horizon_col in test_results['forecasts'].columns:
+        if horizon_col in standard_results['forecasts'].columns:
             # Create a copy of test_results with only this horizon column
-            horizon_results = test_results.copy()
+            horizon_results = standard_results.copy()
             
             # Static simplified plot for this horizon
             visualizer.plot_forecast_simple(
@@ -456,30 +667,44 @@ def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, outp
                 save_path=horizon_interactive_dir / f"horizon_{horizon}_simple.html",
                 forecast_step=horizon_col
             )
+            
+            # Add metrics for standard approach
+            if train_separate_models:
+                standard_metrics = {
+                    'Horizon': horizon,
+                    'Model_Type': 'Standard',
+                    'Overall_MAE': np.mean(np.abs(
+                        standard_results['clean_data'].values - 
+                        standard_results['forecasts'][horizon_col].values
+                    ))
+                }
+                metrics_by_horizon.append(standard_metrics)
     
     # Plot forecast accuracy by horizon
     print("\nPlotting forecast accuracy by horizon...")
     visualizer.plot_forecast_accuracy(
-        test_results,
+        standard_results,
         horizons=horizons,
         save_path=horizon_dir / "forecast_accuracy.png"
     )
     
     # Calculate metrics for anomalies
-    detected_anomalies = test_results['detected_anomalies']
+    detected_anomalies = standard_results['detected_anomalies']
     anomaly_indices = detected_anomalies[detected_anomalies['is_anomaly']].index
     
-    # Calculate metrics for each horizon
-    metrics = []
+    # Calculate detailed metrics for each horizon
+    detailed_metrics = []
     
     anomaly_mask = detected_anomalies['is_anomaly']
     normal_mask = ~anomaly_mask
     
+    # Use standard_results for calculating these metrics
     for horizon in horizons:
         horizon_col = f'step_{horizon}'
-        if horizon_col in test_results['forecasts'].columns:
+        if horizon_col in standard_results['forecasts'].columns:
             horizon_metrics = {
                 'Horizon': horizon,
+                'Model_Type': 'Standard',
                 'Overall_MAE': None,
                 'Normal_MAE': None,
                 'Anomaly_MAE': None,
@@ -489,21 +714,21 @@ def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, outp
             
             # Calculate overall MAE
             horizon_metrics['Overall_MAE'] = np.mean(np.abs(
-                test_results['clean_data'].values - test_results['forecasts'][horizon_col].values
+                standard_results['clean_data'].values - standard_results['forecasts'][horizon_col].values
             ))
             
             # Calculate MAE during normal periods
             if normal_mask.any():
                 horizon_metrics['Normal_MAE'] = np.mean(np.abs(
-                    test_results['clean_data'].loc[normal_mask].values - 
-                    test_results['forecasts'].loc[normal_mask, horizon_col].values
+                    standard_results['clean_data'].loc[normal_mask].values - 
+                    standard_results['forecasts'].loc[normal_mask, horizon_col].values
                 ))
             
             # Calculate MAE during anomalies
             if anomaly_mask.any():
                 horizon_metrics['Anomaly_MAE'] = np.mean(np.abs(
-                    test_results['clean_data'].loc[anomaly_mask].values - 
-                    test_results['forecasts'].loc[anomaly_mask, horizon_col].values
+                    standard_results['clean_data'].loc[anomaly_mask].values - 
+                    standard_results['forecasts'].loc[anomaly_mask, horizon_col].values
                 ))
             
             # Calculate difference and impact percentage
@@ -513,24 +738,112 @@ def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, outp
                     horizon_metrics['MAE_Difference'] / horizon_metrics['Normal_MAE'] * 100
                 )
             
-            metrics.append(horizon_metrics)
+            detailed_metrics.append(horizon_metrics)
+            
+            # If we have dedicated models, calculate metrics for them too
+            if train_separate_models and horizon in test_results_by_horizon:
+                horizon_dedicated_metrics = {
+                    'Horizon': horizon,
+                    'Model_Type': 'Dedicated',
+                    'Overall_MAE': None,
+                    'Normal_MAE': None,
+                    'Anomaly_MAE': None,
+                    'MAE_Difference': None,
+                    'MAE_Impact_Percentage': None
+                }
+                
+                horizon_results = test_results_by_horizon[horizon]
+                dedicated_horizon_col = f'step_{min(horizon, len(horizon_results["forecasts"].columns))}'
+                
+                # Calculate overall MAE
+                horizon_dedicated_metrics['Overall_MAE'] = np.mean(np.abs(
+                    horizon_results['clean_data'].values - 
+                    horizon_results['forecasts'][dedicated_horizon_col].values
+                ))
+                
+                # Calculate MAE during normal periods
+                if normal_mask.any():
+                    horizon_dedicated_metrics['Normal_MAE'] = np.mean(np.abs(
+                        horizon_results['clean_data'].loc[normal_mask].values - 
+                        horizon_results['forecasts'].loc[normal_mask, dedicated_horizon_col].values
+                    ))
+                
+                # Calculate MAE during anomalies
+                if anomaly_mask.any():
+                    horizon_dedicated_metrics['Anomaly_MAE'] = np.mean(np.abs(
+                        horizon_results['clean_data'].loc[anomaly_mask].values - 
+                        horizon_results['forecasts'].loc[anomaly_mask, dedicated_horizon_col].values
+                    ))
+                
+                # Calculate difference and impact percentage
+                if horizon_dedicated_metrics['Normal_MAE'] is not None and horizon_dedicated_metrics['Anomaly_MAE'] is not None:
+                    horizon_dedicated_metrics['MAE_Difference'] = horizon_dedicated_metrics['Anomaly_MAE'] - horizon_dedicated_metrics['Normal_MAE']
+                    horizon_dedicated_metrics['MAE_Impact_Percentage'] = (
+                        horizon_dedicated_metrics['MAE_Difference'] / horizon_dedicated_metrics['Normal_MAE'] * 100
+                    )
+                
+                detailed_metrics.append(horizon_dedicated_metrics)
     
     # Convert to DataFrame
-    metrics_df = pd.DataFrame(metrics)
+    detailed_metrics_df = pd.DataFrame(detailed_metrics)
     
     # Save metrics to CSV
-    metrics_df.to_csv(horizon_dir / "horizon_metrics.csv", index=False)
+    detailed_metrics_df.to_csv(horizon_dir / "horizon_detailed_metrics.csv", index=False)
     
-    # Plot metrics
+    # If we trained separate models, create comparison metrics
+    if train_separate_models:
+        comparison_metrics_df = pd.DataFrame(metrics_by_horizon)
+        comparison_metrics_df.to_csv(horizon_dir / "model_comparison_metrics.csv", index=False)
+        
+        # Create a comparison plot
+        plt.figure(figsize=(12, 6))
+        
+        # Group metrics by horizon and model type
+        horizons_list = comparison_metrics_df['Horizon'].unique()
+        model_types = comparison_metrics_df['Model_Type'].unique()
+        
+        x = np.arange(len(horizons_list))
+        width = 0.35
+        
+        for i, model_type in enumerate(model_types):
+            model_data = comparison_metrics_df[comparison_metrics_df['Model_Type'] == model_type]
+            mae_values = []
+            
+            for horizon in horizons_list:
+                horizon_data = model_data[model_data['Horizon'] == horizon]
+                if not horizon_data.empty:
+                    mae_values.append(horizon_data['Overall_MAE'].values[0])
+                else:
+                    mae_values.append(0)
+            
+            plt.bar(x + (i - 0.5) * width, mae_values, width, 
+                   label=f'{model_type} Model', alpha=0.7)
+        
+        plt.xlabel('Forecast Horizon (steps)')
+        plt.ylabel('Mean Absolute Error (MAE)')
+        plt.title('Forecast Performance Comparison: Standard vs. Dedicated Models')
+        plt.xticks(x, horizons_list)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.savefig(horizon_dir / "model_comparison.png", dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    # Plot metrics from detailed analysis
     visualizer.plot_horizon_metrics(
-        metrics_df,
+        detailed_metrics_df,
         save_path=horizon_dir / "horizon_metrics_comparison.png"
     )
     
     print("\nHorizon Metrics Summary:")
-    print(metrics_df.to_string(index=False))
+    print(detailed_metrics_df.to_string(index=False))
     
-    return test_results, metrics_df
+    if train_separate_models:
+        # Return both types of results
+        return test_results_by_horizon, detailed_metrics_df
+    else:
+        # Return standard results
+        return standard_results, detailed_metrics_df
 
 def load_and_filter_data(preprocessor, project_root, station_id, remove_low_importance_features=True):
     """Load data and filter out low importance features"""
@@ -564,215 +877,11 @@ def load_and_filter_data(preprocessor, project_root, station_id, remove_low_impo
     
     return train_data, val_data, test_data
 
-def run_ablation_study(forecaster, visualizer, train_data, val_data, test_data, output_dir):
-    """
-    Run ablation study with different model configurations.
-    
-    Args:
-        forecaster: WaterLevelForecaster instance
-        visualizer: ForecastVisualizer instance
-        train_data: Training data
-        val_data: Validation data
-        test_data: Test data
-        output_dir: Directory to save results
-    """
-    # Define configurations to test
-    configs = [
-        {'use_filter_lstm': False, 'use_attention': False, 'name': 'base_lstm'},
-        {'use_filter_lstm': False, 'use_attention': True, 'name': 'attention_only'},
-        {'use_filter_lstm': True, 'use_attention': False, 'name': 'filter_lstm_only'},
-        {'use_filter_lstm': True, 'use_attention': True, 'name': 'full_model'}
-    ]
-    
-    results = {}
-    
-    for config in configs:
-        print(f"\nTesting configuration: {config['name']}")
-        print(f"Filter LSTM: {'enabled' if config['use_filter_lstm'] else 'disabled'}")
-        print(f"Attention: {'enabled' if config['use_attention'] else 'disabled'}")
-        
-        # Create a fresh config for this configuration
-        current_config = forecaster.config.copy()
-        current_config.update({
-            'use_filter_lstm': config['use_filter_lstm'],
-            'use_attention': config['use_attention']
-        })
-        
-        # Create a new forecaster instance with the current configuration
-        current_forecaster = WaterLevelForecaster(current_config)
-        current_forecaster.preprocessor = forecaster.preprocessor
-        
-        # Create model directory
-        model_dir = output_dir / config['name']
-        model_dir.mkdir(exist_ok=True)
-        
-        # Train model
-        print("\nTraining model...")
-        model = current_forecaster.train(train_data, val_data, None, None)
-        
-        # Test on validation data
-        print("\nEvaluating on validation data...")
-        val_results = current_forecaster.predict(val_data)
-        
-        # Test on test data
-        print("\nEvaluating on test data...")
-        test_results = current_forecaster.predict(test_data)
-        
-        # Save results
-        results[config['name']] = {
-            'val_results': val_results,
-            'test_results': test_results
-        }
-        
-        # Create visualizations
-        print("\nCreating visualizations...")
-        visualizer.plot_forecast_with_anomalies(
-            val_results,
-            title=f"Validation Results - {config['name']}",
-            save_path=model_dir / "validation_forecast.png"
-        )
-        
-        visualizer.plot_forecast_with_anomalies(
-            test_results,
-            title=f"Test Results - {config['name']}",
-            save_path=model_dir / "test_forecast.png"
-        )
-        
-        # Save model
-        current_forecaster.save_model(model_dir / "model.pth")
-        
-        # Calculate and save metrics
-        val_metrics = calculate_metrics(val_results)
-        test_metrics = calculate_metrics(test_results)
-        
-        metrics_df = pd.DataFrame({
-            'Validation': val_metrics,
-            'Test': test_metrics
-        })
-        metrics_df.to_csv(model_dir / "metrics.csv")
-        
-        print(f"\nMetrics for {config['name']}:")
-        print(metrics_df)
-    
-    # Compare results across configurations
-    compare_configurations(results, output_dir)
-    
-    return results
-
-def calculate_metrics(results):
-    """Calculate performance metrics for a set of results."""
-    metrics = {}
-    
-    # Get actual and predicted values
-    actual = results['clean_data'].values.flatten()
-    predicted = results['forecasts']['step_1'].values.flatten()
-    
-    # Calculate MAE
-    metrics['MAE'] = np.mean(np.abs(actual - predicted))
-    
-    # Calculate RMSE
-    metrics['RMSE'] = np.sqrt(np.mean((actual - predicted) ** 2))
-    
-    # Calculate R-squared
-    ss_res = np.sum((actual - predicted) ** 2)
-    ss_tot = np.sum((actual - np.mean(actual)) ** 2)
-    metrics['R2'] = 1 - (ss_res / ss_tot)
-    
-    # Calculate anomaly detection metrics
-    anomalies = results['detected_anomalies']
-    metrics['Anomalies_Detected'] = anomalies['is_anomaly'].sum()
-    metrics['Anomaly_Rate'] = metrics['Anomalies_Detected'] / len(anomalies)
-    
-    return metrics
-
-def compare_configurations(results, output_dir):
-    """Compare results across different model configurations."""
-    # Create comparison plots directory
-    comparison_dir = output_dir / "comparisons"
-    comparison_dir.mkdir(exist_ok=True)
-    
-    # Collect metrics for all configurations
-    comparison_data = {
-        'Configuration': [],
-        'Dataset': [],
-        'MAE': [],
-        'RMSE': [],
-        'R2': [],
-        'Anomalies_Detected': [],
-        'Anomaly_Rate': []
-    }
-    
-    for config_name, config_results in results.items():
-        # Add validation metrics
-        val_metrics = calculate_metrics(config_results['val_results'])
-        comparison_data['Configuration'].append(config_name)
-        comparison_data['Dataset'].append('Validation')
-        comparison_data['MAE'].append(val_metrics['MAE'])
-        comparison_data['RMSE'].append(val_metrics['RMSE'])
-        comparison_data['R2'].append(val_metrics['R2'])
-        comparison_data['Anomalies_Detected'].append(val_metrics['Anomalies_Detected'])
-        comparison_data['Anomaly_Rate'].append(val_metrics['Anomaly_Rate'])
-        
-        # Add test metrics
-        test_metrics = calculate_metrics(config_results['test_results'])
-        comparison_data['Configuration'].append(config_name)
-        comparison_data['Dataset'].append('Test')
-        comparison_data['MAE'].append(test_metrics['MAE'])
-        comparison_data['RMSE'].append(test_metrics['RMSE'])
-        comparison_data['R2'].append(test_metrics['R2'])
-        comparison_data['Anomalies_Detected'].append(test_metrics['Anomalies_Detected'])
-        comparison_data['Anomaly_Rate'].append(test_metrics['Anomaly_Rate'])
-    
-    # Create comparison DataFrame
-    comparison_df = pd.DataFrame(comparison_data)
-    comparison_df.to_csv(comparison_dir / "configuration_comparison.csv", index=False)
-    
-    # Create comparison plots
-    metrics_to_plot = ['MAE', 'RMSE', 'R2']
-    plt.figure(figsize=(15, 5))
-    
-    for i, metric in enumerate(metrics_to_plot, 1):
-        plt.subplot(1, 3, i)
-        
-        # Get unique configurations
-        configs = comparison_df['Configuration'].unique()
-        x = np.arange(len(configs))
-        width = 0.35
-        
-        # Plot bars for validation and test
-        val_data = comparison_df[comparison_df['Dataset'] == 'Validation'][metric].values
-        test_data = comparison_df[comparison_df['Dataset'] == 'Test'][metric].values
-        
-        plt.bar(x - width/2, val_data, width, label='Validation', alpha=0.7)
-        plt.bar(x + width/2, test_data, width, label='Test', alpha=0.7)
-        
-        plt.title(f'{metric} Comparison')
-        plt.xticks(x, configs, rotation=45)
-        plt.ylabel(metric)
-        
-        if i == 1:  # Only show legend for first subplot
-            plt.legend()
-    
-    plt.tight_layout()
-    plt.savefig(comparison_dir / "metrics_comparison.png", bbox_inches='tight')
-    plt.close()
-    
-    # Print summary
-    print("\nConfiguration Comparison Summary:")
-    print(comparison_df.to_string(index=False))
-    
-    # Calculate and print relative improvements
-    base_metrics = comparison_df[comparison_df['Configuration'] == 'base_lstm']
-    for metric in ['MAE', 'RMSE']:
-        print(f"\nRelative {metric} Improvement:")
-        for config in configs:
-            if config != 'base_lstm':
-                config_metrics = comparison_df[comparison_df['Configuration'] == config]
-                for dataset in ['Validation', 'Test']:
-                    base_value = base_metrics[base_metrics['Dataset'] == dataset][metric].values[0]
-                    config_value = config_metrics[config_metrics['Dataset'] == dataset][metric].values[0]
-                    improvement = ((base_value - config_value) / base_value) * 100
-                    print(f"{config} vs base_lstm ({dataset}): {improvement:.2f}% improvement")
+def format_config_value(key, value):
+    """Format configuration values as descriptive strings for console output"""
+    if key.startswith('use_') and isinstance(value, bool):
+        return 'Enabled' if value else 'Disabled'
+    return str(value)
 
 def main():
     # Parse command line arguments
@@ -797,15 +906,48 @@ def main():
     
     # Update config with command line arguments
     config = DEFAULT_CONFIG.copy()
-    if args.mode == 'ablation':
-        config.update({
-            'use_filter_lstm': args.use_filter_lstm,
-            'use_attention': args.use_attention
-        })
     
-    #Print full config before running in a loop
-    for key, value in config.items():
-        print(f"{key}: {value}")
+    # Set model architecture and feature engineering parameters
+    config.update({
+        'use_attention': args.use_attention,
+        'sequence_length': args.sequence_length,
+        'num_layers': args.num_layers
+    })
+    
+    # Handle custom features
+    custom_features = []
+    
+    # Add MA features if requested
+    if args.add_ma_features:
+        ma_hours = [int(h) for h in args.ma_hours.split(',')]
+        for hours in ma_hours:
+            custom_features.append({
+                'type': 'ma',
+                'params': {'hours': hours}
+            })
+        print(f"Adding {len(ma_hours)} custom MA features with hours: {ma_hours}")
+    
+    # Add custom features to config
+    if custom_features:
+        config['custom_features'] = custom_features
+    
+    # Print key configuration values
+    print("\nConfiguration:")
+    for key, value in {
+        'sequence_length': config['sequence_length'],
+        'use_attention': config['use_attention'],
+        'num_layers': config['num_layers'],
+        'epochs': config['epochs'],
+        'batch_size': config['batch_size'],
+        'hidden_size': config['hidden_size']
+    }.items():
+        print(f"  - {key.replace('_', ' ').title()}: {format_config_value(key, value)}")
+    
+    # Print custom features if any
+    if custom_features:
+        print("\nCustom Features:")
+        for feature in custom_features:
+            print(f"  - {feature['type'].upper()} feature with params: {feature['params']}")
     
     # Initialize forecasting model and visualizer
     forecaster = WaterLevelForecaster(config)
@@ -819,13 +961,7 @@ def main():
     train_data, val_data, test_data = load_and_filter_data(preprocessor, project_dir, station_id)
     
     # Run in the specified mode
-    if args.mode == 'ablation':
-        # Run ablation study
-        ablation_dir = output_path / "ablation_study"
-        ablation_dir.mkdir(exist_ok=True)
-        results = run_ablation_study(forecaster, visualizer, train_data, val_data, test_data, ablation_dir)
-        
-    elif args.mode == 'train':
+    if args.mode == 'train':
         # Train mode - train and save model, then test on validation data
         train_and_save_model(forecaster, train_data, val_data, project_dir, station_id, output_path)
         
@@ -870,9 +1006,7 @@ def main():
         test_dir.mkdir(exist_ok=True)
         
         print(f"\n=== Validation Data with Injected Errors ({args.prediction_mode} mode) ===")
-        # Run with injected errors on validation data
-        if args.prediction_mode == 'resilient':
-            print("Using resilient prediction mode with enhanced long anomaly handling")
+
         
         run_validation_with_errors(forecaster, visualizer, val_data, DEFAULT_ERROR_PERIODS, val_dir, args.prediction_mode)
         
@@ -885,7 +1019,8 @@ def main():
         train_and_save_model(forecaster, train_data, val_data, project_dir, station_id, output_path)
         
         # Run multi-horizon analysis
-        run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, output_path)
+        run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, output_path, 
+                                    args.train_separate_models, train_data, val_data)
     
     print("\nDone!")
 

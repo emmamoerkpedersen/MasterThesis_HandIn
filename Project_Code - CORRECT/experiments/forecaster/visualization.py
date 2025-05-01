@@ -76,26 +76,27 @@ class ForecastVisualizer:
                 ax1.plot(clean_forecast.index, clean_forecast[last_step].values, '--', color='purple',
                         label=f'{last_step.replace("step_", "")}-Step Ahead Forecast (clean data)', linewidth=1.5)
         
-        # Highlight anomalies by type
+        # Highlight anomalies by confidence level
         anomaly_points = detected_anomalies[detected_anomalies['is_anomaly']]
         if len(anomaly_points) > 0:
             # Choose the source data for anomaly points
             source_data = error_injected_data if error_injected_data is not None else original_data
             
-            # Check if we have anomaly type information
-            if 'anomaly_type' in anomaly_points.columns:
-                # Plot different types with different markers
-                for anomaly_type, color, marker in [
-                    ('offset', 'darkorange', 'o'),  # Orange circles for offset anomalies
-                    ('scaling', 'fuchsia', 's')     # Pink squares for scaling anomalies
+            # Check if we have confidence information
+            if 'confidence' in anomaly_points.columns:
+                # Plot different confidence levels with different colors
+                for confidence, color, marker in [
+                    ('low', 'green', 'o'),      # Green circles for low confidence anomalies
+                    ('medium', 'orange', 'o'),  # Orange circles for medium confidence anomalies
+                    ('high', 'red', 'o')        # Red circles for high confidence anomalies
                 ]:
-                    type_points = anomaly_points[anomaly_points['anomaly_type'] == anomaly_type]
-                    if len(type_points) > 0:
-                        ax1.scatter(type_points.index, source_data.loc[type_points.index].values, 
+                    conf_points = anomaly_points[anomaly_points['confidence'] == confidence]
+                    if len(conf_points) > 0:
+                        ax1.scatter(conf_points.index, source_data.loc[conf_points.index].values, 
                                 color=color, marker=marker, s=50, 
-                                label=f'{anomaly_type.capitalize()} Anomalies ({len(type_points)})')
+                                label=f'{confidence.capitalize()} Confidence Anomalies ({len(conf_points)})')
             else:
-                # Fall back to original behavior if no type info
+                # Fall back to original behavior if no confidence info
                 ax1.scatter(anomaly_points.index, source_data.loc[anomaly_points.index].values, 
                           color='orange', marker='o', s=50, 
                           label=f'Detected Anomalies ({len(anomaly_points)})')
@@ -106,7 +107,7 @@ class ForecastVisualizer:
             true_anomaly_points = true_anomalies[true_anomalies['is_anomaly']]
             if len(true_anomaly_points) > 0:
                 ax1.scatter(true_anomaly_points.index, true_anomaly_points['actual'], 
-                           color='red', marker='x', s=50, 
+                           color='black', marker='x', s=50, 
                            label=f'True Anomalies ({len(true_anomaly_points)})')
         
         ax1.set_title(title, fontsize=16)
@@ -128,18 +129,29 @@ class ForecastVisualizer:
             ax2.plot(detected_anomalies.index, detected_anomalies['z_score'], 'g-', 
                     label='Anomaly Scores', linewidth=1.5)
             
-        # Plot threshold line
-        ax2.axhline(y=self.anomaly_threshold, color='r', linestyle='--', 
-                   label=f'Threshold ({self.anomaly_threshold})')
+        # Plot threshold lines for different confidence levels
+        low_threshold = self.anomaly_threshold
+        medium_threshold = self.anomaly_threshold * 1.5
+        high_threshold = self.anomaly_threshold * 2.0
+        
+        ax2.axhline(y=low_threshold, color='green', linestyle='--', 
+                   label=f'Low Confidence Threshold ({low_threshold:.1f})')
+        ax2.axhline(y=medium_threshold, color='orange', linestyle='--', 
+                   label=f'Medium Confidence Threshold ({medium_threshold:.1f})')
+        ax2.axhline(y=high_threshold, color='red', linestyle='--', 
+                   label=f'High Confidence Threshold ({high_threshold:.1f})')
         
         # Highlight anomalous regions
         for idx, row in anomaly_points.iterrows():
-            # Set color based on anomaly type if available
-            highlight_color = 'yellow'
-            if 'anomaly_type' in row and row['anomaly_type'] == 'scaling':
-                highlight_color = 'lavender'
-            elif 'anomaly_type' in row and row['anomaly_type'] == 'offset':
-                highlight_color = 'lightyellow'
+            # Set color based on confidence level if available
+            highlight_color = 'yellow'  # Default
+            if 'confidence' in row:
+                if row['confidence'] == 'low':
+                    highlight_color = 'lightgreen'
+                elif row['confidence'] == 'medium':
+                    highlight_color = 'lightsalmon'
+                elif row['confidence'] == 'high':
+                    highlight_color = 'lightcoral'
             
             # Highlight a small region around each anomaly (±3 points if possible)
             if hasattr(detected_anomalies.index, 'get_loc'):
@@ -183,6 +195,7 @@ class ForecastVisualizer:
         forecast_data = results['forecasts']
         detected_anomalies = results['detected_anomalies']
         error_injected_data = results.get('error_injected_data')
+        clean_forecast = results.get('clean_forecast')
         
         # Create figure with two subplots
         fig = make_subplots(
@@ -227,23 +240,87 @@ class ForecastVisualizer:
             row=1, col=1
         )
         
+        # If we have clean forecast, plot it as well
+        if clean_forecast is not None:
+            clean_forecast_col = 'step_24' if 'step_24' in clean_forecast.columns else clean_forecast.columns[-1]
+            fig.add_trace(
+                go.Scatter(
+                    x=clean_forecast.index,
+                    y=clean_forecast[clean_forecast_col].values,
+                    name=f"{clean_forecast_col.replace('step_', '')}-Step Ahead Clean Forecast",
+                    line=dict(color='purple', width=1.5, dash='dash')
+                ),
+                row=1, col=1
+            )
+        
+        # Plot anomalies by confidence levels
+        anomaly_points = detected_anomalies[detected_anomalies['is_anomaly']]
+        if len(anomaly_points) > 0 and 'confidence' in anomaly_points.columns:
+            source_data = error_injected_data if error_injected_data is not None else original_data
+            
+            # Plot each confidence level with different colors
+            for confidence, color in [
+                ('low', 'green'),
+                ('medium', 'orange'),
+                ('high', 'red')
+            ]:
+                conf_points = anomaly_points[anomaly_points['confidence'] == confidence]
+                if len(conf_points) > 0:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=conf_points.index,
+                            y=source_data.loc[conf_points.index].values.flatten(),
+                            mode='markers',
+                            marker=dict(color=color, size=8),
+                            name=f"{confidence.capitalize()} Confidence Anomalies ({len(conf_points)})"
+                        ),
+                        row=1, col=1
+                    )
+        
         # Plot anomaly scores
         fig.add_trace(
             go.Scatter(
                 x=detected_anomalies.index,
                 y=detected_anomalies['z_score'],
                 name="Anomaly Score",
-                line=dict(color='orange', width=1)
+                line=dict(color='purple', width=1)
             ),
             row=2, col=1
         )
         
-        # Add threshold line
+        # Add threshold lines for different confidence levels
+        low_threshold = self.anomaly_threshold
+        medium_threshold = self.anomaly_threshold * 1.5
+        high_threshold = self.anomaly_threshold * 2.0
+        
+        # Low confidence threshold
         fig.add_trace(
             go.Scatter(
                 x=[detected_anomalies.index[0], detected_anomalies.index[-1]],
-                y=[self.anomaly_threshold, self.anomaly_threshold],
-                name="Threshold",
+                y=[low_threshold, low_threshold],
+                name="Low Confidence Threshold",
+                line=dict(color='green', dash='dash', width=1)
+            ),
+            row=2, col=1
+        )
+        
+        # Medium confidence threshold
+        fig.add_trace(
+            go.Scatter(
+                x=[detected_anomalies.index[0], detected_anomalies.index[-1]],
+                y=[medium_threshold, medium_threshold],
+                name="Medium Confidence Threshold",
+                line=dict(color='orange', dash='dash', width=1)
+            ),
+            row=2, col=1
+        )
+        
+        # High confidence threshold
+        fig.add_trace(
+            go.Scatter(
+                x=[detected_anomalies.index[0], detected_anomalies.index[-1]],
+                y=[high_threshold, high_threshold],
+                name="High Confidence Threshold",
                 line=dict(color='red', dash='dash', width=1)
             ),
             row=2, col=1
@@ -1105,66 +1182,188 @@ class ForecastVisualizer:
                 features_in_range = [f for f, v in feature_importance if min_val <= v < max_val]
                 print(f"  Features: {', '.join(features_in_range)}")
     
-    def plot_forecast_simple_plotly(self, results, title="Water Level Forecasting", save_path=None, forecast_step=None):
+    def plot_forecast_simple(self, results, title="Water Level Forecasting", save_path=None, forecast_step=None):
         """
-        A simplified interactive Plotly plot showing only predictions vs actual water levels.
+        Create a simplified plot showing water levels, forecasts, and anomalies.
         
         Args:
-            results: Dictionary with forecasts from the predict method
+            results: Dictionary with forecasts and anomalies from the predict method
             title: Plot title
-            save_path: Path to save the plot as HTML
-            forecast_step: Specific forecast step to plot (e.g., 'step_1', 'step_24'). 
-                          If None, uses the last step available.
+            save_path: Path to save the plot
+            forecast_step: Specific forecast step to display (e.g. 'step_24')
         """
-        try:
-            import plotly.graph_objects as go
-            from plotly.subplots import make_subplots
-        except ImportError:
-            print("Plotly is not installed. Please install it using 'pip install plotly'.")
-            return None
-            
         # Extract data
         original_data = results['clean_data']
         forecast_data = results['forecasts']
+        detected_anomalies = results['detected_anomalies']
         
-        # Determine which forecast step to plot
+        # Check for additional data 
+        error_injected_data = results.get('error_injected_data')
+        clean_forecast = results.get('clean_forecast')
+        
+        # Determine which forecast column to use
         if forecast_step is not None and forecast_step in forecast_data.columns:
-            step_to_plot = forecast_step
-        elif 'step_1' in forecast_data.columns:
-            step_to_plot = 'step_1'  # Default to 1-step ahead
+            forecast_col = forecast_step
+        elif 'step_24' in forecast_data.columns:
+            forecast_col = 'step_24'
         else:
-            # Use the last column as the forecast
-            step_to_plot = forecast_data.columns[-1]
+            forecast_col = forecast_data.columns[-1]
         
-        # Get step label for display
-        step_label = step_to_plot.replace('step_', '')
+        # Create figure
+        plt.figure(figsize=(16, 8))
+        
+        # Plot water levels and forecasts
+        plt.plot(original_data.index, original_data.values, 'b-', label='Original Water Levels', linewidth=1)
+        
+        if error_injected_data is not None:
+            plt.plot(error_injected_data.index, error_injected_data.values, 'r-', 
+                    label='Water Levels (with injected errors)', linewidth=1)
+        
+        plt.plot(forecast_data.index, forecast_data[forecast_col].values, 'g-', 
+                label=f'{forecast_col.replace("step_", "")}-Step Ahead Forecast', linewidth=1.5)
+        
+        if clean_forecast is not None:
+            plt.plot(clean_forecast.index, clean_forecast[forecast_col].values, '--', color='purple',
+                    label=f'{forecast_col.replace("step_", "")}-Step Ahead Forecast (clean data)', linewidth=1.5)
+        
+        # Highlight anomalies by confidence level
+        anomaly_points = detected_anomalies[detected_anomalies['is_anomaly']]
+        if len(anomaly_points) > 0:
+            # Choose the source data for anomaly points
+            source_data = error_injected_data if error_injected_data is not None else original_data
+            
+            # Check if we have confidence information
+            if 'confidence' in anomaly_points.columns:
+                # Plot different confidence levels with different colors
+                for confidence, color, marker in [
+                    ('low', 'green', 'o'),      # Green circles for low confidence anomalies
+                    ('medium', 'orange', 'o'),  # Orange circles for medium confidence anomalies
+                    ('high', 'red', 'o')        # Red circles for high confidence anomalies
+                ]:
+                    conf_points = anomaly_points[anomaly_points['confidence'] == confidence]
+                    if len(conf_points) > 0:
+                        plt.scatter(conf_points.index, source_data.loc[conf_points.index].values, 
+                                color=color, marker=marker, s=50, 
+                                label=f'{confidence.capitalize()} Confidence Anomalies ({len(conf_points)})')
+            else:
+                # Fall back to original behavior if no confidence info
+                plt.scatter(anomaly_points.index, source_data.loc[anomaly_points.index].values, 
+                          color='orange', marker='o', s=50, 
+                          label=f'Detected Anomalies ({len(anomaly_points)})')
+        
+        plt.title(title, fontsize=16)
+        plt.ylabel('Water Level', fontsize=14)
+        plt.xlabel('Date', fontsize=14)
+        plt.grid(True, alpha=0.3)
+        plt.legend(loc='upper right')
+        plt.tight_layout()
+        
+        # Format dates on x-axis
+        plt.gca().xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%Y-%m'))
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        
+        plt.show()
+    
+    def plot_forecast_simple_plotly(self, results, title="Water Level Forecasting", save_path=None, forecast_step=None):
+        """
+        Create a simplified interactive Plotly visualization of the forecast results.
+        
+        Args:
+            results: Dictionary with forecasts and anomalies from the predict method
+            title: Plot title
+            save_path: Path to save the plot as HTML
+            forecast_step: Specific forecast step to display (e.g. 'step_24')
+        """
+        # Extract data
+        original_data = results['clean_data']
+        forecast_data = results['forecasts']
+        detected_anomalies = results['detected_anomalies']
+        error_injected_data = results.get('error_injected_data')
+        clean_forecast = results.get('clean_forecast')
+        
+        # Determine which forecast column to use
+        if forecast_step is not None and forecast_step in forecast_data.columns:
+            forecast_col = forecast_step
+        elif 'step_24' in forecast_data.columns:
+            forecast_col = 'step_24'
+        else:
+            forecast_col = forecast_data.columns[-1]
         
         # Create figure
         fig = go.Figure()
         
-        # Add actual water levels
-        fig.add_trace(go.Scatter(
-            x=original_data.index,
-            y=original_data.values.flatten(),
-            mode='lines',
-            name='Actual Water Levels',
-            line=dict(color='blue', width=2)
-        ))
+        # Plot water levels
+        fig.add_trace(
+            go.Scatter(
+                x=original_data.index,
+                y=original_data.values.flatten(),
+                name="Original Water Levels",
+                line=dict(color='blue', width=1)
+            )
+        )
         
-        # Add forecast
-        fig.add_trace(go.Scatter(
-            x=forecast_data.index,
-            y=forecast_data[step_to_plot].values,
-            mode='lines',
-            name=f'{step_label}-Step Ahead Forecast',
-            line=dict(color='green', width=2)
-        ))
+        if error_injected_data is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=error_injected_data.index,
+                    y=error_injected_data.values.flatten(),
+                    name="Water Levels with Errors",
+                    line=dict(color='red', width=1)
+                )
+            )
+        
+        # Plot forecast
+        fig.add_trace(
+            go.Scatter(
+                x=forecast_data.index,
+                y=forecast_data[forecast_col].values,
+                name=f"{forecast_col.replace('step_', '')}-Step Ahead Forecast",
+                line=dict(color='green', width=1.5)
+            )
+        )
+        
+        if clean_forecast is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=clean_forecast.index,
+                    y=clean_forecast[forecast_col].values,
+                    name=f"{forecast_col.replace('step_', '')}-Step Ahead Forecast (clean)",
+                    line=dict(color='purple', width=1.5, dash='dash')
+                )
+            )
+        
+        # Plot anomalies by confidence levels
+        anomaly_points = detected_anomalies[detected_anomalies['is_anomaly']]
+        if len(anomaly_points) > 0 and 'confidence' in anomaly_points.columns:
+            source_data = error_injected_data if error_injected_data is not None else original_data
+            
+            # Plot each confidence level with different colors
+            for confidence, color in [
+                ('low', 'green'),
+                ('medium', 'orange'),
+                ('high', 'red')
+            ]:
+                conf_points = anomaly_points[anomaly_points['confidence'] == confidence]
+                if len(conf_points) > 0:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=conf_points.index,
+                            y=source_data.loc[conf_points.index].values.flatten(),
+                            mode='markers',
+                            marker=dict(color=color, size=8),
+                            name=f"{confidence.capitalize()} Confidence Anomalies ({len(conf_points)})"
+                        )
+                    )
         
         # Update layout
         fig.update_layout(
             title=title,
-            xaxis_title='Date',
-            yaxis_title='Water Level',
+            xaxis_title="Date",
+            yaxis_title="Water Level",
+            height=600,
+            showlegend=True,
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
@@ -1172,71 +1371,24 @@ class ForecastVisualizer:
                 xanchor="right",
                 x=1
             ),
-            template='plotly_white',
-            height=600,
-            width=1000,
-            hovermode='x unified'
+            hovermode="x unified"
         )
         
-        # Add grid
-        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
-        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+        # Add range selector
+        fig.update_xaxes(
+            rangeslider_visible=True,
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=7, label="1w", step="day", stepmode="backward"),
+                    dict(count=1, label="1m", step="month", stepmode="backward"),
+                    dict(count=3, label="3m", step="month", stepmode="backward"),
+                    dict(step="all", label="all")
+                ])
+            )
+        )
         
         # Save if path provided
         if save_path:
             fig.write_html(save_path)
         
         return fig
-    
-    def plot_forecast_simple(self, results, title="Water Level Forecasting", save_path=None, forecast_step=None):
-        """
-        A simplified plot showing only predictions vs actual water levels.
-        
-        Args:
-            results: Dictionary with forecasts from the predict method
-            title: Plot title
-            save_path: Path to save the plot
-            forecast_step: Specific forecast step to plot (e.g., 'step_1', 'step_24'). 
-                           If None, uses the last step available.
-        """
-        # Extract data
-        original_data = results['clean_data']
-        forecast_data = results['forecasts']
-        
-        # Create figure
-        plt.figure(figsize=(16, 8))
-        
-        # Plot water levels
-        plt.plot(original_data.index, original_data.values, 'b-', 
-                label='Actual Water Levels', linewidth=1.5)
-        
-        # Determine which forecast step to plot
-        if forecast_step is not None and forecast_step in forecast_data.columns:
-            step_to_plot = forecast_step
-        elif 'step_1' in forecast_data.columns:
-            step_to_plot = 'step_1'  # Default to 1-step ahead
-        else:
-            # Use the last column as the forecast
-            step_to_plot = forecast_data.columns[-1]
-        
-        # Plot the forecast
-        step_label = step_to_plot.replace('step_', '')
-        plt.plot(forecast_data.index, forecast_data[step_to_plot].values, 'g-', 
-                label=f'{step_label}-Step Ahead Forecast', linewidth=1.5)
-        
-        # Add labels and grid
-        plt.title(title, fontsize=16)
-        plt.ylabel('Water Level', fontsize=14)
-        plt.xlabel('Date', fontsize=14)
-        plt.grid(True, alpha=0.3)
-        plt.legend(loc='best')
-        
-        # Format dates on x-axis
-        plt.gca().xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%Y-%m'))
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        
-        return plt

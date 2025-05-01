@@ -18,11 +18,10 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 class ForecastingLSTM(nn.Module):
     """
     LSTM model for water level forecasting with configurable components:
-    - Optional filter LSTM stream
     - Multi-head attention mechanisms
     """
     def __init__(self, input_size, hidden_size, num_layers, output_size, dropout, 
-                 use_feature_importance=False, use_filter_lstm=False, use_attention=False,
+                 use_feature_importance=False, use_attention=False,
                  num_attention_heads=4):  # Added num_attention_heads parameter
         super(ForecastingLSTM, self).__init__()
         self.model_name = 'ForecastingLSTM'
@@ -31,7 +30,6 @@ class ForecastingLSTM(nn.Module):
         self.output_size = output_size
         self.num_layers = num_layers
         self.use_feature_importance = use_feature_importance
-        self.use_filter_lstm = use_filter_lstm
         self.use_attention = use_attention
         self.num_attention_heads = num_attention_heads
         
@@ -43,36 +41,6 @@ class ForecastingLSTM(nn.Module):
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0
         )
-        
-        # Filter LSTM for maintaining stable state (optional)
-        if use_filter_lstm:
-            # Make filter LSTM deeper and with different architecture
-            filter_hidden_size = hidden_size  # Keep same hidden size for simplicity
-            filter_num_layers = num_layers    # Keep same number of layers for simplicity
-            
-            # Simple input transformation instead of complex smoother
-            self.input_transform = nn.Linear(input_size, input_size)
-            
-            self.filter_lstm = nn.LSTM(
-                input_size=input_size,
-                hidden_size=filter_hidden_size,
-                num_layers=filter_num_layers,
-                batch_first=True,
-                dropout=dropout * 1.2 if filter_num_layers > 1 else 0  # Slightly higher dropout
-            )
-            
-            # Remove complex memory bank mechanism for now
-            
-            # Simplified gating mechanism
-            self.gate_network = nn.Sequential(
-                nn.Linear(hidden_size * 2, hidden_size),
-                nn.Tanh(),
-                nn.Linear(hidden_size, 1),
-                nn.Sigmoid()
-            )
-            
-            # Add fixed stability bias to favor filter LSTM during anomalies
-            self.stability_bias = 0.3  # Fixed value instead of learnable parameter
         
         # Feature importance layers - only if enabled
         if use_feature_importance:
@@ -96,19 +64,6 @@ class ForecastingLSTM(nn.Module):
             
             # Projection layer to combine attention heads
             self.main_attention_combine = nn.Linear(hidden_size * num_attention_heads, hidden_size)
-            
-            if use_filter_lstm:
-                # Create multiple attention heads for filter LSTM
-                self.filter_attention_heads = nn.ModuleList([
-                    nn.Sequential(
-                        nn.Linear(hidden_size, hidden_size),
-                        nn.Tanh(),
-                        nn.Linear(hidden_size, 1)
-                    ) for _ in range(num_attention_heads)
-                ])
-                
-                # Projection layer to combine filter attention heads
-                self.filter_attention_combine = nn.Linear(hidden_size * num_attention_heads, hidden_size)
         
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
@@ -175,47 +130,13 @@ class ForecastingLSTM(nn.Module):
         main_out, _ = self.main_lstm(x_weighted)
         
         if self.use_attention:
-            main_attended = self.apply_multi_head_attention(
+            final_output = self.apply_multi_head_attention(
                 main_out, 
                 self.main_attention_heads,
                 self.main_attention_combine
             )
         else:
-            main_attended = main_out[:, -1, :]  # Use last hidden state if no attention
-        
-        if self.use_filter_lstm:
-            # Apply simple input transformation
-            x_transformed = self.input_transform(x_weighted.reshape(-1, num_features))
-            x_transformed = x_transformed.reshape(batch_size, seq_len, num_features)
-            
-            # Process through filter LSTM
-            filter_out, _ = self.filter_lstm(x_transformed)
-            
-            if self.use_attention:
-                filter_attended = self.apply_multi_head_attention(
-                    filter_out,
-                    self.filter_attention_heads,
-                    self.filter_attention_combine
-                )
-            else:
-                filter_attended = filter_out[:, -1, :]  # Use last hidden state if no attention
-            
-            # Calculate difference between main and filter outputs as a proxy for anomaly detection
-            # Higher difference suggests potential anomalies
-            output_diff = torch.abs(main_attended - filter_attended).mean(dim=1, keepdim=True)
-            anomaly_factor = torch.sigmoid(output_diff * 5.0) * self.stability_bias
-            
-            # Simple gating mechanism with stability bias
-            combined = torch.cat([main_attended, filter_attended], dim=1)
-            gate = self.gate_network(combined)
-            
-            # Adjust gate based on detected anomalies - increase filter influence during anomalies
-            adjusted_gate = gate * (1.0 - anomaly_factor)
-            
-            # Combine streams with adjusted gate
-            final_output = adjusted_gate * main_attended + (1.0 - adjusted_gate) * filter_attended
-        else:
-            final_output = main_attended
+            final_output = main_out[:, -1, :]  # Use last hidden state if no attention
         
         if self.training:
             final_output = self.dropout(final_output)
@@ -300,7 +221,6 @@ class WaterLevelForecaster:
         dropout = self.config.get('dropout', 0.2)
         output_size = self.prediction_window  # Predict multiple steps ahead
         use_feature_importance = self.config.get('use_feature_importance', False)
-        use_filter_lstm = self.config.get('use_filter_lstm', True)
         use_attention = self.config.get('use_attention', True)
         
         # Initialize and return the model
@@ -311,7 +231,6 @@ class WaterLevelForecaster:
             output_size=output_size,
             dropout=dropout,
             use_feature_importance=use_feature_importance,
-            use_filter_lstm=use_filter_lstm,
             use_attention=use_attention
         ).to(self.device)
         
@@ -484,8 +403,8 @@ class WaterLevelForecaster:
                     tqdm.write(f"{feature}: {importance:.4f}")
             
             # Early stopping check
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 epochs_no_improve = 0
                 best_model_weights = self.model.state_dict().copy()
                 # Add a checkmark to indicate improvement
@@ -532,10 +451,13 @@ class WaterLevelForecaster:
         Args:
             test_data: Test data
             steps_ahead: Number of steps to forecast ahead (defaults to config value)
-            inject_errors: Whether to inject synthetic errors into the test data
-            error_periods: List of dictionaries with error periods and types
+            inject_errors: Whether to inject synthetic errors into the test data (DEPRECATED)
+            error_periods: List of dictionaries with error periods and types (DEPRECATED)
                 Each dict should have: 'start', 'end', 'type', 'magnitude'
                 Types: 'noise', 'offset', 'scaling', 'missing'
+                
+                Note: For proper error injection with derived features, 
+                use reconstruct_features_with_errors() before calling predict().
             
         Returns:
             Dictionary with forecasts, anomalies, original data, and error-injected data
@@ -546,6 +468,10 @@ class WaterLevelForecaster:
         
         if steps_ahead is None:
             steps_ahead = self.prediction_window
+        else:
+            # Ensure steps_ahead does not exceed the model's output capacity
+            steps_ahead = min(steps_ahead, self.prediction_window)
+            print(f"Using {steps_ahead} steps ahead for forecasting")
         
         # Store a copy of the original clean data
         original_clean_data = test_data.copy()
@@ -553,9 +479,12 @@ class WaterLevelForecaster:
         # Create working copy of data
         working_data = test_data.copy()
         
-        # Inject errors if requested
+        # Inject errors if requested (DEPRECATED approach)
+        # Note: This is kept for backward compatibility but should not be used
+        # for proper error injection with all derived features
         if inject_errors:
-            print("Injecting synthetic errors...")
+            print("DEPRECATED: Using internal error injection. This will not properly update derived features.")
+            print("For proper error injection, use reconstruct_features_with_errors() before calling predict().")
             working_data = self._inject_errors(working_data, error_periods)
         
         # Store the data with errors
@@ -615,7 +544,8 @@ class WaterLevelForecaster:
                     
                     # Add predictions to results
                     for pred in batch_preds.cpu().numpy():
-                        batch_forecasts.append(pred)
+                        # Only keep predictions up to steps_ahead
+                        batch_forecasts.append(pred[:steps_ahead])
                 
                 forecasts.extend(batch_forecasts)
                 timestamps.extend(batch_timestamps)
@@ -702,7 +632,13 @@ class WaterLevelForecaster:
     
     def _inject_errors(self, data, error_periods=None):
         """
-        Inject synthetic errors into the data.
+        DEPRECATED: Inject synthetic errors into the raw water level data.
+        
+        This method is kept for backward compatibility but does NOT properly update
+        derived features (like lag features, moving averages, etc.) after error injection.
+        
+        For proper error injection that updates all derived features, use the 
+        reconstruct_features_with_errors() function in run_forecast.py instead.
         
         Args:
             data: DataFrame with water level data
@@ -730,11 +666,6 @@ class WaterLevelForecaster:
         # Create a working copy of the data to modify
         modified_data = data.copy()
         
-        # Get all columns that contain the water level data (including lagged features)
-        water_level_cols = [col for col in modified_data.columns 
-                           if output_feature in col or 
-                           (col.startswith('water_level_lag') and 'h' in col)]
-        
         # Inject errors for each specified period
         for period in error_periods:
             start = pd.Timestamp(period['start'])
@@ -749,25 +680,24 @@ class WaterLevelForecaster:
             if not mask.any():
                 continue
             
-            # Apply different types of errors to all water level columns
-            for col in water_level_cols:
-                if error_type == 'noise':
-                    # Generate random noise with the correct shape
-                    noise = np.random.normal(0, magnitude, size=sum(mask))
-                    # Apply noise directly
-                    modified_data.loc[mask, col] = modified_data.loc[mask, col].values + noise
-                
-                elif error_type == 'offset':
-                    # Apply offset
-                    modified_data.loc[mask, col] = modified_data.loc[mask, col].values + magnitude
-                
-                elif error_type == 'scaling':
-                    # Apply scaling
-                    modified_data.loc[mask, col] = modified_data.loc[mask, col].values * magnitude
-                
-                elif error_type == 'missing':
-                    # Set values to NaN (simulating missing data)
-                    modified_data.loc[mask, col] = np.nan
+            # Apply error to the target output feature only
+            if error_type == 'noise':
+                # Generate random noise with the correct shape
+                noise = np.random.normal(0, magnitude, size=sum(mask))
+                # Apply noise directly
+                modified_data.loc[mask, output_feature] += noise
+            
+            elif error_type == 'offset':
+                # Apply offset
+                modified_data.loc[mask, output_feature] += magnitude
+            
+            elif error_type == 'scaling':
+                # Apply scaling
+                modified_data.loc[mask, output_feature] *= magnitude
+            
+            elif error_type == 'missing':
+                # Set values to NaN (simulating missing data)
+                modified_data.loc[mask, output_feature] = np.nan
         
         return modified_data
     
@@ -780,7 +710,7 @@ class WaterLevelForecaster:
             predicted_values: Predicted water level values
             
         Returns:
-            DataFrame with anomaly flags and scores, including anomaly type classification
+            DataFrame with anomaly flags and scores, including confidence levels
         """
         # Ensure we're working with flat arrays
         actual = actual_values.values.flatten() if hasattr(actual_values, 'values') else np.array(actual_values).flatten()
@@ -816,11 +746,11 @@ class WaterLevelForecaster:
         percent_error = np.nan_to_num(percent_error, nan=0.0, posinf=1000.0, neginf=-1000.0)
         
         # Calculate metrics for anomaly detection using robust statistics
-        # For absolute errors (good for offset detection)
+        # For absolute errors
         median_residual = np.median(absolute_residuals)
         mad_residual = np.median(np.abs(absolute_residuals - median_residual)) * 1.4826  # Factor for normal distribution
         
-        # For percentage errors (good for scaling detection)
+        # For percentage errors
         median_percent = np.median(percent_error)
         mad_percent = np.median(np.abs(percent_error - median_percent)) * 1.4826
         
@@ -847,10 +777,6 @@ class WaterLevelForecaster:
             if prev_max_z > self.anomaly_threshold * 0.7:
                 streak_factor[i] = min(1.0, prev_max_z / self.anomaly_threshold)
         
-        # Determine anomaly type based on which z-score is higher
-        offset_anomalies = z_scores_abs > z_scores_pct
-        scaling_anomalies = z_scores_pct > z_scores_abs
-        
         # Calculate a combined score with simpler streak influence
         combined_z = np.maximum(z_scores_abs, z_scores_pct)
         combined_z = combined_z * (1 + streak_factor * 0.5)  # Lower impact from streak factor
@@ -858,10 +784,19 @@ class WaterLevelForecaster:
         # Identify anomalies based on threshold
         anomaly_flags = combined_z > self.anomaly_threshold
         
-        # Determine anomaly types
-        anomaly_types = np.full(len(actual), 'normal', dtype=object)
-        anomaly_types[anomaly_flags & offset_anomalies] = 'offset'
-        anomaly_types[anomaly_flags & scaling_anomalies] = 'scaling'
+        # Define confidence levels based on z-score
+        # Instead of anomaly types, we'll use confidence levels
+        confidence_levels = np.full(len(actual), 'normal', dtype=object)
+        
+        # Define thresholds for confidence levels
+        low_confidence_threshold = self.anomaly_threshold
+        medium_confidence_threshold = self.anomaly_threshold * 1.3
+        high_confidence_threshold = self.anomaly_threshold * 1.8
+        
+        # Assign confidence levels based on z-score
+        confidence_levels[anomaly_flags & (combined_z < medium_confidence_threshold)] = 'low'
+        confidence_levels[anomaly_flags & (combined_z >= medium_confidence_threshold) & (combined_z < high_confidence_threshold)] = 'medium'
+        confidence_levels[anomaly_flags & (combined_z >= high_confidence_threshold)] = 'high'
         
         # Create DataFrame with anomaly information
         anomalies = pd.DataFrame({
@@ -874,7 +809,7 @@ class WaterLevelForecaster:
             'streak_factor': streak_factor,
             'z_score': combined_z,
             'is_anomaly': anomaly_flags,
-            'anomaly_type': anomaly_types
+            'confidence': confidence_levels
         }, index=actual_values.index if hasattr(actual_values, 'index') else None)
         
         return anomalies

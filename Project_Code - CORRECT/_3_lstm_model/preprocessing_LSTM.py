@@ -64,8 +64,6 @@ class DataPreprocessor:
         # Concatenate all station data columns
         df = pd.concat(station_data.values(), axis=1)
 
-
-
         # Add feature station data
         for station in self.config['feature_stations']:
             feature_station_id = station['station_id']
@@ -98,7 +96,7 @@ class DataPreprocessor:
         data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
-        #print(f"  - Filled temperature and rainfall Nan with bfill and ffill")
+        
         #Aggregate temperature to 30 days
         data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
         print(f"  - Aggregated temperature to 30 days")
@@ -108,7 +106,6 @@ class DataPreprocessor:
             data = self._add_cumulative_features(data)
             # Update feature_cols with the new cumulative features
             self.feature_cols = self.feature_engineer.feature_cols.copy()
-            #print(f"  - Updated feature columns with cumulative features: {self.feature_cols}")
             # Update the feature scaler with the new feature columns
             self.update_feature_scaler()
         
@@ -117,19 +114,35 @@ class DataPreprocessor:
             data = self._add_time_features(data)
             # Update feature_cols with the new time features
             self.feature_cols = self.feature_engineer.feature_cols.copy()
-            #print(f"  - Updated feature columns with time features: {self.feature_cols}")
             # Update the feature scaler with the new feature columns
             self.update_feature_scaler()
             
         # Add lagged features if enabled in config
         if self.config.get('use_lagged_features', False):
             lags = self.config.get('lag_hours', [1, 2, 3, 6, 12, 24])
-            data = self.feature_engineer.add_lagged_features(data, 
-                                                           target_col=self.output_features,
-                                                           lags=lags)
-            # Update feature columns with new lagged features
+            
+            print(f"Feature engineering configuration:")
+            print(f"  - Using lag features: {lags}")
+            
+            # Only use the simplified lag features approach
+            data = self.feature_engineer.add_lagged_features(
+                data, 
+                target_col=self.output_features,
+                lags=lags
+            )
+            
+            # Add any custom features specified in the config
+            if self.config.get('custom_features', None):
+                print(f"  - Adding custom features")
+                data = self.feature_engineer.add_custom_features(
+                    data,
+                    target_col=self.output_features,
+                    feature_specs=self.config['custom_features']
+                )
+            
+            # Update feature columns
             self.feature_cols = self.feature_engineer.feature_cols.copy()
-            print(f"Updated feature columns after adding lagged features: {self.feature_cols}")  # Debug print
+            print(f"Total features after engineering: {len(self.feature_cols)}")
             self.update_feature_scaler()
             
         feature_cols = self.feature_cols
@@ -138,10 +151,6 @@ class DataPreprocessor:
         #Filter data to only include the features and target feature
         data = data[all_features]
         
-        # test_data = data
-        # val_data = data
-        # train_data = data
-
         # Split data based on years
         test_data = data[(data.index.year == 2024)]
         val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
