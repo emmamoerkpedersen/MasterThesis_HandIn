@@ -29,12 +29,11 @@ DEFAULT_CONFIG = {
     'sequence_stride': 50,      # Stride for creating sequences
     'epochs': 10,           # Increased for better convergence
     'patience': 10,             # Early stopping patience
-    'z_score_threshold': 6.7,   # Anomaly detection threshold
+    'z_score_threshold': 5,   # Anomaly detection threshold
     'learning_rate': 0.001,     
     
     # Model architecture configuration
     'use_attention': True,      # Using attention mechanisms
-    'use_feature_importance': False,  # Disable feature importance calculation by default
 
     # Feature engineering
     'use_time_features': True,  
@@ -64,10 +63,6 @@ DEFAULT_CONFIG = {
         }
     ],
     
-    # Low importance features to filter out (importance < 0.01)
-    'low_importance_features': [
-        #Update this list with the features that are not important based on the feature importance plot
-    ]
 }
 
 # Default error periods for testing
@@ -367,31 +362,6 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     # Create visualizations
     print("\nCreating visualizations...")
     
-    # Create feature importance visualization if enabled and available
-    if forecaster.config.get('use_feature_importance', False) and 'feature_importance' in val_results_with_errors:
-        feature_importance = val_results_with_errors['feature_importance']
-        if feature_importance is not None:
-            print("\nCreating feature importance visualization...")
-            
-            # Handle different feature importance formats
-            if isinstance(feature_importance, list):
-                # For iterative predictions, use the last iteration
-                if isinstance(feature_importance[-1], dict) and 'importances' in feature_importance[-1]:
-                    feature_importance = feature_importance[-1]['importances']
-            elif isinstance(feature_importance, dict):
-                # If it's already a dictionary, use as is
-                pass
-            elif isinstance(feature_importance, tuple):
-                # If it's a tuple of (feature, importance), convert to dict
-                feature_importance = dict(zip(forecaster.preprocessor.feature_cols, feature_importance))
-                
-            visualizer.plot_feature_importance_analysis(
-                feature_importance,
-                title="Feature Importance Analysis",
-                save_path=plots_dir / "feature_importance_analysis.png",
-                min_importance_threshold=0.01
-            )
-    
     # Plot validation results
     visualizer.plot_forecast_with_anomalies(
         combined_results,
@@ -421,8 +391,6 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
         title="Water Level Forecast vs Actual - Interactive (Simplified) - Validation",
         save_path=interactive_dir / "water_forecast_validation_simple.html"
     )
-    
-
     
     # Plot focused views for each error period
     print("\nCreating focused error period plots...")
@@ -845,24 +813,9 @@ def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, outp
         # Return standard results
         return standard_results, detailed_metrics_df
 
-def load_and_filter_data(preprocessor, project_root, station_id, remove_low_importance_features=True):
+def load_and_filter_data(preprocessor, project_root, station_id):
     """Load data and filter out low importance features"""
     train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
-    
-    # Get list of features to remove
-    features_to_remove = DEFAULT_CONFIG['low_importance_features']
-    
-    # Remove low importance features
-    if remove_low_importance_features:
-        for feature in features_to_remove:
-            if feature in train_data.columns:
-                print(f"Removing low importance feature: {feature}")
-                train_data = train_data.drop(columns=[feature])
-                val_data = val_data.drop(columns=[feature])
-                test_data = test_data.drop(columns=[feature])
-    
-        # Update feature columns in preprocessor
-        preprocessor.feature_cols = [col for col in preprocessor.feature_cols if col not in features_to_remove]
         
     # Reinitialize the feature scaler with updated columns
     preprocessor.feature_scaler = preprocessor.feature_scaler.__class__(

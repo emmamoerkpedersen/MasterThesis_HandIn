@@ -21,15 +21,13 @@ class ForecastingLSTM(nn.Module):
     - Multi-head attention mechanisms
     """
     def __init__(self, input_size, hidden_size, num_layers, output_size, dropout, 
-                 use_feature_importance=False, use_attention=False,
-                 num_attention_heads=4):  # Added num_attention_heads parameter
+                 use_attention=False, num_attention_heads=4):
         super(ForecastingLSTM, self).__init__()
         self.model_name = 'ForecastingLSTM'
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.num_layers = num_layers
-        self.use_feature_importance = use_feature_importance
         self.use_attention = use_attention
         self.num_attention_heads = num_attention_heads
         
@@ -41,15 +39,6 @@ class ForecastingLSTM(nn.Module):
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0
         )
-        
-        # Feature importance layers - only if enabled
-        if use_feature_importance:
-            self.feature_importance = nn.Sequential(
-                nn.Linear(input_size, hidden_size),
-                nn.ReLU(),
-                nn.Linear(hidden_size, input_size),
-                nn.Softmax(dim=1)  # Ensure weights sum to 1 across features
-            )
         
         # Multi-head attention mechanisms (optional)
         if use_attention:
@@ -71,8 +60,7 @@ class ForecastingLSTM(nn.Module):
         # Fully connected layer to map to output
         self.fc = nn.Linear(hidden_size, output_size)
         
-        # Store feature importance scores
-        self.feature_importance_scores = None
+        # Store temporal attention weights
         self.temporal_attention_weights = None
     
     def apply_multi_head_attention(self, lstm_out, attention_heads, attention_combine):
@@ -107,27 +95,8 @@ class ForecastingLSTM(nn.Module):
     def forward(self, x):
         batch_size, seq_len, num_features = x.size()
         
-        # Calculate feature importance only if enabled
-        if self.use_feature_importance:
-            # Reshape to (batch_size * seq_len, num_features)
-            x_reshaped = x.reshape(-1, num_features)
-            feature_weights = self.feature_importance(x_reshaped)
-            
-            # Reshape back to (batch_size, seq_len, num_features)
-            feature_weights = feature_weights.reshape(batch_size, seq_len, num_features)
-            
-            # Store average feature importance scores
-            if self.training:
-                self.feature_importance_scores = feature_weights.mean(dim=(0, 1)).detach()
-            
-            # Apply feature weights to input
-            x_weighted = x * feature_weights
-        else:
-            x_weighted = x
-            self.feature_importance_scores = None
-        
         # Process through main LSTM
-        main_out, _ = self.main_lstm(x_weighted)
+        main_out, _ = self.main_lstm(x)
         
         if self.use_attention:
             final_output = self.apply_multi_head_attention(
@@ -145,12 +114,6 @@ class ForecastingLSTM(nn.Module):
         forecasts = self.fc(final_output)
         
         return forecasts
-    
-    def get_feature_importance(self):
-        """Return the current feature importance scores. Used for feature importance analysis, else returns None"""
-        if self.feature_importance_scores is None:
-            return None
-        return self.feature_importance_scores.cpu().numpy()
     
     def get_temporal_attention(self):
         """Return the current temporal attention weights. Used for temporal attention analysis, else returns None"""
@@ -175,7 +138,6 @@ class WaterLevelForecaster:
         self.preprocessor = None
         self.anomaly_threshold = config.get('z_score_threshold', 5)
         self.prediction_window = config.get('prediction_window', 24)
-        self.feature_importance_history = []
         self.temporal_attention_history = []
         
         # Define feature tiers based on importance
@@ -220,7 +182,6 @@ class WaterLevelForecaster:
         num_layers = self.config.get('num_layers', 2)
         dropout = self.config.get('dropout', 0.2)
         output_size = self.prediction_window  # Predict multiple steps ahead
-        use_feature_importance = self.config.get('use_feature_importance', False)
         use_attention = self.config.get('use_attention', True)
         
         # Initialize and return the model
@@ -230,7 +191,6 @@ class WaterLevelForecaster:
             num_layers=num_layers,
             output_size=output_size,
             dropout=dropout,
-            use_feature_importance=use_feature_importance,
             use_attention=use_attention
         ).to(self.device)
         
@@ -316,8 +276,6 @@ class WaterLevelForecaster:
         epochs_no_improve = 0
         best_model_weights = None
         
-        feature_importance_per_epoch = []
-        
         print(f"Starting training for {num_epochs} epochs (patience: {patience})...")
         
         # Create progress bar for epochs
@@ -327,7 +285,6 @@ class WaterLevelForecaster:
             # Training
             self.model.train()
             train_loss = 0
-            epoch_importance = np.zeros(len(self.preprocessor.feature_cols))
             
             # Process in batches
             num_batches = (len(X_train) + batch_size - 1) // batch_size
@@ -344,11 +301,6 @@ class WaterLevelForecaster:
                 
                 optimizer.zero_grad()
                 y_pred = self.model(X_batch)
-                
-                # Get feature importance for this batch
-                importance = self.model.get_feature_importance()
-                if importance is not None:
-                    epoch_importance += importance
                 
                 # Reshape for loss calculation if needed
                 if y_pred.shape != y_batch.shape:
@@ -367,10 +319,6 @@ class WaterLevelForecaster:
                 batch_pbar.set_postfix({"loss": f"{loss.item():.6f}"})
             
             avg_train_loss = train_loss / num_batches
-            
-            # Average feature importance for this epoch
-            epoch_importance /= num_batches
-            feature_importance_per_epoch.append(epoch_importance)
             
             # Validation
             self.model.eval()
@@ -393,15 +341,6 @@ class WaterLevelForecaster:
                 "no_improve": epochs_no_improve
             })
             
-            # Print feature importance info every 10 epochs
-            if (epoch + 1) % 10 == 0:
-                # Print top 5 most important features
-                feature_importance = list(zip(self.preprocessor.feature_cols, epoch_importance))
-                feature_importance.sort(key=lambda x: x[1], reverse=True)
-                tqdm.write("\nTop 5 important features:")
-                for feature, importance in feature_importance[:5]:
-                    tqdm.write(f"{feature}: {importance:.4f}")
-            
             # Early stopping check
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -419,28 +358,11 @@ class WaterLevelForecaster:
                     tqdm.write(f"Early stopping at epoch {epoch+1}")
                     break
         
-        # Store feature importance history
-        self.feature_importance_history = feature_importance_per_epoch
-        
         # Load best model weights
         if best_model_weights is not None:
             self.model.load_state_dict(best_model_weights)
         
         print(f"\nTraining completed. Best validation loss: {best_val_loss:.6f}")
-        
-        # Print final feature importance analysis
-        final_importance = np.mean(feature_importance_per_epoch[-10:], axis=0)  # Average of last 10 epochs
-        feature_importance = list(zip(self.preprocessor.feature_cols, final_importance))
-        feature_importance.sort(key=lambda x: x[1], reverse=True)
-        
-        print("\nFinal Feature Importance Analysis:")
-        print("\nTop 10 Most Important Features:")
-        for feature, importance in feature_importance[:10]:
-            print(f"{feature}: {importance:.4f}")
-        
-        print("\nLeast Important Features:")
-        for feature, importance in feature_importance[-5:]:
-            print(f"{feature}: {importance:.4f}")
         
         return self.model
     
@@ -454,7 +376,6 @@ class WaterLevelForecaster:
             inject_errors: Whether to inject synthetic errors into the test data (DEPRECATED)
             error_periods: List of dictionaries with error periods and types (DEPRECATED)
                 Each dict should have: 'start', 'end', 'type', 'magnitude'
-                Types: 'noise', 'offset', 'scaling', 'missing'
                 
                 Note: For proper error injection with derived features, 
                 use reconstruct_features_with_errors() before calling predict().
@@ -464,7 +385,6 @@ class WaterLevelForecaster:
         """
         print("Preparing for prediction...")
         self.model.eval()
-        prediction_importance = []
         
         if steps_ahead is None:
             steps_ahead = self.prediction_window
@@ -537,11 +457,6 @@ class WaterLevelForecaster:
                     # Make predictions for the entire batch at once
                     batch_preds = self.model(X_batch)
                     
-                    # Get feature importance
-                    importance = self.model.get_feature_importance()
-                    if importance is not None:
-                        prediction_importance.append(importance)
-                    
                     # Add predictions to results
                     for pred in batch_preds.cpu().numpy():
                         # Only keep predictions up to steps_ahead
@@ -603,17 +518,6 @@ class WaterLevelForecaster:
             true_anomalies = None
             prediction_quality = None
         
-        # Average feature importance during prediction
-        if prediction_importance:
-            avg_prediction_importance = np.mean(prediction_importance, axis=0)
-            feature_importance = list(zip(self.preprocessor.feature_cols, avg_prediction_importance))
-            feature_importance.sort(key=lambda x: x[1], reverse=True)
-            
-            print("\nFeature Importance During Prediction:")
-            print("\nTop 10 Most Important Features:")
-            for feature, importance in feature_importance[:10]:
-                print(f"{feature}: {importance:.4f}")
-        
         print("Prediction completed successfully.")
         
         # Return results
@@ -624,8 +528,7 @@ class WaterLevelForecaster:
             'forecasts': forecast_df,
             'detected_anomalies': detected_anomalies,
             'true_anomalies': true_anomalies,
-            'prediction_quality': prediction_quality,
-            'feature_importance': feature_importance if prediction_importance else None
+            'prediction_quality': prediction_quality
         }
         
         return results
@@ -911,7 +814,7 @@ class WaterLevelForecaster:
         
         return anomalies[anomalies['is_anomaly']]
 
-    def predict_iteratively(self, X, y=None, max_iterations=5, convergence_threshold=0.01):
+    def predict_iteratively(self, X, y=None, max_iterations=100, convergence_threshold=0.01):
         """
         Make predictions iteratively, using previous predictions as features.
         
@@ -930,7 +833,6 @@ class WaterLevelForecaster:
             'timestamps': X.index,
             'clean_data': pd.DataFrame(X[self.preprocessor.output_features]) if y is None else pd.DataFrame(y),
             'predictions_by_iteration': pd.DataFrame(index=X.index),
-            'feature_importance': [],
             'convergence_info': {}
         }
         
@@ -945,13 +847,6 @@ class WaterLevelForecaster:
         # Store initial prediction in forecasts
         results['forecasts'] = pd.DataFrame(index=X.index)
         results['forecasts']['step_1'] = initial_pred
-        
-        # Track feature importance if available
-        if 'feature_importance' in initial_pred_results:
-            results['feature_importance'].append({
-                'iteration': 1,
-                'importances': initial_pred_results['feature_importance']
-            })
         
         # Create iteration progress bar
         iter_pbar = tqdm(range(2, max_iterations + 1), desc="Iterations", unit="iter")
@@ -972,13 +867,6 @@ class WaterLevelForecaster:
             
             # Update forecasts with latest prediction
             results['forecasts']['step_1'] = new_pred
-            
-            # Track feature importance if available
-            if 'feature_importance' in new_pred_results:
-                results['feature_importance'].append({
-                    'iteration': i,
-                    'importances': new_pred_results['feature_importance']
-                })
             
             # Check convergence
             pred_change = np.abs(new_pred - prev_pred).mean()
