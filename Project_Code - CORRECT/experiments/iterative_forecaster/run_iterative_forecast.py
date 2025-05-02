@@ -112,7 +112,7 @@ def parse_args():
     parser.add_argument('--output_dir', type=str, default='forecast_results',
                         help='Directory to save results')
     
-    parser.add_argument('--mode', type=str, choices=['train', 'predict', 'test_error', 'multi_horizon'], 
+    parser.add_argument('--mode', type=str, choices=['train', 'predict', 'test_error'], 
                         default='test_error', help='Mode to run in')
     
     parser.add_argument('--prediction_mode', type=str, choices=['standard'],
@@ -121,12 +121,6 @@ def parse_args():
     parser.add_argument('--model_path', type=str, default=None,
                         help='Path to load a trained model from (for predict mode)')
     
-    parser.add_argument('--horizons', type=str, default='1,12,24,48,72',
-                        help='Comma-separated list of forecast horizons to evaluate')
-    
-    # Add new argument for multi-horizon mode
-    parser.add_argument('--train_separate_models', action='store_true',
-                        help='Train separate models for each forecast horizon in multi-horizon mode')
     
     # Add new arguments for feature engineering control
     parser.add_argument('--add_ma_features', action='store_true',
@@ -139,7 +133,7 @@ def parse_args():
                         help='Sequence length to use for the model (number of timesteps)')
     
                        
-    parser.add_argument('--num_layers', type=int, default=3,
+    parser.add_argument('--num_layers', type=int, default=1,
                        help='Number of LSTM layers')
     
     return parser.parse_args()
@@ -461,27 +455,6 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
         save_path=interactive_dir / "water_forecast_simple.html"
     )
     
-    # Generate multi-step forecasts if available in the results
-    multi_step_columns = [col for col in test_results['forecasts'].columns if col.startswith('step_')]
-    if len(multi_step_columns) > 1:
-        print("\nCreating multi-step forecast visualizations...")
-        # Plot for a longer horizon forecast (step_24 if available, otherwise last step)
-        long_step = 'step_24' if 'step_24' in multi_step_columns else multi_step_columns[-1]
-        
-        visualizer.plot_forecast_simple(
-            test_results,
-            title=f"Water Level {long_step.replace('step_', '')}-Step Ahead Forecast",
-            save_path=plots_dir / f"water_forecast_{long_step}.png",
-            forecast_step=long_step
-        )
-        
-        visualizer.plot_forecast_simple_plotly(
-            test_results,
-            title=f"Water Level {long_step.replace('step_', '')}-Step Ahead Forecast - Interactive",
-            save_path=interactive_dir / f"water_forecast_{long_step}.html",
-            forecast_step=long_step
-        )
-    
     # Summarize anomalies in test data
     test_anomalies = test_results['detected_anomalies'] 
     test_anomaly_count = test_anomalies['is_anomaly'].sum()
@@ -499,310 +472,6 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
     
     return test_results
 
-def run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, output_dir, train_separate_models=False, train_data=None, val_data=None):
-    """Run and visualize predictions with multiple forecast horizons"""
-    print(f"\nRunning multi-horizon analysis with horizons: {horizons}")
-    
-    # Create multi-horizon directory
-    horizon_dir = output_dir / "multi_horizon"
-    horizon_dir.mkdir(exist_ok=True)
-    
-    # Create subdirectories for different plot types
-    horizon_plots_dir = horizon_dir / "plots"
-    horizon_plots_dir.mkdir(exist_ok=True)
-    horizon_interactive_dir = horizon_dir / "interactive"
-    horizon_interactive_dir.mkdir(exist_ok=True)
-    
-    test_results_by_horizon = {}
-    metrics_by_horizon = []
-    
-    if train_separate_models and train_data is not None and val_data is not None:
-        print("\nTraining separate models optimized for each forecast horizon...")
-        
-        # Iterate through horizons and train specific models
-        for horizon in horizons:
-            print(f"\n=== Training and testing model for {horizon}-step ahead forecast ===")
-            
-            # Create a copy of the forecaster with a specific prediction window
-            horizon_config = forecaster.config.copy()
-            horizon_config['prediction_window'] = horizon
-            
-            horizon_forecaster = WaterLevelForecaster(horizon_config)
-            horizon_forecaster.preprocessor = forecaster.preprocessor
-            
-            # Create a model directory for this horizon
-            horizon_model_dir = horizon_dir / f"horizon_{horizon}_model"
-            horizon_model_dir.mkdir(exist_ok=True)
-            
-            # Train the model
-            print(f"Training {horizon}-step model...")
-            horizon_forecaster.train(train_data, val_data, None, None)
-            
-            # Save the model
-            model_path = horizon_model_dir / f"horizon_{horizon}_model.pth"
-            horizon_forecaster.save_model(model_path)
-            
-            # Make predictions
-            print(f"Making {horizon}-step predictions...")
-            horizon_results = horizon_forecaster.predict(test_data, steps_ahead=horizon)
-            
-            # Store results
-            test_results_by_horizon[horizon] = horizon_results
-            
-            # Create visualizations
-            visualizer.plot_forecast_simple(
-                horizon_results,
-                title=f"Water Level Forecast ({horizon}-Step Ahead) - Dedicated Model",
-                save_path=horizon_plots_dir / f"horizon_{horizon}_dedicated_model.png",
-                forecast_step=f"step_{min(horizon, len(horizon_results['forecasts'].columns))}"
-            )
-            
-            visualizer.plot_forecast_simple_plotly(
-                horizon_results,
-                title=f"Water Level Forecast ({horizon}-Step Ahead) - Dedicated Model - Interactive",
-                save_path=horizon_interactive_dir / f"horizon_{horizon}_dedicated_model.html",
-                forecast_step=f"step_{min(horizon, len(horizon_results['forecasts'].columns))}"
-            )
-            
-            # Calculate metrics
-            horizon_metrics = {
-                'Horizon': horizon,
-                'Model_Type': 'Dedicated',
-                'Overall_MAE': np.mean(np.abs(
-                    horizon_results['clean_data'].values - 
-                    horizon_results['forecasts'][f"step_{min(horizon, len(horizon_results['forecasts'].columns))}"].values
-                ))
-            }
-            metrics_by_horizon.append(horizon_metrics)
-    
-    # For comparison, also use the single model approach (original code)
-    print("\nUsing multi-horizon approach with a single model...")
-    # Ensure config has enough output steps
-    max_horizon = max(horizons)
-    if forecaster.prediction_window < max_horizon:
-        print(f"Adjusting prediction window from {forecaster.prediction_window} to {max_horizon}")
-        forecaster.prediction_window = max_horizon
-        forecaster.config['prediction_window'] = max_horizon
-    
-    # Make predictions on test data with single model
-    standard_results = forecaster.predict(test_data)
-    
-    # Store in results dictionary if we're comparing approaches
-    if train_separate_models:
-        test_results_by_horizon['standard'] = standard_results
-    else:
-        # If not training separate models, use standard results as the only result
-        test_results = standard_results
-    
-    # Plot multi-horizon forecast from standard model
-    print("\nPlotting multi-horizon forecast...")
-    visualizer.plot_multi_horizon_forecasts(
-        standard_results,
-        horizons=horizons,
-        title="Multi-Horizon Water Level Forecasting",
-        save_path=horizon_plots_dir / "multi_horizon_forecast.png"
-    )
-    
-    # Create simplified plots for each horizon
-    print("\nCreating simplified horizon-specific visualizations...")
-    for horizon in horizons:
-        horizon_col = f'step_{horizon}'
-        if horizon_col in standard_results['forecasts'].columns:
-            # Create a copy of test_results with only this horizon column
-            horizon_results = standard_results.copy()
-            
-            # Static simplified plot for this horizon
-            visualizer.plot_forecast_simple(
-                horizon_results,
-                title=f"Water Level Forecast ({horizon}-Step Ahead)",
-                save_path=horizon_plots_dir / f"horizon_{horizon}_simple.png",
-                forecast_step=horizon_col
-            )
-            
-            # Interactive simplified plot for this horizon
-            visualizer.plot_forecast_simple_plotly(
-                horizon_results,
-                title=f"Water Level Forecast ({horizon}-Step Ahead) - Interactive",
-                save_path=horizon_interactive_dir / f"horizon_{horizon}_simple.html",
-                forecast_step=horizon_col
-            )
-            
-            # Add metrics for standard approach
-            if train_separate_models:
-                standard_metrics = {
-                    'Horizon': horizon,
-                    'Model_Type': 'Standard',
-                    'Overall_MAE': np.mean(np.abs(
-                        standard_results['clean_data'].values - 
-                        standard_results['forecasts'][horizon_col].values
-                    ))
-                }
-                metrics_by_horizon.append(standard_metrics)
-    
-    # Plot forecast accuracy by horizon
-    print("\nPlotting forecast accuracy by horizon...")
-    visualizer.plot_forecast_accuracy(
-        standard_results,
-        horizons=horizons,
-        save_path=horizon_dir / "forecast_accuracy.png"
-    )
-    
-    # Calculate metrics for anomalies
-    detected_anomalies = standard_results['detected_anomalies']
-    anomaly_indices = detected_anomalies[detected_anomalies['is_anomaly']].index
-    
-    # Calculate detailed metrics for each horizon
-    detailed_metrics = []
-    
-    anomaly_mask = detected_anomalies['is_anomaly']
-    normal_mask = ~anomaly_mask
-    
-    # Use standard_results for calculating these metrics
-    for horizon in horizons:
-        horizon_col = f'step_{horizon}'
-        if horizon_col in standard_results['forecasts'].columns:
-            horizon_metrics = {
-                'Horizon': horizon,
-                'Model_Type': 'Standard',
-                'Overall_MAE': None,
-                'Normal_MAE': None,
-                'Anomaly_MAE': None,
-                'MAE_Difference': None,
-                'MAE_Impact_Percentage': None
-            }
-            
-            # Calculate overall MAE
-            horizon_metrics['Overall_MAE'] = np.mean(np.abs(
-                standard_results['clean_data'].values - standard_results['forecasts'][horizon_col].values
-            ))
-            
-            # Calculate MAE during normal periods
-            if normal_mask.any():
-                horizon_metrics['Normal_MAE'] = np.mean(np.abs(
-                    standard_results['clean_data'].loc[normal_mask].values - 
-                    standard_results['forecasts'].loc[normal_mask, horizon_col].values
-                ))
-            
-            # Calculate MAE during anomalies
-            if anomaly_mask.any():
-                horizon_metrics['Anomaly_MAE'] = np.mean(np.abs(
-                    standard_results['clean_data'].loc[anomaly_mask].values - 
-                    standard_results['forecasts'].loc[anomaly_mask, horizon_col].values
-                ))
-            
-            # Calculate difference and impact percentage
-            if horizon_metrics['Normal_MAE'] is not None and horizon_metrics['Anomaly_MAE'] is not None:
-                horizon_metrics['MAE_Difference'] = horizon_metrics['Anomaly_MAE'] - horizon_metrics['Normal_MAE']
-                horizon_metrics['MAE_Impact_Percentage'] = (
-                    horizon_metrics['MAE_Difference'] / horizon_metrics['Normal_MAE'] * 100
-                )
-            
-            detailed_metrics.append(horizon_metrics)
-            
-            # If we have dedicated models, calculate metrics for them too
-            if train_separate_models and horizon in test_results_by_horizon:
-                horizon_dedicated_metrics = {
-                    'Horizon': horizon,
-                    'Model_Type': 'Dedicated',
-                    'Overall_MAE': None,
-                    'Normal_MAE': None,
-                    'Anomaly_MAE': None,
-                    'MAE_Difference': None,
-                    'MAE_Impact_Percentage': None
-                }
-                
-                horizon_results = test_results_by_horizon[horizon]
-                dedicated_horizon_col = f'step_{min(horizon, len(horizon_results["forecasts"].columns))}'
-                
-                # Calculate overall MAE
-                horizon_dedicated_metrics['Overall_MAE'] = np.mean(np.abs(
-                    horizon_results['clean_data'].values - 
-                    horizon_results['forecasts'][dedicated_horizon_col].values
-                ))
-                
-                # Calculate MAE during normal periods
-                if normal_mask.any():
-                    horizon_dedicated_metrics['Normal_MAE'] = np.mean(np.abs(
-                        horizon_results['clean_data'].loc[normal_mask].values - 
-                        horizon_results['forecasts'].loc[normal_mask, dedicated_horizon_col].values
-                    ))
-                
-                # Calculate MAE during anomalies
-                if anomaly_mask.any():
-                    horizon_dedicated_metrics['Anomaly_MAE'] = np.mean(np.abs(
-                        horizon_results['clean_data'].loc[anomaly_mask].values - 
-                        horizon_results['forecasts'].loc[anomaly_mask, dedicated_horizon_col].values
-                    ))
-                
-                # Calculate difference and impact percentage
-                if horizon_dedicated_metrics['Normal_MAE'] is not None and horizon_dedicated_metrics['Anomaly_MAE'] is not None:
-                    horizon_dedicated_metrics['MAE_Difference'] = horizon_dedicated_metrics['Anomaly_MAE'] - horizon_dedicated_metrics['Normal_MAE']
-                    horizon_dedicated_metrics['MAE_Impact_Percentage'] = (
-                        horizon_dedicated_metrics['MAE_Difference'] / horizon_dedicated_metrics['Normal_MAE'] * 100
-                    )
-                
-                detailed_metrics.append(horizon_dedicated_metrics)
-    
-    # Convert to DataFrame
-    detailed_metrics_df = pd.DataFrame(detailed_metrics)
-    
-    # Save metrics to CSV
-    detailed_metrics_df.to_csv(horizon_dir / "horizon_detailed_metrics.csv", index=False)
-    
-    # If we trained separate models, create comparison metrics
-    if train_separate_models:
-        comparison_metrics_df = pd.DataFrame(metrics_by_horizon)
-        comparison_metrics_df.to_csv(horizon_dir / "model_comparison_metrics.csv", index=False)
-        
-        # Create a comparison plot
-        plt.figure(figsize=(12, 6))
-        
-        # Group metrics by horizon and model type
-        horizons_list = comparison_metrics_df['Horizon'].unique()
-        model_types = comparison_metrics_df['Model_Type'].unique()
-        
-        x = np.arange(len(horizons_list))
-        width = 0.35
-        
-        for i, model_type in enumerate(model_types):
-            model_data = comparison_metrics_df[comparison_metrics_df['Model_Type'] == model_type]
-            mae_values = []
-            
-            for horizon in horizons_list:
-                horizon_data = model_data[model_data['Horizon'] == horizon]
-                if not horizon_data.empty:
-                    mae_values.append(horizon_data['Overall_MAE'].values[0])
-                else:
-                    mae_values.append(0)
-            
-            plt.bar(x + (i - 0.5) * width, mae_values, width, 
-                   label=f'{model_type} Model', alpha=0.7)
-        
-        plt.xlabel('Forecast Horizon (steps)')
-        plt.ylabel('Mean Absolute Error (MAE)')
-        plt.title('Forecast Performance Comparison: Standard vs. Dedicated Models')
-        plt.xticks(x, horizons_list)
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        plt.savefig(horizon_dir / "model_comparison.png", dpi=300, bbox_inches='tight')
-        plt.close()
-    
-    # Plot metrics from detailed analysis
-    visualizer.plot_horizon_metrics(
-        detailed_metrics_df,
-        save_path=horizon_dir / "horizon_metrics_comparison.png"
-    )
-    
-    print("\nHorizon Metrics Summary:")
-    print(detailed_metrics_df.to_string(index=False))
-    
-    if train_separate_models:
-        # Return both types of results
-        return test_results_by_horizon, detailed_metrics_df
-    else:
-        # Return standard results
-        return standard_results, detailed_metrics_df
 
 def load_and_filter_data(preprocessor, project_root, station_id):
     """Load data and filter out low importance features"""
@@ -839,8 +508,6 @@ def main():
     output_path = base_output_path / f"prediction_mode_{args.prediction_mode}"
     output_path.mkdir(exist_ok=True, parents=True)
     
-    # Parse horizons
-    horizons = [int(h) for h in args.horizons.split(',')]
     
     print(f"Project root: {project_dir}")
     print(f"Using station: {station_id}")
@@ -952,14 +619,7 @@ def main():
         print(f"\n=== Test Data Predictions ({args.prediction_mode} mode) ===")
         # Run predictions on test data
         run_test_predictions(forecaster, visualizer, test_data, test_dir)
-        
-    elif args.mode == 'multi_horizon':
-        # Multi-horizon mode - train and test with multiple forecast horizons
-        train_and_save_model(forecaster, train_data, val_data, project_dir, station_id, output_path)
-        
-        # Run multi-horizon analysis
-        run_multi_horizon_analysis(forecaster, visualizer, test_data, horizons, output_path, 
-                                    args.train_separate_models, train_data, val_data)
+    
     
     print("\nDone!")
 
