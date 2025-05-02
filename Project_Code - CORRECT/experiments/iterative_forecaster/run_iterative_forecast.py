@@ -115,7 +115,7 @@ def parse_args():
     parser.add_argument('--mode', type=str, choices=['train', 'predict', 'test_error', 'multi_horizon'], 
                         default='test_error', help='Mode to run in')
     
-    parser.add_argument('--prediction_mode', type=str, choices=['standard', 'iterative'],
+    parser.add_argument('--prediction_mode', type=str, choices=['standard'],
                         default='standard', help='Prediction mode to use')
     
     parser.add_argument('--model_path', type=str, default=None,
@@ -320,10 +320,7 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     
     # First get predictions on clean data
     print("Getting predictions on clean data...")
-    if prediction_mode == 'iterative':
-        val_results_clean = forecaster.predict_iteratively(val_data)
-    else:
-        val_results_clean = forecaster.predict(val_data)
+    val_results_clean = forecaster.predict(val_data)
     
     # Get the output feature name
     output_feature = forecaster.preprocessor.output_features[0] if isinstance(
@@ -335,10 +332,7 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     
     # Make predictions with the reconstructed error-injected data
     print("Getting predictions with injected errors...")
-    if prediction_mode == 'iterative':
-        val_results_with_errors = forecaster.predict_iteratively(val_data_with_errors)
-    else:
-        val_results_with_errors = forecaster.predict(val_data_with_errors)
+    val_results_with_errors = forecaster.predict(val_data_with_errors)
     
     # Combine results for visualization
     combined_results = {
@@ -915,10 +909,7 @@ def main():
         
         # Clean validation run
         print("\nPredicting on clean validation data...")
-        if args.prediction_mode == 'iterative':
-            val_results_clean = forecaster.predict_iteratively(val_data)
-        else:
-            val_results_clean = forecaster.predict(val_data)
+        val_results_clean = forecaster.predict(val_data)
         
         visualizer.plot_forecast_with_anomalies(
             val_results_clean, 
