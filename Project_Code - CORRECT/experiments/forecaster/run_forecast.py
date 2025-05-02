@@ -25,27 +25,28 @@ DEFAULT_CONFIG = {
     'dropout': 0.2,             
     'batch_size': 16,          # Reduced batch size for better training
     'sequence_length': 500,  # Extended sequence length to capture more history
-    'prediction_window': 1,    # Predict one step ahead
+    'prediction_window': 12,    # Predict one step ahead
     'sequence_stride': 50,      # Stride for creating sequences
-    'epochs': 10,           # Increased for better convergence
+    'epochs': 5,          # Increased for better convergence
     'patience': 10,             # Early stopping patience
     'z_score_threshold': 5,   # Anomaly detection threshold
     'learning_rate': 0.001,     
     
     # Model architecture configuration
-    'use_attention': True,      # Using attention mechanisms
+    'use_attention': False,      # Using attention mechanisms
 
     # Feature engineering
     'use_time_features': True,  
     'use_cumulative_features': True, 
     'use_lagged_features': True,  
-    'lag_hours': [72, 96, 168, 336, 720, 1440],  # Lag hours (1d, 2d, 4d, 7d, 14d, 30d, 60d)
+    'lag_hours': [336,720,1440],#, 96, 168, 336, 720, 1440],  # Lag hours (1d, 2d, 4d, 7d, 14d, 30d, 60d)
     
     # Custom features to add - empty by default
     'custom_features': [],
     
     # Features to use
     'feature_cols': [
+       # 'vst_raw',
         'rainfall',
         'temperature'
     ],
@@ -135,13 +136,13 @@ def parse_args():
     parser.add_argument('--ma_hours', type=str, default='6,12,24',
                        help='Comma-separated list of hours for moving average features')
     
-    parser.add_argument('--sequence_length', type=int, default=500,
+    parser.add_argument('--sequence_length', type=int, default=100,
                         help='Sequence length to use for the model (number of timesteps)')
     
     parser.add_argument('--use_attention', action='store_true', default=True,
                        help='Enable attention mechanism')
                        
-    parser.add_argument('--num_layers', type=int, default=3,
+    parser.add_argument('--num_layers', type=int, default=1,
                        help='Number of LSTM layers')
     
     return parser.parse_args()
@@ -209,7 +210,7 @@ def train_and_save_model(forecaster, train_data, val_data, project_root, station
     print(f"  - Hidden Size: {forecaster.config['hidden_size']}")
     print(f"  - Layers: {forecaster.config['num_layers']}")
     print(f"  - Dropout: {forecaster.config['dropout']}")
-    print(f"  - Sequence Length: {forecaster.config['sequence_length']}")
+    print(f"  - Sequence Lerngth: {forecaster.config['sequence_length']}")
     print(f"  - Attention: {forecaster.config['use_attention']}")
     
     return model

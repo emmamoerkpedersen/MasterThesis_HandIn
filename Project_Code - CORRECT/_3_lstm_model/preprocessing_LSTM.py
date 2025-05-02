@@ -117,7 +117,8 @@ class DataPreprocessor:
             self.feature_cols = self.feature_engineer.feature_cols.copy()
             # Update the feature scaler with the new feature columns
             self.update_feature_scaler()
-            
+
+
         # Add lagged features if enabled in config
         if self.config.get('use_lagged_features', False):
             lags = self.config.get('lag_hours', [1, 2, 3, 6, 12, 24])

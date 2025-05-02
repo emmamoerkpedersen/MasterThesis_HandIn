@@ -29,7 +29,7 @@ class ForecastVisualizer:
     
     def plot_forecast_with_anomalies(self, results, title="Water Level Forecasting", save_path=None):
         """
-        Plot the forecast results with detected anomalies.
+        Plot the forecast results with detected anomalies and confidence bands.
         
         Args:
             results: Dictionary with forecasts and anomalies from the predict method
@@ -56,15 +56,62 @@ class ForecastVisualizer:
             ax1.plot(error_injected_data.index, error_injected_data.values, 'r-', 
                     label='Water Levels (with injected errors)', linewidth=1)
         
-        # Plot the forecast for error-injected data
-        if 'step_24' in forecast_data.columns:
-            ax1.plot(forecast_data.index, forecast_data['step_24'].values, 'g-', 
-                    label='24-Step Ahead Forecast (with errors)', linewidth=1.5)
+        # Calculate and plot confidence bands - NEW CODE
+        
+        # First, collect all forecast columns
+        forecast_columns = [col for col in forecast_data.columns if col.startswith('step_')]
+        
+        if len(forecast_columns) > 1:
+            # We have multiple predictions per timestep
+            
+            # Build a forward-looking table where each row represents a specific timestamp
+            # and each column represents a prediction made N steps before
+            prediction_table = pd.DataFrame(index=forecast_data.index)
+            
+            for col in forecast_columns:
+                # Extract the step number (assumes format is 'step_N')
+                step = int(col.replace('step_', ''))
+                
+                # Shift forecasts forward by the step number to align with the actual timestamp
+                # they're predicting
+                if step > 0:
+                    shifted_col = forecast_data[col].shift(-step)
+                    prediction_table[f'pred_{step}_ahead'] = shifted_col
+            
+            # Remove rows with all NaNs or insufficient predictions
+            prediction_table = prediction_table.dropna(how='all')
+            
+            # Calculate statistics
+            pred_mean = prediction_table.mean(axis=1)
+            pred_std = prediction_table.std(axis=1)
+            
+            # Plot the mean prediction
+            ax1.plot(pred_mean.index, pred_mean.values, 'g-', 
+                    label='Mean Forecast', linewidth=2)
+            
+            # Plot confidence bands (mean ± 1 std deviation)
+            ax1.fill_between(pred_mean.index, 
+                            pred_mean - pred_std, 
+                            pred_mean + pred_std, 
+                            color='g', alpha=0.2, 
+                            label='Forecast Confidence Band (±1σ)')
+            
+            # Optionally plot a wider band for ±2 std deviations
+            ax1.fill_between(pred_mean.index, 
+                            pred_mean - 2*pred_std, 
+                            pred_mean + 2*pred_std, 
+                            color='g', alpha=0.1, 
+                            label='Forecast Confidence Band (±2σ)')
         else:
-            # Use the last column as the forecast
-            last_step = forecast_data.columns[-1]
-            ax1.plot(forecast_data.index, forecast_data[last_step].values, 'g-', 
-                    label=f'{last_step.replace("step_", "")}-Step Ahead Forecast (with errors)', linewidth=1.5)
+            # Only one prediction per timestep, use the original code
+            if 'step_24' in forecast_data.columns:
+                ax1.plot(forecast_data.index, forecast_data['step_24'].values, 'g-', 
+                        label='24-Step Ahead Forecast', linewidth=1.5)
+            else:
+                # Use the last column as the forecast
+                last_step = forecast_data.columns[-1]
+                ax1.plot(forecast_data.index, forecast_data[last_step].values, 'g-', 
+                        label=f'{last_step.replace("step_", "")}-Step Ahead Forecast', linewidth=1.5)
         
         # Plot the clean forecast if available
         if clean_forecast is not None:
@@ -514,7 +561,7 @@ class ForecastVisualizer:
         plt.show()
     
     def plot_error_impact(self, results, period, save_path=None, window_days=10):
-        """Plot the impact of injected errors on a specific period"""
+        """Plot the impact of injected errors on a specific period with confidence bands"""
         # Extract data
         clean_data = results['clean_data']
         error_data = results['error_injected_data']
@@ -582,25 +629,58 @@ class ForecastVisualizer:
                 label='Clean Data', color='blue', alpha=0.9, linewidth=2)
         plt.plot(error_data_window.index, error_data_window.values.flatten(), 
                 label='Error Injected Data', color='red', alpha=0.9, linewidth=2)
-        plt.plot(forecast_step1_window.index, forecast_step1_window.values, 
-                label='Predictions', color='green', alpha=0.9, linewidth=2)
+                
+        # Create confidence bands if we have multiple prediction columns
+        forecast_columns = [col for col in forecast_data.columns if col.startswith('step_')]
+        
+        if len(forecast_columns) > 1:
+            # We have multiple predictions per timestep
+            prediction_table = pd.DataFrame(index=forecast_data.index)
+            
+            for col in forecast_columns:
+                step = int(col.replace('step_', ''))
+                if step > 0:
+                    shifted_col = forecast_data[col].shift(-step)
+                    prediction_table[f'pred_{step}_ahead'] = shifted_col
+            
+            # Filter to window
+            prediction_table_window = prediction_table[window_mask].copy()
+            prediction_table_window = prediction_table_window.dropna(how='all')
+            
+            # Calculate mean and std for confidence bands
+            pred_mean = prediction_table_window.mean(axis=1)
+            pred_std = prediction_table_window.std(axis=1)
+            
+            # Plot the mean prediction
+            plt.plot(pred_mean.index, pred_mean.values, 'g-', 
+                    label='Mean Forecast', linewidth=2)
+            
+            # Plot confidence bands (±1 std deviation)
+            plt.fill_between(pred_mean.index, 
+                            pred_mean - pred_std, 
+                            pred_mean + pred_std, 
+                            color='g', alpha=0.2, 
+                            label='Forecast Confidence Band (±1σ)')
+            
+            # Plot wider confidence band (±2 std deviations)
+            plt.fill_between(pred_mean.index, 
+                            pred_mean - 2*pred_std, 
+                            pred_mean + 2*pred_std, 
+                            color='g', alpha=0.1, 
+                            label='Forecast Confidence Band (±2σ)')
+        else:
+            # Just plot the single forecast line
+            plt.plot(forecast_step1_window.index, forecast_step1_window.values, 
+                    label='Predictions', color='green', alpha=0.9, linewidth=2)
+        
+        # Plot clean forecast if available
         if clean_forecast_step1 is not None:
             plt.plot(clean_forecast_step1_window.index, clean_forecast_step1_window.values, 
                     label='Clean Predictions', color='cyan', alpha=0.9, linewidth=2, 
-                    linestyle='--', dashes=(5, 5))  # Make clean predictions dashed
+                    linestyle='--', dashes=(5, 5))
         
         # Highlight the error period with better styling
         plt.axvspan(start, end, color='red', alpha=0.1, label='Error Period')
-        
-        # Add metrics as text with better formatting
-        #bbox_props = dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8)
-        #if mae_normal is not None:
-        #    plt.text(0.02, 0.98, f'Normal MAE: {mae_normal:.2f}', 
-        #            transform=plt.gca().transAxes, verticalalignment='top',
-        #            bbox=bbox_props)
-        #plt.text(0.02, 0.95, f'Error Period MAE: {mae_during_error:.2f}', 
-        #        transform=plt.gca().transAxes, verticalalignment='top',
-        #        bbox=bbox_props)
         
         # Customize the plot with enhanced styling
         plt.title(f"Impact of {period['type'].capitalize()} Error\n{period['description']}", 
@@ -630,7 +710,7 @@ class ForecastVisualizer:
             plt.show()
     
     def plot_error_impact_plotly(self, results, period, save_path=None, window_days=10):
-        """Create an interactive plot showing the impact of injected errors"""
+        """Create an interactive plot showing the impact of injected errors with confidence bands"""
         # Extract data and print shapes for debugging
         clean_data = results['clean_data']
         error_data = results['error_injected_data']
@@ -725,11 +805,92 @@ class ForecastVisualizer:
                       line=dict(color='red', width=2.5))
         )
         
-        fig.add_trace(
-            go.Scatter(x=forecast_step1_window.index, y=forecast_step1_window.values,
-                      name='Predictions', 
-                      line=dict(color='green', width=2.5))
-        )
+        # Check if we should create confidence bands
+        forecast_columns = [col for col in forecast_data.columns if col.startswith('step_')]
+        
+        if len(forecast_columns) > 1:
+            # We have multiple predictions per timestep
+            prediction_table = pd.DataFrame(index=forecast_data.index)
+            
+            for col in forecast_columns:
+                step = int(col.replace('step_', ''))
+                if step > 0:
+                    shifted_col = forecast_data[col].shift(-step)
+                    prediction_table[f'pred_{step}_ahead'] = shifted_col
+            
+            # Filter to window
+            prediction_table_window = prediction_table[window_mask].copy()
+            prediction_table_window = prediction_table_window.dropna(how='all')
+            
+            # Calculate mean and std for confidence bands
+            pred_mean = prediction_table_window.mean(axis=1)
+            pred_std = prediction_table_window.std(axis=1)
+            
+            # Plot the mean prediction
+            fig.add_trace(
+                go.Scatter(
+                    x=pred_mean.index, 
+                    y=pred_mean.values,
+                    name='Mean Forecast',
+                    line=dict(color='green', width=2.5)
+                )
+            )
+            
+            # Add confidence bands using upper/lower bound traces
+            # ±1 sigma band
+            fig.add_trace(
+                go.Scatter(
+                    x=pred_mean.index,
+                    y=pred_mean + pred_std,
+                    name='Upper 1σ',
+                    line=dict(color='rgba(0, 128, 0, 0)'),
+                    showlegend=False
+                )
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=pred_mean.index,
+                    y=pred_mean - pred_std,
+                    line=dict(color='rgba(0, 128, 0, 0)'),
+                    fill='tonexty',
+                    fillcolor='rgba(0, 128, 0, 0.1)',
+                    showlegend=False
+                )
+            )
+            
+            # ±2 sigma band (wider)
+            fig.add_trace(
+                go.Scatter(
+                    x=pred_mean.index,
+                    y=pred_mean + 2*pred_std,
+                    name='Upper 2σ',
+                    line=dict(color='rgba(0, 128, 0, 0)'),
+                    showlegend=False
+                )
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=pred_mean.index,
+                    y=pred_mean - 2*pred_std,
+                    line=dict(color='rgba(0, 128, 0, 0)'),
+                    fill='tonexty',
+                    fillcolor='rgba(0, 128, 0, 0.1)',
+                    showlegend=True,
+                    name='Forecast Confidence Bands (±2σ)'
+                )
+            )
+        else:
+            # Just plot the single forecast line
+            fig.add_trace(
+                go.Scatter(
+                    x=forecast_step1_window.index, 
+                    y=forecast_step1_window.values,
+                    name='Predictions',
+                    line=dict(color='green', width=2.5)
+                )
+            )
         
         if clean_forecast_step1 is not None:
             fig.add_trace(
@@ -1092,95 +1253,6 @@ class ForecastVisualizer:
         
         return fig
     
-    def plot_feature_importance_analysis(self, feature_importance, title="Feature Importance Analysis", save_path=None, min_importance_threshold=0.01):
-        """
-        Create a comprehensive horizontal bar plot of feature importances.
-        
-        Args:
-            feature_importance: List of tuples (feature_name, importance_value) or dictionary
-            title: Plot title
-            save_path: Path to save the plot
-            min_importance_threshold: Minimum importance value to highlight as potentially removable
-        """
-        # Convert input to list of tuples if it's a dictionary
-        if isinstance(feature_importance, dict):
-            feature_importance = list(feature_importance.items())
-        
-        # Sort by importance value
-        feature_importance.sort(key=lambda x: x[1], reverse=True)
-        
-        # Separate features and values
-        features = [x[0] for x in feature_importance]
-        importance_values = [x[1] for x in feature_importance]
-        
-        # Create figure with appropriate height
-        plt.figure(figsize=(12, max(8, len(features) * 0.3)))
-        
-        # Create horizontal bar plot
-        bars = plt.barh(range(len(features)), importance_values)
-        
-        # Customize the plot
-        plt.xlabel('Importance Score')
-        plt.title(title)
-        
-        # Set y-axis ticks and labels
-        plt.yticks(range(len(features)), features)
-        
-        # Add value labels at the end of each bar
-        for i, bar in enumerate(bars):
-            width = bar.get_width()
-            plt.text(width, bar.get_y() + bar.get_height()/2,
-                    f'{width:.4f}',
-                    ha='left', va='center', fontweight='bold')
-            
-            # Color bars based on importance
-            if width < min_importance_threshold:
-                bar.set_color('lightcoral')  # Red for potentially removable features
-            else:
-                bar.set_color('lightblue')   # Blue for important features
-        
-        # Add a vertical line for the threshold
-        plt.axvline(x=min_importance_threshold, color='red', linestyle='--', alpha=0.5)
-        plt.text(min_importance_threshold, len(features), 
-                f'Threshold: {min_importance_threshold}',
-                ha='right', va='top', color='red', alpha=0.7)
-        
-        # Add grid for better readability
-        plt.grid(True, axis='x', alpha=0.3)
-        
-        # Adjust layout to prevent label cutoff
-        plt.tight_layout()
-        
-        # Save if path provided
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Feature importance plot saved to {save_path}")
-        
-        plt.show()
-        
-        # Print summary statistics
-        total_features = len(features)
-        removable_features = sum(1 for v in importance_values if v < min_importance_threshold)
-        
-        print("\nFeature Importance Summary:")
-        print(f"Total features: {total_features}")
-        print(f"Features below threshold ({min_importance_threshold}): {removable_features}")
-        print(f"Potential feature reduction: {removable_features/total_features*100:.1f}%")
-        
-        # Group features by importance ranges
-        ranges = [(0.1, float('inf'), 'Very High'),
-                 (0.05, 0.1, 'High'),
-                 (0.01, 0.05, 'Medium'),
-                 (0.001, 0.01, 'Low'),
-                 (0, 0.001, 'Very Low')]
-        
-        print("\nFeature Importance Distribution:")
-        for min_val, max_val, label in ranges:
-            count = sum(1 for v in importance_values if min_val <= v < max_val)
-            print(f"{label} importance ({min_val:.3f} - {max_val if max_val != float('inf') else '∞'}): {count} features")
-            if count > 0:
-                features_in_range = [f for f, v in feature_importance if min_val <= v < max_val]
-                print(f"  Features: {', '.join(features_in_range)}")
     
     def plot_forecast_simple(self, results, title="Water Level Forecasting", save_path=None, forecast_step=None):
         """
@@ -1201,14 +1273,6 @@ class ForecastVisualizer:
         error_injected_data = results.get('error_injected_data')
         clean_forecast = results.get('clean_forecast')
         
-        # Determine which forecast column to use
-        if forecast_step is not None and forecast_step in forecast_data.columns:
-            forecast_col = forecast_step
-        elif 'step_24' in forecast_data.columns:
-            forecast_col = 'step_24'
-        else:
-            forecast_col = forecast_data.columns[-1]
-        
         # Create figure
         plt.figure(figsize=(16, 8))
         
@@ -1219,12 +1283,78 @@ class ForecastVisualizer:
             plt.plot(error_injected_data.index, error_injected_data.values, 'r-', 
                     label='Water Levels (with injected errors)', linewidth=1)
         
-        plt.plot(forecast_data.index, forecast_data[forecast_col].values, 'g-', 
-                label=f'{forecast_col.replace("step_", "")}-Step Ahead Forecast', linewidth=1.5)
+        # First, collect all forecast columns
+        forecast_columns = [col for col in forecast_data.columns if col.startswith('step_')]
+        
+        if len(forecast_columns) > 1:
+            # We have multiple predictions per timestep - create confidence bands
+            
+            # If a specific forecast step was requested, still show it separately
+            if forecast_step is not None and forecast_step in forecast_data.columns:
+                plt.plot(forecast_data.index, forecast_data[forecast_step].values, 'g-', 
+                        label=f'{forecast_step.replace("step_", "")}-Step Ahead Forecast', linewidth=1.5)
+            
+            # Build a forward-looking table where each row represents a specific timestamp
+            # and each column represents a prediction made N steps before
+            prediction_table = pd.DataFrame(index=forecast_data.index)
+            
+            for col in forecast_columns:
+                # Extract the step number (assumes format is 'step_N')
+                step = int(col.replace('step_', ''))
+                
+                # Shift forecasts forward by the step number to align with the actual timestamp
+                # they're predicting
+                if step > 0:
+                    shifted_col = forecast_data[col].shift(-step)
+                    prediction_table[f'pred_{step}_ahead'] = shifted_col
+            
+            # Remove rows with all NaNs or insufficient predictions
+            prediction_table = prediction_table.dropna(how='all')
+            
+            # Calculate statistics
+            pred_mean = prediction_table.mean(axis=1)
+            pred_std = prediction_table.std(axis=1)
+            
+            # Only plot the mean prediction if we didn't already plot a specific step
+            if forecast_step is None:
+                plt.plot(pred_mean.index, pred_mean.values, 'g-', 
+                        label='Mean Forecast', linewidth=2)
+            
+            # Plot confidence bands (mean ± 1 std deviation)
+            plt.fill_between(pred_mean.index, 
+                            pred_mean - pred_std, 
+                            pred_mean + pred_std, 
+                            color='g', alpha=0.2, 
+                            label='Forecast Confidence Band (±1σ)')
+            
+            # Optionally plot a wider band for ±2 std deviations
+            plt.fill_between(pred_mean.index, 
+                            pred_mean - 2*pred_std, 
+                            pred_mean + 2*pred_std, 
+                            color='g', alpha=0.1, 
+                            label='Forecast Confidence Band (±2σ)')
+        else:
+            # Only one prediction per timestep, use the original code
+            if forecast_step is not None and forecast_step in forecast_data.columns:
+                forecast_col = forecast_step
+            elif 'step_24' in forecast_data.columns:
+                forecast_col = 'step_24'
+            else:
+                forecast_col = forecast_data.columns[-1]
+                
+            plt.plot(forecast_data.index, forecast_data[forecast_col].values, 'g-', 
+                    label=f'{forecast_col.replace("step_", "")}-Step Ahead Forecast', linewidth=1.5)
         
         if clean_forecast is not None:
-            plt.plot(clean_forecast.index, clean_forecast[forecast_col].values, '--', color='purple',
-                    label=f'{forecast_col.replace("step_", "")}-Step Ahead Forecast (clean data)', linewidth=1.5)
+            if forecast_step is not None and forecast_step in clean_forecast.columns:
+                clean_forecast_col = forecast_step
+            elif 'step_24' in clean_forecast.columns:
+                clean_forecast_col = 'step_24'
+            else:
+                clean_forecast_col = clean_forecast.columns[-1]
+                
+            plt.plot(clean_forecast.index, clean_forecast[clean_forecast_col].values, '--', color='purple',
+                    label=f'{clean_forecast_col.replace("step_", "")}-Step Ahead Forecast (clean data)', linewidth=1.5)
         
         # Highlight anomalies by confidence level
         anomaly_points = detected_anomalies[detected_anomalies['is_anomaly']]

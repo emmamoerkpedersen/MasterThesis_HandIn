@@ -150,18 +150,18 @@ LSTM_CONFIG = {
     
     'feature_cols': [
         'rainfall',
-        'vst_raw_feature'
+        'temperature'
     ],
     'output_features': ['vst_raw'],
 
     'feature_stations': [
         {
             'station_id': '21006845',
-            'features': ['rainfall']
+            'features': ['rainfall', 'vst_raw']
         },
         {
             'station_id': '21006847',
-            'features': ['rainfall']
+            'features': ['rainfall', 'vst_raw']
         }
     ]
 }

@@ -366,7 +366,7 @@ class WaterLevelForecaster:
         
         return self.model
     
-    def predict(self, test_data, steps_ahead=None, inject_errors=False, error_periods=None):
+    def predict(self, test_data, steps_ahead=None, inject_errors=False, error_periods=None, stride_mode='default'):
         """
         Make forecasts for the test data.
         
@@ -376,10 +376,11 @@ class WaterLevelForecaster:
             inject_errors: Whether to inject synthetic errors into the test data (DEPRECATED)
             error_periods: List of dictionaries with error periods and types (DEPRECATED)
                 Each dict should have: 'start', 'end', 'type', 'magnitude'
+            stride_mode: Stride mode for prediction windows:
+                         'default': use stride=1 (traditional sliding window)
+                         'prediction_window': use stride equal to prediction window (more realistic operational scenario)
+                         An integer can also be specified for a custom stride
                 
-                Note: For proper error injection with derived features, 
-                use reconstruct_features_with_errors() before calling predict().
-            
         Returns:
             Dictionary with forecasts, anomalies, original data, and error-injected data
         """
@@ -392,6 +393,19 @@ class WaterLevelForecaster:
             # Ensure steps_ahead does not exceed the model's output capacity
             steps_ahead = min(steps_ahead, self.prediction_window)
             print(f"Using {steps_ahead} steps ahead for forecasting")
+        
+        # Determine stride based on mode
+        if stride_mode == 'default':
+            stride = 1
+        elif stride_mode == 'prediction_window':
+            stride = steps_ahead
+        elif isinstance(stride_mode, int):
+            stride = stride_mode
+        else:
+            print(f"Unrecognized stride mode '{stride_mode}', using default (stride=1)")
+            stride = 1
+            
+        print(f"Using stride of {stride} for predictions")
         
         # Store a copy of the original clean data
         original_clean_data = test_data.copy()
@@ -424,10 +438,10 @@ class WaterLevelForecaster:
         # Optimize prediction process by batching
         batch_size = self.config.get('prediction_batch_size', 64)  # Default to 64 if not specified
         
-        # Determine how many sliding windows we'll need
-        num_windows = len(X_test_scaled) - sequence_length + 1
+        # Determine how many sliding windows we'll need based on the stride
+        num_windows = (len(X_test_scaled) - sequence_length) // stride + 1
         
-        print(f"Making predictions with {num_windows} sliding windows...")
+        print(f"Making predictions with {num_windows} sliding windows using stride={stride}...")
         
         forecasts = []
         timestamps = []
@@ -444,7 +458,10 @@ class WaterLevelForecaster:
                 
                 # Create batch of sequences
                 batch_sequences = []
-                for i in range(batch_start, batch_end):
+                for batch_idx in range(batch_start, batch_end):
+                    # Calculate the actual index in the dataset based on stride
+                    i = batch_idx * stride
+                    
                     # Extract sequence
                     X_seq = X_test_scaled[i:i+sequence_length]
                     batch_sequences.append(X_seq)
@@ -497,11 +514,52 @@ class WaterLevelForecaster:
             columns=[f'step_{i+1}' for i in range(forecasts.shape[1])]
         )
         
+        # If using stride > 1, we need to "forward fill" the forecasts
+        # to get predictions for every timestep
+        if stride > 1:
+            # Get all possible timestamps from the data
+            all_timestamps = original_clean_data.index
+            
+            # Only use timestamps that are within our prediction range
+            valid_timestamps = all_timestamps[all_timestamps >= forecast_df.index[0]]
+            
+            # Create a new DataFrame that will hold forecasts for all timestamps
+            filled_forecast_df = pd.DataFrame(index=valid_timestamps, 
+                                             columns=forecast_df.columns)
+            
+            # For each prediction and step
+            for t_idx, timestamp in enumerate(forecast_df.index):
+                # Place each step at its actual future timestamp
+                for step in range(1, steps_ahead + 1):
+                    step_col = f'step_{step}'
+                    
+                    # Calculate the target timestamp (when this prediction is for)
+                    try:
+                        # Try to add the appropriate number of time units
+                        target_idx = all_timestamps.get_loc(timestamp) + step
+                        if target_idx < len(all_timestamps):
+                            target_timestamp = all_timestamps[target_idx]
+                            # Place the prediction at its actual future position
+                            filled_forecast_df.loc[target_timestamp, step_col] = forecast_df.loc[timestamp, step_col]
+                    except (KeyError, TypeError):
+                        # Skip if timestamp not found or index not compatible
+                        continue
+            
+            # For visualization clarity, we'll also add the step_1 predictions at their origin points
+            for timestamp in forecast_df.index:
+                filled_forecast_df.loc[timestamp, 'step_1'] = forecast_df.loc[timestamp, 'step_1']
+            
+            # Now use this filled version for further processing
+            forecast_df = filled_forecast_df.copy()
+        
         # Extract original data (with errors if injected)
-        error_injected_data = data_with_errors[self.preprocessor.output_features].loc[forecast_df.index]
+        error_injected_data = data_with_errors[self.preprocessor.output_features]
+        
+        # Align with forecast index
+        error_injected_data = error_injected_data.reindex(forecast_df.index)
         
         # Get the clean data for the same timestamps
-        clean_data = original_clean_data[self.preprocessor.output_features].loc[forecast_df.index]
+        clean_data = original_clean_data[self.preprocessor.output_features].reindex(forecast_df.index)
         
         print("Detecting anomalies...")
         # Detect anomalies by comparing error-injected data with predictions
@@ -528,7 +586,8 @@ class WaterLevelForecaster:
             'forecasts': forecast_df,
             'detected_anomalies': detected_anomalies,
             'true_anomalies': true_anomalies,
-            'prediction_quality': prediction_quality
+            'prediction_quality': prediction_quality,
+            'stride_used': stride
         }
         
         return results
@@ -615,27 +674,57 @@ class WaterLevelForecaster:
         Returns:
             DataFrame with anomaly flags and scores, including confidence levels
         """
-        # Ensure we're working with flat arrays
-        actual = actual_values.values.flatten() if hasattr(actual_values, 'values') else np.array(actual_values).flatten()
-        predicted = predicted_values.values.flatten() if hasattr(predicted_values, 'values') else np.array(predicted_values).flatten()
+        # Print debug information about input data types
+        print(f"\nAnomaly Detection - Input Types:")
+        print(f"actual_values type: {type(actual_values)}, shape: {getattr(actual_values, 'shape', 'N/A')}")
+        print(f"predicted_values type: {type(predicted_values)}, shape: {getattr(predicted_values, 'shape', 'N/A')}")
         
-        # Handle NaN values by replacing with their corresponding pair or with mean
-        mask = np.isnan(actual) | np.isnan(predicted)
-        if mask.any():
-            # Fill NaNs in either series with the corresponding value from the other series if available
-            # otherwise use the mean of the series
-            actual_mean = np.nanmean(actual)
-            predicted_mean = np.nanmean(predicted)
+        # Ensure we're working with flat numpy arrays
+        try:
+            actual = actual_values.values.flatten() if hasattr(actual_values, 'values') else np.array(actual_values).flatten()
+            predicted = predicted_values.values.flatten() if hasattr(predicted_values, 'values') else np.array(predicted_values).flatten()
             
-            for i in np.where(mask)[0]:
-                if np.isnan(actual[i]) and not np.isnan(predicted[i]):
-                    actual[i] = predicted[i]
-                elif np.isnan(predicted[i]) and not np.isnan(actual[i]):
-                    predicted[i] = actual[i]
-                else:
-                    # Both are NaN, fill with means
-                    actual[i] = actual_mean
-                    predicted[i] = predicted_mean
+            # Make sure we have compatible data types for np.isnan()
+            actual = actual.astype(float)
+            predicted = predicted.astype(float)
+            
+            print(f"Converted arrays - actual: {actual.shape}, predicted: {predicted.shape}")
+            
+            # Handle NaN values by replacing with their corresponding pair or with mean
+            try:
+                mask = np.isnan(actual) | np.isnan(predicted)
+                if mask.any():
+                    # Fill NaNs in either series with the corresponding value from the other series if available
+                    # otherwise use the mean of the series
+                    actual_mean = np.nanmean(actual)
+                    predicted_mean = np.nanmean(predicted)
+                    
+                    for i in np.where(mask)[0]:
+                        if np.isnan(actual[i]) and not np.isnan(predicted[i]):
+                            actual[i] = predicted[i]
+                        elif np.isnan(predicted[i]) and not np.isnan(actual[i]):
+                            predicted[i] = actual[i]
+                        else:
+                            # Both are NaN, fill with means
+                            actual[i] = actual_mean
+                            predicted[i] = predicted_mean
+            except (TypeError, ValueError) as e:
+                print(f"Warning: Error handling NaN values: {e}")
+                # More robust fallback - replace any NaN values
+                actual = np.nan_to_num(actual, nan=0.0)
+                predicted = np.nan_to_num(predicted, nan=0.0)
+        
+        except Exception as e:
+            print(f"Error preparing data for anomaly detection: {e}")
+            print(f"actual_values type: {type(actual_values)}")
+            if hasattr(actual_values, 'values'):
+                print(f"actual_values.values type: {type(actual_values.values)}")
+            print(f"predicted_values type: {type(predicted_values)}")
+            if hasattr(predicted_values, 'values'):
+                print(f"predicted_values.values type: {type(predicted_values.values)}")
+            
+            # Re-raise the exception for proper debugging
+            raise
         
         # Calculate absolute residuals (actual - predicted)
         absolute_residuals = np.abs(actual - predicted)
@@ -782,117 +871,3 @@ class WaterLevelForecaster:
         print(f"Model loaded from {path}")
         return True
     
-    def _detect_anomalies(self, predictions, actual_values, threshold_std=3.0):
-        """
-        Detect anomalies in predictions based on prediction errors.
-        
-        Args:
-            predictions (pd.Series): Model predictions
-            actual_values (pd.Series): Actual water level values
-            threshold_std (float): Number of standard deviations for anomaly threshold
-            
-        Returns:
-            pd.DataFrame: DataFrame containing anomaly information
-        """
-        # Calculate prediction errors
-        errors = actual_values - predictions
-        error_mean = errors.mean()
-        error_std = errors.std()
-        
-        # Calculate thresholds
-        upper_threshold = error_mean + threshold_std * error_std
-        lower_threshold = error_mean - threshold_std * error_std
-        
-        # Identify anomalies
-        anomalies = pd.DataFrame(index=predictions.index)
-        anomalies['error'] = errors
-        anomalies['is_anomaly'] = (errors > upper_threshold) | (errors < lower_threshold)
-        anomalies['anomaly_type'] = 'normal'
-        anomalies.loc[errors > upper_threshold, 'anomaly_type'] = 'positive_spike'
-        anomalies.loc[errors < lower_threshold, 'anomaly_type'] = 'negative_spike'
-        anomalies['error_magnitude'] = np.abs(errors)
-        
-        return anomalies[anomalies['is_anomaly']]
-
-    def predict_iteratively(self, X, y=None, max_iterations=100, convergence_threshold=0.01):
-        """
-        Make predictions iteratively, using previous predictions as features.
-        
-        Args:
-            X (pd.DataFrame): Input features
-            y (pd.Series, optional): Actual values for tracking errors
-            max_iterations (int): Maximum number of iterations
-            convergence_threshold (float): Threshold for prediction change to stop iterations
-            
-        Returns:
-            dict: Dictionary containing prediction results and metadata
-        """
-        print(f"Starting iterative prediction with max {max_iterations} iterations...")
-        
-        results = {
-            'timestamps': X.index,
-            'clean_data': pd.DataFrame(X[self.preprocessor.output_features]) if y is None else pd.DataFrame(y),
-            'predictions_by_iteration': pd.DataFrame(index=X.index),
-            'convergence_info': {}
-        }
-        
-        # Initial prediction
-        print("Performing initial prediction...")
-        current_features = X.copy()
-        initial_pred_results = self.predict(current_features)
-        # Extract the first step predictions from the forecasts DataFrame
-        initial_pred = initial_pred_results['forecasts']['step_1']
-        results['predictions_by_iteration']['iteration_1'] = initial_pred
-        
-        # Store initial prediction in forecasts
-        results['forecasts'] = pd.DataFrame(index=X.index)
-        results['forecasts']['step_1'] = initial_pred
-        
-        # Create iteration progress bar
-        iter_pbar = tqdm(range(2, max_iterations + 1), desc="Iterations", unit="iter")
-        
-        # Iterative prediction
-        for i in iter_pbar:
-            # Add previous prediction as feature
-            prev_pred = results['predictions_by_iteration'][f'iteration_{i-1}']
-            current_features['prev_prediction'] = prev_pred
-            current_features['pred_diff'] = prev_pred - y if y is not None else 0
-            current_features['pred_pct_change'] = prev_pred.pct_change(fill_method=None)
-            
-            # Make new prediction
-            new_pred_results = self.predict(current_features)
-            # Extract the first step predictions
-            new_pred = new_pred_results['forecasts']['step_1']
-            results['predictions_by_iteration'][f'iteration_{i}'] = new_pred
-            
-            # Update forecasts with latest prediction
-            results['forecasts']['step_1'] = new_pred
-            
-            # Check convergence
-            pred_change = np.abs(new_pred - prev_pred).mean()
-            results['convergence_info'][f'iteration_{i}'] = pred_change
-            
-            # Update progress bar with convergence info
-            iter_pbar.set_postfix({"change": f"{pred_change:.6f}"})
-            
-            if pred_change < convergence_threshold:
-                print(f"Converged after {i} iterations (change: {pred_change:.6f})")
-                break
-        
-        # Detect anomalies using the final predictions
-        print("Detecting anomalies based on final predictions...")
-        final_predictions = results['predictions_by_iteration'].iloc[:, -1]  # Get last iteration
-        if y is not None:
-            results['detected_anomalies'] = self.detect_anomalies(
-                actual_values=results['clean_data'],
-                predicted_values=final_predictions
-            )
-        else:
-            # If no ground truth, compare with initial predictions
-            results['detected_anomalies'] = self.detect_anomalies(
-                actual_values=results['clean_data'],
-                predicted_values=final_predictions
-            )
-        
-        print("Iterative prediction completed successfully.")
-        return results 
