@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import os
 from tqdm.auto import tqdm  # Import tqdm for progress bars
+import matplotlib.pyplot as plt
 
 # Add the necessary paths
 current_dir = Path(__file__).resolve().parent
@@ -37,25 +38,25 @@ class ForecastingLSTM(nn.Module):
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0
         )
-        
-
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
-        
         # Fully connected layer to map to output
         # Output size is prediction_window since we want to predict multiple steps
         self.fc = nn.Linear(hidden_size, output_size)
         
-        
-        # Add a simple anomaly detection layer
-        # Input size is 1 since we're detecting anomalies for each prediction individually
-        self.anomaly_detector = nn.Linear(1, 1)  # Binary classification: anomaly or not
+        # Anomaly detection layer - outputs anomaly score (higher = more likely to be anomaly)
+        self.anomaly_detector = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_size // 2, 1),
+            nn.Sigmoid()  # Output between 0 and 1, where 1 means more likely to be anomaly
+        )
         
         # Add storage for previous predictions
         self.previous_preds = None
         self.previous_flags = None
   
-    def forward(self, x, seq_idx=0, prev_predictions=None, prev_anomaly_flags=None):
+    def forward(self, x, seq_idx=0, prev_predictions=None, prev_anomaly_flags=None, is_training=False):
         """
         Forward pass with sequence-based iterative prediction.
         
@@ -66,7 +67,7 @@ class ForecastingLSTM(nn.Module):
             prev_anomaly_flags: Optional tensor of previous anomaly flags
             
         Returns:
-            tuple: (predictions, anomaly_flags), where predictions has shape (batch_size, prediction_window)
+            tuple: (predictions, anomaly_flags, anomaly_scores), where predictions has shape (batch_size, prediction_window)
                   and anomaly_flags has shape (batch_size, prediction_window)
         """
         batch_size, seq_len, num_features = x.size()
@@ -75,9 +76,8 @@ class ForecastingLSTM(nn.Module):
         if prev_predictions is not None:
             # Create updated input using previous predictions
             x_updated = x.clone()
-            
             # Calculate how much of the current sequence should use previous predictions
-            sequence_start_idx = seq_idx * self.output_size  # Using output_size as prediction window
+            sequence_start_idx = seq_idx * self.output_size
             overlap_start = max(0, sequence_start_idx - seq_len)
             overlap_length = min(seq_len - overlap_start, prev_predictions.size(1))
             
@@ -99,15 +99,16 @@ class ForecastingLSTM(nn.Module):
         
         # Process through LSTM
         main_out, _ = self.main_lstm(x)
-        
-        
         final_output = main_out[:, -1, :]
-        
-        if self.training:
+
+        if is_training:
             final_output = self.dropout(final_output)
         
         # Generate forecast for multiple steps
         forecast = self.fc(final_output)  # Shape: (batch_size, prediction_window)
+        
+        # Calculate anomaly scores for each prediction
+        anomaly_scores = self.anomaly_detector(final_output)  # Shape: (batch_size, 1)
         
         # Generate anomaly flags for each prediction
         anomaly_flags = torch.zeros(batch_size, self.output_size, device=x.device)
@@ -118,8 +119,199 @@ class ForecastingLSTM(nn.Module):
             anomaly_score = self.anomaly_detector(current_pred)  # Shape: (batch_size, 1)
             anomaly_flags[:, i] = torch.sigmoid(anomaly_score).squeeze(-1)  # Shape: (batch_size)
         
-        return forecast, anomaly_flags
+        return forecast, anomaly_flags, anomaly_scores
     
+    def train_iteratively(self, x, y, optimizer, criterion, max_iterations=5, convergence_threshold=0.01):
+        """
+        Train the model iteratively using its own predictions.
+        
+        Args:
+            x: Input tensor
+            y: Target tensor
+            optimizer: Optimizer instance
+            criterion: Loss function
+            max_iterations: Maximum number of iterations
+            convergence_threshold: Threshold for convergence
+            
+        Returns:
+            tuple: (final predictions, final anomaly flags, training loss)
+        """
+        self.train()
+        current_predictions = None
+        current_flags = None
+        best_loss = float('inf')
+        best_predictions = None
+        best_flags = None
+        
+        print(f"\nStarting iterative training with max_iterations={max_iterations}")
+        
+        for iteration in range(max_iterations):
+            optimizer.zero_grad()
+            
+            # Make predictions using current state
+            predictions, flags, anomaly_scores = self(x, prev_predictions=current_predictions, 
+                                                    prev_anomaly_flags=current_flags, is_training=True)
+            
+            # Calculate loss with anomaly-based weighting
+            loss = criterion(predictions, y)
+            weighted_loss = (loss * (1 - anomaly_scores)).mean()
+            
+            # Backpropagate
+            weighted_loss.backward()
+            optimizer.step()
+            
+            # Log iteration details
+            if iteration > 0:
+                pred_change = torch.abs(current_predictions - predictions).mean().item()
+                print(f"Iteration {iteration + 1}:")
+                print(f"  - Loss: {weighted_loss.item():.6f}")
+                print(f"  - Prediction change: {pred_change:.6f}")
+                print(f"  - Average anomaly score: {anomaly_scores.mean().item():.4f}")
+            
+            # Update current predictions and flags
+            current_predictions = predictions.detach()
+            current_flags = flags.detach()
+            
+            # Check for convergence
+            if iteration > 0:
+                if pred_change < convergence_threshold:
+                    print(f"Convergence reached at iteration {iteration + 1}")
+                    break
+            
+            # Store best results
+            if weighted_loss.item() < best_loss:
+                best_loss = weighted_loss.item()
+                best_predictions = current_predictions
+                best_flags = current_flags
+        
+        print(f"Training completed after {iteration + 1} iterations")
+        return best_predictions, best_flags, best_loss
+
+    def visualize_iterative_progress(self, x, y, max_iterations=5):
+        """
+        Visualize how predictions change across iterations.
+        
+        Args:
+            x: Input tensor
+            y: Target tensor
+            max_iterations: Maximum number of iterations to visualize
+        """
+        self.eval()
+        current_predictions = None
+        current_flags = None
+        
+        # Store predictions for each iteration
+        all_predictions = []
+        all_anomaly_scores = []
+        
+        with torch.no_grad():
+            for iteration in range(max_iterations):
+                predictions, flags, anomaly_scores = self(x, prev_predictions=current_predictions, 
+                                                        prev_anomaly_flags=current_flags)
+                
+                all_predictions.append(predictions.cpu().numpy())
+                all_anomaly_scores.append(anomaly_scores.cpu().numpy())
+                
+                current_predictions = predictions
+                current_flags = flags
+        
+        # Convert to numpy arrays
+        all_predictions = np.array(all_predictions)
+        all_anomaly_scores = np.array(all_anomaly_scores)
+        y_np = y.cpu().numpy()
+        
+        # Plot predictions across iterations
+        plt.figure(figsize=(15, 10))
+        
+        # Plot actual values
+        plt.plot(y_np, label='Actual', color='black', linewidth=2)
+        
+        # Plot predictions for each iteration
+        for i in range(max_iterations):
+            plt.plot(all_predictions[i], label=f'Iteration {i+1}', alpha=0.7)
+        
+        plt.title('Predictions Across Iterations')
+        plt.xlabel('Time Steps')
+        plt.ylabel('Value')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+        
+        # Plot anomaly scores across iterations
+        plt.figure(figsize=(15, 5))
+        for i in range(max_iterations):
+            plt.plot(all_anomaly_scores[i], label=f'Iteration {i+1}', alpha=0.7)
+        
+        plt.title('Anomaly Scores Across Iterations')
+        plt.xlabel('Time Steps')
+        plt.ylabel('Anomaly Score')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+    def analyze_iterative_metrics(self, x, y, max_iterations=5):
+        """
+        Analyze and track key metrics across iterations.
+        
+        Args:
+            x: Input tensor
+            y: Target tensor
+            max_iterations: Maximum number of iterations to analyze
+            
+        Returns:
+            dict: Dictionary containing metrics for each iteration
+        """
+        self.eval()
+        current_predictions = None
+        current_flags = None
+        
+        metrics = {
+            'iterations': [],
+            'mse': [],
+            'mae': [],
+            'anomaly_score_mean': [],
+            'anomaly_score_std': [],
+            'prediction_change': []
+        }
+        
+        with torch.no_grad():
+            previous_predictions = None
+            for iteration in range(max_iterations):
+                predictions, flags, anomaly_scores = self(x, prev_predictions=current_predictions, 
+                                                        prev_anomaly_flags=current_flags)
+                
+                # Calculate metrics
+                mse = torch.mean((predictions - y) ** 2).item()
+                mae = torch.mean(torch.abs(predictions - y)).item()
+                
+                if previous_predictions is not None:
+                    pred_change = torch.mean(torch.abs(predictions - previous_predictions)).item()
+                else:
+                    pred_change = 0.0
+                
+                # Store metrics
+                metrics['iterations'].append(iteration + 1)
+                metrics['mse'].append(mse)
+                metrics['mae'].append(mae)
+                metrics['anomaly_score_mean'].append(torch.mean(anomaly_scores).item())
+                metrics['anomaly_score_std'].append(torch.std(anomaly_scores).item())
+                metrics['prediction_change'].append(pred_change)
+                
+                current_predictions = predictions
+                current_flags = flags
+                previous_predictions = predictions
+        
+        # Print metrics summary
+        print("\nIterative Training Metrics Summary:")
+        print(f"{'Iteration':<10} {'MSE':<15} {'MAE':<15} {'Anomaly Score':<15} {'Prediction Change':<15}")
+        print("-" * 70)
+        
+        for i in range(len(metrics['iterations'])):
+            print(f"{metrics['iterations'][i]:<10} {metrics['mse'][i]:<15.6f} {metrics['mae'][i]:<15.6f} "
+                  f"{metrics['anomaly_score_mean'][i]:<15.4f} {metrics['prediction_change'][i]:<15.6f}")
+        
+        return metrics
+
 class WaterLevelForecaster:
     """
     Main class to handle water level forecasting with anomaly detection.
@@ -135,6 +327,7 @@ class WaterLevelForecaster:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = None
         self.preprocessor = None
+        self.scaler = None
         self.anomaly_threshold = config.get('z_score_threshold', 5)
         self.prediction_window = config.get('prediction_window', 24)
     
@@ -197,256 +390,188 @@ class WaterLevelForecaster:
         return model
     
     def train(self, train_data, val_data, project_root, station_id):
-        """
-        Train the forecasting model.
+        """Train the model using iterative training approach"""
+        print("\nStarting iterative training...")
         
-        Args:
-            train_data: Training data
-            val_data: Validation data
-            project_root: Root directory of the project
-            station_id: ID of the station to use
-            
-        Returns:
-            Trained model
-        """
-        # Initialize preprocessor if not already
-        if self.preprocessor is None:
-            self.preprocessor = DataPreprocessor(self.config)
+        # Initialize preprocessor and scaler
+        self.preprocessor = DataPreprocessor(self.config)
+        self.scaler = MinMaxScaler()
         
-        if train_data is None or val_data is None:
-            # Load and split data if not provided
-            train_data, val_data, _ = self.preprocessor.load_and_split_data(project_root, station_id)
+        # Prepare data
+        print("Preparing training data...")
+        train_features = self.preprocessor.prepare_features(train_data, project_root, station_id)
+        val_features = self.preprocessor.prepare_features(val_data, project_root, station_id)
         
-        # Extract parameters from config
-        num_epochs = self.config.get('epochs', 100)
-        patience = self.config.get('patience', 10)
-        learning_rate = self.config.get('learning_rate', 0.001)
-        batch_size = self.config.get('batch_size', 16)
+        # Scale features
+        train_features_scaled = self.scaler.fit_transform(train_features)
+        val_features_scaled = self.scaler.transform(val_features)
         
-        # Prepare data for training
-        X_train_df = train_data[self.preprocessor.feature_cols]
-        y_train_df = pd.DataFrame(train_data[self.preprocessor.output_features])
+        # Create sequences
+        sequence_length = self.config['sequence_length']
+        prediction_window = self.config['prediction_window']
+        sequence_stride = self.config['sequence_stride']
         
-        X_val_df = val_data[self.preprocessor.feature_cols]
-        y_val_df = pd.DataFrame(val_data[self.preprocessor.output_features])
+        # Create sequences with overlap
+        train_sequences = create_overlap_sequences(
+            train_features_scaled, 
+            sequence_length, 
+            prediction_window,
+            sequence_stride
+        )
+        val_sequences = create_overlap_sequences(
+            val_features_scaled, 
+            sequence_length, 
+            prediction_window,
+            sequence_stride
+        )
         
-        # Scale data
-        print("Scaling training and validation data...")
-        X_train_scaled, y_train_scaled = self.preprocessor.feature_scaler.fit_transform(X_train_df, y_train_df)
-        X_val_scaled, y_val_scaled = self.preprocessor.feature_scaler.transform(X_val_df, y_val_df)
+        # Initialize model
+        input_size = train_sequences[0][0].shape[1]
+        self.model = ForecastingLSTM(
+            input_size=input_size,
+            hidden_size=self.config['hidden_size'],
+            num_layers=self.config['num_layers'],
+            output_size=prediction_window,
+            dropout=self.config['dropout']
+        ).to(self.device)
         
-        try:
-            # Create sequences with overlap for forecasting
-            print("Creating training sequences...")
-            X_train, y_train = self.preprocessor._create_overlap_sequences(X_train_scaled, y_train_scaled)
-            print("Creating validation sequences...")
-            X_val, y_val = self.preprocessor._create_overlap_sequences(X_val_scaled, y_val_scaled)
-        except Exception as e:
-            print(f"Error creating overlap sequences: {e}")
-            print("Falling back to standard sequence creation...")
-            X_train, y_train = self.preprocessor._create_sequences(X_train_scaled, y_train_scaled)
-            X_val, y_val = self.preprocessor._create_sequences(X_val_scaled, y_val_scaled)
-            
-            # Adjust model prediction window if needed
-            if y_train.shape[1] < self.prediction_window:
-                print(f"Warning: Sequence length {y_train.shape[1]} is shorter than prediction window {self.prediction_window}")
-                self.prediction_window = y_train.shape[1]
-                print(f"Adjusted prediction window to {self.prediction_window}")
-        
-        # Convert to PyTorch tensors
-        print("Converting to PyTorch tensors...")
-        X_train = torch.FloatTensor(X_train).to(self.device)
-        y_train = torch.FloatTensor(y_train).to(self.device)
-        X_val = torch.FloatTensor(X_val).to(self.device)
-        y_val = torch.FloatTensor(y_val).to(self.device)
-        
-        # Build model if not already built
-        input_size = X_train.shape[2]
-        if self.model is None:
-            print(f"Building model with input size {input_size}...")
-            self.build_model(input_size=input_size)
-        
-        # Initialize optimizer and loss function
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        criterion = nn.SmoothL1Loss(reduction='none')  # Use 'none' to handle NaN masking
-        
-        # Initialize best validation loss and early stopping variables
-        best_val_loss = float('inf')
-        best_model_weights = None
-        epochs_no_improve = 0
+        # Training setup
+        optimizer = optim.Adam(self.model.parameters(), lr=self.config['learning_rate'])
+        criterion = nn.SmoothL1Loss(reduction='none')
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=2)
         
         # Training loop
-        for epoch in range(num_epochs):
+        best_val_loss = float('inf')
+        patience_counter = 0
+        max_patience = self.config['patience']
+        
+        for epoch in range(self.config['epochs']):
             self.model.train()
             train_loss = 0
-            valid_samples = 0  # Track number of valid samples
+            num_batches = 0
             
-            # Process in batches
-            for i in range(0, len(X_train), batch_size):
-                batch_x = X_train[i:i+batch_size]
-                batch_y = y_train[i:i+batch_size]
+            # Process training data in batches
+            for batch_x, batch_y in train_sequences:
+                batch_x = torch.FloatTensor(batch_x).to(self.device)
+                batch_y = torch.FloatTensor(batch_y).to(self.device)
                 
-                optimizer.zero_grad()
+                # Train iteratively on this batch
+                predictions, flags, loss = self.model.train_iteratively(
+                    batch_x, batch_y, optimizer, criterion,
+                    max_iterations=self.config['max_iterations'],
+                    convergence_threshold=self.config['convergence_threshold']
+                )
                 
-                # Process sequence with previous predictions
-                pred, anomaly_flags = self.model(batch_x)
-                
-                # Ensure shapes match for loss calculation
-                if pred.shape != batch_y.shape:
-                    pred = pred.view(batch_y.shape)
-                
-                # Calculate loss for all predictions
-                loss = criterion(pred, batch_y)
-                
-                # Create mask for non-NaN values
-                mask = ~torch.isnan(batch_y)
-                
-                # Apply mask to loss
-                masked_loss = loss * mask.float()
-                
-                # Calculate mean loss only over valid samples
-                valid_samples_in_batch = mask.sum().item()
-                if valid_samples_in_batch > 0:
-                    batch_loss = masked_loss.sum() / valid_samples_in_batch
-                    batch_loss.backward()
-                    optimizer.step()
-                    
-                    train_loss += batch_loss.item() * valid_samples_in_batch
-                    valid_samples += valid_samples_in_batch
+                train_loss += loss
+                num_batches += 1
             
-            # Calculate average loss over valid samples
-            avg_train_loss = train_loss / valid_samples if valid_samples > 0 else float('inf')
+            avg_train_loss = train_loss / num_batches
             
             # Validation
             self.model.eval()
             val_loss = 0
-            valid_val_samples = 0
+            num_val_batches = 0
             
             with torch.no_grad():
-                val_preds, val_flags = self.model(X_val)
-                
-                # Ensure shapes match for validation loss calculation
-                if val_preds.shape != y_val.shape:
-                    val_preds = val_preds.view(y_val.shape)
-                
-                # Calculate validation loss with NaN handling
-                val_loss = criterion(val_preds, y_val)
-                val_mask = ~torch.isnan(y_val)
-                masked_val_loss = val_loss * val_mask.float()
-                valid_val_samples = val_mask.sum().item()
-                
-                if valid_val_samples > 0:
-                    val_loss = masked_val_loss.sum() / valid_val_samples
-                else:
-                    val_loss = float('inf')
+                for batch_x, batch_y in val_sequences:
+                    batch_x = torch.FloatTensor(batch_x).to(self.device)
+                    batch_y = torch.FloatTensor(batch_y).to(self.device)
+                    
+                    # Make predictions with current model state
+                    val_pred, val_flags, val_anomaly_scores = self.model(batch_x)
+                    
+                    # Calculate validation loss with NaN handling and anomaly weighting
+                    loss = criterion(val_pred, batch_y)
+                    mask = ~torch.isnan(batch_y)
+                    # Weight loss by (1 - anomaly_scores) to give less weight to anomalous predictions
+                    masked_loss = (loss * mask.float() * (1 - val_anomaly_scores)).mean()
+                    
+                    val_loss += masked_loss.item()
+                    num_val_batches += 1
             
-            # Early stopping check
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                epochs_no_improve = 0
-                best_model_weights = self.model.state_dict().copy()
-                # Add a checkmark to indicate improvement
-                print(f"Epoch {epoch+1}/{num_epochs}, train_loss: {avg_train_loss:.6f}, val_loss: {val_loss:.6f} ✓")
+            avg_val_loss = val_loss / num_val_batches
+            
+            # Learning rate scheduling
+            scheduler.step(avg_val_loss)
+            
+            print(f"Epoch {epoch+1}/{self.config['epochs']}:")
+            print(f"  Training Loss: {avg_train_loss:.6f}")
+            print(f"  Validation Loss: {avg_val_loss:.6f}")
+            
+            # Early stopping
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                patience_counter = 0
             else:
-                epochs_no_improve += 1
-                if epochs_no_improve >= patience:
-                    print(f"Early stopping at epoch {epoch+1}")
+                patience_counter += 1
+                if patience_counter >= max_patience:
+                    print(f"Early stopping triggered after {epoch+1} epochs")
                     break
-        
-        # Load best model weights
-        if best_model_weights is not None:
-            self.model.load_state_dict(best_model_weights)
-        
-        print(f"\nTraining completed. Best validation loss: {best_val_loss:.6f}")
         
         return self.model
     
-    def predict(self, test_data):
-        """
-        Make predictions using the sequence-based approach.
-        Each sequence predicts the next prediction_window timesteps without overlap.
+    def predict(self, data):
+        """Make predictions using the trained model"""
+        if self.model is None:
+            raise ValueError("Model has not been trained yet")
         
-        Example for sequence_length=10, prediction_window=5:
-        Sequence 1: Input[0:10] -> Predict[10:15]  (t1-t10 -> t11-t15)
-        Sequence 2: Input[5:15] -> Predict[15:20]  (t6-t15 -> t16-t20)
-        And so on...
-        
-        Args:
-            test_data: DataFrame with test data
-            
-        Returns:
-            dict: Dictionary containing predictions and anomaly information
-        """
         self.model.eval()
         
-        # Prepare data
-        X_test_df = test_data[self.preprocessor.feature_cols]
-        y_test_df = pd.DataFrame(test_data[self.preprocessor.output_features])
+        # Prepare features
+        features = self.preprocessor.prepare_features(data, self.config['project_root'], self.config['station_id'])
+        features_scaled = self.scaler.transform(features)
         
-        # Scale data
-        X_test_scaled, y_test_scaled = self.preprocessor.feature_scaler.transform(X_test_df, y_test_df)
+        # Create sequences
+        sequence_length = self.config['sequence_length']
+        prediction_window = self.config['prediction_window']
+        sequences = create_overlap_sequences(
+            features_scaled, 
+            sequence_length, 
+            prediction_window,
+            self.config['sequence_stride']
+        )
         
-        # Get sequence parameters
-        sequence_length = self.config.get('sequence_length', 100)
-        prediction_window = self.config.get('prediction_window', 5)
+        # Initialize storage for predictions and flags
+        all_predictions = []
+        all_flags = []
+        all_anomaly_scores = []
         
-        # Initialize arrays to store predictions and flags
-        # We'll have predictions for all timesteps after sequence_length
-        predictions = np.zeros((len(test_data) - sequence_length, 1))
-        anomaly_flags = np.zeros((len(test_data) - sequence_length, 1))
+        # Initialize previous predictions and flags
+        prev_pred = None
+        prev_flags = None
         
-        # Process data in sequences
         with torch.no_grad():
-            prev_pred = None
-            prev_flags = None
-            
-            # Iterate through sequences (using prediction_window as stride to avoid overlapping predictions)
-            for i in range(0, len(X_test_scaled) - sequence_length, prediction_window):
-                # Extract sequence
-                sequence = X_test_scaled[i:i+sequence_length]
-                sequence_tensor = torch.FloatTensor(sequence).unsqueeze(0).to(self.device)  # Add batch dimension
+            for i, (sequence, _) in enumerate(sequences):
+                sequence_tensor = torch.FloatTensor(sequence).to(self.device)
                 
                 # Make prediction
-                pred, flags = self.model(sequence_tensor, i // prediction_window, prev_pred, prev_flags)
+                pred, flags, anomaly_scores = self.model(
+                    sequence_tensor, 
+                    i // prediction_window, 
+                    prev_pred, 
+                    prev_flags
+                )
                 
-                # Convert predictions to numpy
-                pred_np = pred.cpu().numpy()  # Shape: (batch_size, prediction_window)
-                flags_np = flags.cpu().numpy()  # Shape: (batch_size, prediction_window)
-                
-                # Store predictions and flags at the correct position
-                pred_start_idx = i
-                pred_end_idx = min(pred_start_idx + prediction_window, len(predictions))
-                
-                # Store predictions and flags
-                predictions[pred_start_idx:pred_end_idx] = pred_np[0, :pred_end_idx-pred_start_idx].reshape(-1, 1)
-                anomaly_flags[pred_start_idx:pred_end_idx] = flags_np[0, :pred_end_idx-pred_start_idx].reshape(-1, 1)
+                # Store results
+                all_predictions.append(pred.cpu().numpy())
+                all_flags.append(flags.cpu().numpy())
+                all_anomaly_scores.append(anomaly_scores.cpu().numpy())
                 
                 # Update previous predictions and flags
                 prev_pred = pred
                 prev_flags = flags
         
-        # Convert predictions back to original scale
-        final_predictions = self.preprocessor.feature_scaler.inverse_transform_target(predictions)
+        # Combine predictions
+        predictions = np.concatenate(all_predictions)
+        flags = np.concatenate(all_flags)
+        anomaly_scores = np.concatenate(all_anomaly_scores)
         
-        # Create DataFrame for predictions and actual values with proper column names
-        predictions_df = pd.DataFrame(final_predictions, 
-                                    index=test_data.index[sequence_length:],
-                                    columns=[f'step_{i+1}' for i in range(1)])  # Using step_1 for now since we're storing one step at a time
-        actual_values = test_data[self.preprocessor.output_features].iloc[sequence_length:]
-        
-        # Detect anomalies by comparing predictions with actual values
-        detected_anomalies = self.detect_anomalies(
-            actual_values=actual_values,
-            predicted_values=predictions_df['step_1']  # Use step_1 column for anomaly detection
-        )
-        
-        # Create results dictionary with adjusted index
-        # The index starts from sequence_length onwards since we can't predict the first sequence_length points
+        # Create results dictionary
         results = {
-            'forecasts': predictions_df,
-            'anomaly_flags': pd.DataFrame(anomaly_flags, index=test_data.index[sequence_length:], columns=['step_1']),
-            'clean_data': actual_values,
-            'detected_anomalies': detected_anomalies
+            'forecasts': predictions,
+            'anomaly_flags': flags,
+            'anomaly_scores': anomaly_scores,
+            'clean_data': data[self.preprocessor.output_features].values
         }
         
         return results

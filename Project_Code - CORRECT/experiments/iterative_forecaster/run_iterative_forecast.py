@@ -25,19 +25,21 @@ DEFAULT_CONFIG = {
     'dropout': 0.2,             
     'batch_size': 16,          # Reduced batch size for better training
     'sequence_length': 100,  # Extended sequence length to capture more history
-    'prediction_window': 10,    # Predict one step ahead
-    'sequence_stride': 10,      # Stride for creating sequences
+    'prediction_window': 30,    # Predict one step ahead
+    'sequence_stride': 30,      # Stride for creating sequences
     'epochs': 10,           # Increased for better convergence
     'patience': 5,             # Early stopping patience
     'z_score_threshold': 5,   # Anomaly detection threshold
-    'learning_rate': 0.001,     
+    'learning_rate': 0.01,     
+    
+    # Iterative training parameters
+    'max_iterations': 5,        # Maximum number of iterations per batch
+    'convergence_threshold': 0.01,  # Threshold for prediction convergence
     
     # Model architecture configuration
-
-    # Feature engineering
     'use_time_features': True,  
     'use_cumulative_features': True, 
-    'use_lagged_features': True,  
+    'use_lagged_features': False,  
     'lag_hours': [72, 96, 168, 336, 720, 1440],  # Lag hours (1d, 2d, 4d, 7d, 14d, 30d, 60d)
     
     # Custom features to add - empty by default
@@ -139,8 +141,8 @@ def parse_args():
     return parser.parse_args()
 
 def train_and_save_model(forecaster, train_data, val_data, project_root, station_id, output_dir):
-    """Train a model and save it"""
-    print("\nTraining model...")
+    """Train a model using iterative training and save it"""
+    print("\nTraining model with iterative approach...")
     model = forecaster.train(train_data, val_data, project_root, station_id)
     
     # Save the trained model
@@ -148,60 +150,13 @@ def train_and_save_model(forecaster, train_data, val_data, project_root, station
     forecaster.save_model(model_path)
     print(f"Model saved to {model_path}")
     
-    # Print feature summary report
-    print("\nFeature Usage Report:")
-    total_features = len(forecaster.preprocessor.feature_cols)
-    print(f"Total features used in model: {total_features}")
-    
-    # Group features by type
-    feature_types = {
-        "Base": [],
-        "Station": [],
-        "Time": [],
-        "Cumulative": [],
-        "Lag": [],
-        "MA": [],
-        "ROC": [],
-        "Other": []
-    }
-    
-    for feature in forecaster.preprocessor.feature_cols:
-        if feature in forecaster.config['feature_cols']:
-            feature_types["Base"].append(feature)
-        elif feature.startswith('feature_station_'):
-            feature_types["Station"].append(feature)
-        elif any(time_feat in feature for time_feat in ["month", "day_of_year"]):
-            feature_types["Time"].append(feature)
-        elif any(cum_feat in feature for cum_feat in ["30day", "180day", "365day"]):
-            feature_types["Cumulative"].append(feature)
-        elif "lag" in feature:
-            feature_types["Lag"].append(feature)
-        elif "ma_" in feature and not "roc" in feature:
-            feature_types["MA"].append(feature)
-        elif "roc" in feature or "acc" in feature:
-            feature_types["ROC"].append(feature)
-        else:
-            feature_types["Other"].append(feature)
-    
-    # Print summary counts
-    for feature_type, features in feature_types.items():
-        count = len(features)
-        if count > 0:
-            percentage = (count / total_features) * 100
-            print(f"  - {feature_type} Features: {count} ({percentage:.1f}%)")
-    
-    # Print top 5 lag features as a sample
-    if feature_types["Lag"]:
-        print("\nSample Lag Features:")
-        for feature in sorted(feature_types["Lag"])[:5]:
-            print(f"  - {feature}")
-    
-    # Print model configuration
-    print("\nModel Configuration:")
-    print(f"  - Hidden Size: {forecaster.config['hidden_size']}")
-    print(f"  - Layers: {forecaster.config['num_layers']}")
-    print(f"  - Dropout: {forecaster.config['dropout']}")
+    # Print training configuration
+    print("\nTraining Configuration:")
+    print(f"  - Max Iterations per Batch: {forecaster.config['max_iterations']}")
+    print(f"  - Convergence Threshold: {forecaster.config['convergence_threshold']}")
+    print(f"  - Batch Size: {forecaster.config['batch_size']}")
     print(f"  - Sequence Length: {forecaster.config['sequence_length']}")
+    print(f"  - Prediction Window: {forecaster.config['prediction_window']}")
     
     return model
 
@@ -312,7 +267,7 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     """Run and visualize predictions on validation data with injected errors"""
     print("\nPredicting on validation data with injected errors...")
     
-    # First get predictions on clean data
+    # First get predictions on clean data using iterative approach
     print("Getting predictions on clean data...")
     val_results_clean = forecaster.predict(val_data)
     
@@ -337,7 +292,6 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
         'detected_anomalies': val_results_with_errors['detected_anomalies']
     }
     
-    
     # Create plots directory
     plots_dir = output_dir / "plots"
     plots_dir.mkdir(exist_ok=True)
@@ -350,64 +304,16 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     # Plot validation results
     visualizer.plot_forecast_with_anomalies(
         combined_results,
-        title="Water Level Forecasting with Injected Errors",
+        title="Water Level Forecasting with Injected Errors (Iterative Training)",
         save_path=plots_dir / "water_forecast_with_errors.png"
     )
     
     # Interactive Plotly plot
     visualizer.plot_forecast_with_anomalies_plotly(
         combined_results,
-        title="Water Level Forecasting with Injected Errors - Interactive",
+        title="Water Level Forecasting with Injected Errors - Interactive (Iterative Training)",
         save_path=interactive_dir / "water_forecast_with_errors.html"
     )
-    
-    # Create simplified plots without anomalies
-    print("\nCreating simplified visualizations (predictions vs actual only)...")
-    # Static simplified plot
-    visualizer.plot_forecast_simple(
-        combined_results,
-        title="Water Level Forecast vs Actual (Simplified) - Validation",
-        save_path=plots_dir / "water_forecast_validation_simple.png"
-    )
-    
-    # Interactive simplified plot
-    visualizer.plot_forecast_simple_plotly(
-        combined_results,
-        title="Water Level Forecast vs Actual - Interactive (Simplified) - Validation",
-        save_path=interactive_dir / "water_forecast_validation_simple.html"
-    )
-    
-    # Plot focused views for each error period
-    print("\nCreating focused error period plots...")
-    for i, period in enumerate(error_periods):
-        # Static matplotlib plot
-        visualizer.plot_error_impact(
-            combined_results,
-            period,
-            save_path=plots_dir / f"error_impact_{period['type']}_{i+1}.png"
-        )
-        
-        # Interactive Plotly plot
-        visualizer.plot_error_impact_plotly(
-            combined_results,
-            period,
-            save_path=interactive_dir / f"error_impact_{period['type']}_{i+1}.html"
-        )
-    
-    # Summarize anomalies
-    anomalies = combined_results['detected_anomalies']
-    anomaly_count = anomalies['is_anomaly'].sum()
-    total_points = len(anomalies)
-    
-    print(f"\nAnomaly Detection Summary (With Errors Injected):")
-    print(f"Total data points: {total_points}")
-    print(f"Anomalies detected: {anomaly_count} ({anomaly_count/total_points*100:.2f}%)")
-    
-    if 'anomaly_type' in anomalies.columns:
-        # Count by type
-        type_counts = anomalies[anomalies['is_anomaly']]['anomaly_type'].value_counts()
-        for anomaly_type, count in type_counts.items():
-            print(f"  - {anomaly_type.capitalize()} anomalies: {count} ({count/anomaly_count*100:.2f}%)")
     
     return combined_results
 
