@@ -190,9 +190,10 @@ class FeatureEngineer:
                 self.feature_cols.append(lag_name)
         
         # Forward fill any NaN values created by lagging
-        df = df.fillna(method='ffill')
+        
+        df = df.ffill()
         # Backward fill any remaining NaN values at the start
-        df = df.fillna(method='bfill')
+        df = df.bfill()
         
         return df
         
@@ -247,6 +248,6 @@ class FeatureEngineer:
             # New feature types can be added here in the future
         
         # Handle missing values
-        df = df.fillna(method='ffill').fillna(method='bfill')
+        df = df.ffill().bfill()
         
         return df
