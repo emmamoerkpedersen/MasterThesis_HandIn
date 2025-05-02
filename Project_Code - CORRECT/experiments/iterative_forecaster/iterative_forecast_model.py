@@ -268,17 +268,18 @@ class WaterLevelForecaster:
         
         # Initialize optimizer and loss function
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        criterion = nn.SmoothL1Loss()
+        criterion = nn.SmoothL1Loss(reduction='none')  # Use 'none' to handle NaN masking
         
         # Initialize best validation loss and early stopping variables
         best_val_loss = float('inf')
         best_model_weights = None
         epochs_no_improve = 0
         
-        # Training loop with iterations
+        # Training loop
         for epoch in range(num_epochs):
             self.model.train()
             train_loss = 0
+            valid_samples = 0  # Track number of valid samples
             
             # Process in batches
             for i in range(0, len(X_train), batch_size):
@@ -294,14 +295,27 @@ class WaterLevelForecaster:
                 if pred.shape != batch_y.shape:
                     pred = pred.view(batch_y.shape)
                 
-                # Calculate loss on predictions
+                # Calculate loss for all predictions
                 loss = criterion(pred, batch_y)
-                loss.backward()
-                optimizer.step()
                 
-                train_loss += loss.item()
+                # Create mask for non-NaN values
+                mask = ~torch.isnan(batch_y)
+                
+                # Apply mask to loss
+                masked_loss = loss * mask.float()
+                
+                # Calculate mean loss only over valid samples
+                valid_samples_in_batch = mask.sum().item()
+                if valid_samples_in_batch > 0:
+                    batch_loss = masked_loss.sum() / valid_samples_in_batch
+                    batch_loss.backward()
+                    optimizer.step()
+                    
+                    train_loss += batch_loss.item() * valid_samples_in_batch
+                    valid_samples += valid_samples_in_batch
             
-            avg_train_loss = train_loss / (len(X_train) + batch_size - 1)
+            # Calculate average loss over valid samples
+            avg_train_loss = train_loss / valid_samples if valid_samples > 0 else float('inf')
             
             # Validation
             self.model.eval()
@@ -309,17 +323,22 @@ class WaterLevelForecaster:
             valid_val_samples = 0
             
             with torch.no_grad():
-                # Process validation data in sequence
                 val_preds, val_flags = self.model(X_val)
                 
                 # Ensure shapes match for validation loss calculation
                 if val_preds.shape != y_val.shape:
                     val_preds = val_preds.view(y_val.shape)
                 
-                val_loss = criterion(val_preds, y_val).item()
-            
-            # Update epoch progress bar
-            print(f"Epoch {epoch+1}/{num_epochs}, train_loss: {avg_train_loss:.6f}, val_loss: {val_loss:.6f}")
+                # Calculate validation loss with NaN handling
+                val_loss = criterion(val_preds, y_val)
+                val_mask = ~torch.isnan(y_val)
+                masked_val_loss = val_loss * val_mask.float()
+                valid_val_samples = val_mask.sum().item()
+                
+                if valid_val_samples > 0:
+                    val_loss = masked_val_loss.sum() / valid_val_samples
+                else:
+                    val_loss = float('inf')
             
             # Early stopping check
             if val_loss < best_val_loss:
@@ -381,7 +400,7 @@ class WaterLevelForecaster:
             prev_pred = None
             prev_flags = None
             
-            # Iterate through sequences, using prediction_window as stride
+            # Iterate through sequences (using prediction_window as stride to avoid overlapping predictions)
             for i in range(0, len(X_test_scaled) - sequence_length, prediction_window):
                 # Extract sequence
                 sequence = X_test_scaled[i:i+sequence_length]

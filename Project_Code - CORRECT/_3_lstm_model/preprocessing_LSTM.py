@@ -92,7 +92,7 @@ class DataPreprocessor:
         data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
         data.loc[:, 'vst_raw_feature'] = data['vst_raw_feature'].fillna(-1)
-        data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
+        #data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
         #data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
         #data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
