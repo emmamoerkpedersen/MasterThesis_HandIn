@@ -221,8 +221,8 @@ class DataPreprocessor:
         if np.all(np.isnan(scaled_target)):
             scaled_target = np.nan_to_num(scaled_target, nan=0)
             
-        # Create sequences
-        X, y = self._create_sequences(scaled_features, scaled_target)
+        # Create sequences with overlap
+        X, y = self._create_overlap_sequences(scaled_features, scaled_target)
         
         # Convert to tensors and move to device
         return torch.FloatTensor(X).to(self.device), torch.FloatTensor(y).to(self.device)

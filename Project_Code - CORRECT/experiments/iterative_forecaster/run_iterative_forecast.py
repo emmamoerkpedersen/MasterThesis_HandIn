@@ -20,17 +20,17 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 # Default configuration
 DEFAULT_CONFIG = {
     # Model parameters
-    'hidden_size': 14,          # Increased for more model capacity
+    'hidden_size': 2,          # Increased for more model capacity
     'num_layers': 1,            # Using three layers for better modeling
     'dropout': 0.2,             
     'batch_size': 16,          # Reduced batch size for better training
     'sequence_length': 100,  # Extended sequence length to capture more history
     'prediction_window': 30,    # Predict one step ahead
     'sequence_stride': 30,      # Stride for creating sequences
-    'epochs': 10,           # Increased for better convergence
+    'epochs': 2,           # Increased for better convergence
     'patience': 5,             # Early stopping patience
     'z_score_threshold': 5,   # Anomaly detection threshold
-    'learning_rate': 0.01,     
+    'learning_rate': 0.1,     
     
     # Iterative training parameters
     'max_iterations': 5,        # Maximum number of iterations per batch
@@ -152,7 +152,6 @@ def train_and_save_model(forecaster, train_data, val_data, project_root, station
     
     # Print training configuration
     print("\nTraining Configuration:")
-    print(f"  - Max Iterations per Batch: {forecaster.config['max_iterations']}")
     print(f"  - Convergence Threshold: {forecaster.config['convergence_threshold']}")
     print(f"  - Batch Size: {forecaster.config['batch_size']}")
     print(f"  - Sequence Length: {forecaster.config['sequence_length']}")
@@ -289,7 +288,7 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
         'error_injected_data': val_data_with_errors[output_feature],
         'forecasts': val_results_with_errors['forecasts'],
         'clean_forecast': val_results_clean['forecasts'],
-        'detected_anomalies': val_results_with_errors['detected_anomalies']
+        #'detected_anomalies': val_results_with_errors['detected_anomalies']
     }
     
     # Create plots directory
@@ -356,9 +355,9 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
     
     # Interactive simplified plot
     visualizer.plot_forecast_simple_plotly(
-        test_results,
-        title="Water Level Forecast vs Actual - Interactive (Simplified)",
-        save_path=interactive_dir / "water_forecast_simple.html"
+       test_results,
+       title="Water Level Forecast vs Actual - Interactive (Simplified)",
+       save_path=interactive_dir / "water_forecast_simple.html"
     )
     
     # Summarize anomalies in test data
@@ -454,9 +453,12 @@ def main():
         'num_layers': config['num_layers'],
         'epochs': config['epochs'],
         'batch_size': config['batch_size'],
-        'hidden_size': config['hidden_size']
+        'hidden_size': config['hidden_size'],
+        'prediction window': config['prediction_window'],
+        'stride': config['sequence_stride']
     }.items():
         print(f"  - {key.replace('_', ' ').title()}: {format_config_value(key, value)}")
+  
     
     # Print custom features if any
     if custom_features:
@@ -491,7 +493,7 @@ def main():
         )
         
         # Also test on test data
-        run_test_predictions(forecaster, visualizer, test_data, output_path)
+        #run_test_predictions(forecaster, visualizer, test_data, output_path)
         
     elif args.mode == 'predict':
         # Prediction mode - load model and run on test data
@@ -505,7 +507,7 @@ def main():
             train_and_save_model(forecaster, train_data, val_data, project_dir, station_id, output_path)
         
         # Run predictions on test data
-        run_test_predictions(forecaster, visualizer, test_data, output_path)
+       # run_test_predictions(forecaster, visualizer, test_data, output_path)
         
     elif args.mode == 'test_error':
         # Error testing mode - train model and run with injected errors
@@ -524,7 +526,7 @@ def main():
         
         print(f"\n=== Test Data Predictions ({args.prediction_mode} mode) ===")
         # Run predictions on test data
-        run_test_predictions(forecaster, visualizer, test_data, test_dir)
+        #run_test_predictions(forecaster, visualizer, test_data, test_dir)
     
     
     print("\nDone!")
