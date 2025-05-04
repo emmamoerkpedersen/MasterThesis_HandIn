@@ -152,11 +152,12 @@ class DataPreprocessor:
         all_features = list(set(feature_cols + [target_feature]))        
         #Filter data to only include the features and target feature
         data = data[all_features]
-        
+    
         # Split data based on years
         test_data = data[(data.index.year == 2024)]
         val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
         train_data = data[data.index.year < 2022]  # Training is everything before 2022
+        
         
         print(f"\nSplit Summary:")
         print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
@@ -192,8 +193,8 @@ class DataPreprocessor:
             self.feature_cols = self.feature_engineer.feature_cols.copy()
             self.update_feature_scaler()
         
-        # Get the most up-to-date feature columns from feature engineer
-        feature_cols = self.feature_engineer.feature_cols
+        # Get the most up-to-date feature columns from self.feature_cols
+        feature_cols = self.feature_cols
         target_col = self.output_features
         
         # Ensure all feature columns exist in data
@@ -257,54 +258,42 @@ class DataPreprocessor:
          return X, y
 
 
-    def _create_overlap_sequences(self, features, targets):
-         """
-         Create sequences for forecasting with overlapping input sequences and future targets.
-         
-         Args:
-             features: Input features, shape (num_samples, num_features)
-             targets: Target values, shape (num_samples, num_targets)
-             
-         Returns:
-             X: Input sequences, shape (num_sequences, sequence_length, num_features)
-             y: Target sequences, shape (num_sequences, prediction_window, num_targets)
-         """
-         sequence_length = self.config.get('sequence_length', 500)
-         prediction_window = self.config.get('prediction_window', 15)
-         # Add a stride parameter to control overlap - default to 1/10 of sequence length
-         stride = self.config.get('sequence_stride', max(1, sequence_length // 10))
-         data_length = len(features)
-         
-         # Check if we have enough data
-         if data_length < sequence_length + prediction_window:
-             raise ValueError(f"Not enough data points ({data_length}) for sequence length ({sequence_length}) and prediction window ({prediction_window})")
-         
-         X, y = [], []
-         
-         # Create sequences with configurable stride
-         # For each sequence, we use timesteps i to i+sequence_length-1 to predict timesteps i+sequence_length to i+sequence_length+prediction_window-1
-         for i in range(0, data_length - sequence_length - prediction_window + 1, stride):
-             # Input sequence: from i to i+sequence_length-1
-             feature_seq = features[i:i+sequence_length]
-             
-             # Target sequence: from i+sequence_length to i+sequence_length+prediction_window-1
-             target_seq = targets[i+sequence_length:i+sequence_length+prediction_window]
-             
-             X.append(feature_seq)
-             y.append(target_seq)
-         
-         if not X:
-             raise ValueError("No sequences could be created. Check sequence length, prediction window, and data size.")
-         
-         X = np.array(X)
-         y = np.array(y)
-         
-         # Ensure y has shape (num_sequences, prediction_window, num_targets)
-         # If y is 2D, add a dimension for output_size
-         if len(y.shape) == 2:
-             y = y[..., np.newaxis]
-         
-         return X, y
+    def _create_overlap_sequences(self, features, target):
+        """
+        Create sequences for forecasting with input sequences and future targets.
+        """
+        sequence_length = self.config.get('sequence_length', 500)
+        prediction_window = self.config.get('prediction_window', 15)
+        
+        # Ensure inputs are numpy arrays
+        features = np.array(features)
+        target = np.array(target)
+        
+        X, y = [], []
+        
+        # Create sequences
+        for i in range(len(features) - sequence_length - prediction_window + 1):
+            # Input sequence
+            feature_seq = features[i:i+sequence_length]
+            # Target sequence (prediction window after input sequence)
+            target_seq = target[i+sequence_length:i+sequence_length+prediction_window]
+            
+            # Skip sequences with too many NaN values
+            if np.sum(np.isnan(feature_seq)) > 0.5 * feature_seq.size or \
+               np.sum(np.isnan(target_seq)) > 0.5 * target_seq.size:
+                continue
+            
+            # Fill NaN values
+            feature_seq = pd.DataFrame(feature_seq).ffill().bfill().values
+            target_seq = pd.DataFrame(target_seq).ffill().bfill().values
+            
+            X.append(feature_seq)
+            y.append(target_seq)
+        
+        if not X:
+            raise ValueError("No valid sequences found after NaN handling")
+        
+        return np.array(X), np.array(y)
 
     def _add_time_features(self, data):
         """

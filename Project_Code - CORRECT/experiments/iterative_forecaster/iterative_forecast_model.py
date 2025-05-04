@@ -380,20 +380,14 @@ class WaterLevelForecaster:
     def save_model(self, path):
         """
         Save the trained model to a file.
-        
-        Args:
-            path: Path to save the model
         """
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        
         if self.model is not None:
             torch.save({
                 'model_state_dict': self.model.state_dict(),
-                'config': self.config,
-                'model_architecture': {
-                    'input_size': self.model.input_size,
-                    'hidden_size': self.model.hidden_size,
-                    'num_layers': self.model.num_layers,
-                    'output_size': self.model.output_size
-                }
+                'config': self.config
             }, path)
             print(f"Model saved to {path}")
         else:
