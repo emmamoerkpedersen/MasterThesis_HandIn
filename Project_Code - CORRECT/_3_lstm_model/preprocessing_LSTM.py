@@ -91,6 +91,27 @@ class DataPreprocessor:
                 )
                 df = pd.concat([df, feature_data], axis=1)
 
+        # Print input features information
+        print("\nInput Features Summary:")
+        print("----------------------")
+        print("Base features:")
+        for feature in self.config['feature_cols']:
+            print(f"  - {feature}")
+        
+        print("\nFeature stations:")
+        for station in self.config['feature_stations']:
+            print(f"  - Station {station['station_id']}:")
+            for feature in station['features']:
+                print(f"    * {feature}")
+        
+        print("\nFeature engineering settings:")
+        print(f"  - Using time features: {self.config.get('use_time_features', False)}")
+        print(f"  - Using cumulative features: {self.config.get('use_cumulative_features', False)}")
+        print(f"  - Using lagged features: {self.config.get('use_lagged_features', False)}")
+        if self.config.get('use_lagged_features', False):
+            print(f"    * Lag hours: {self.config.get('lag_hours', [])}")
+        print("----------------------\n")
+
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = pd.Timestamp('2010-01-04')
         end_date = pd.Timestamp('2025-01-07')

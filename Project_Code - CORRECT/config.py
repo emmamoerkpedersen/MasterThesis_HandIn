@@ -50,26 +50,26 @@ SYNTHETIC_ERROR_PARAMS = {
         }
     },
     
-    'drift': {
-        'frequency': 0.0000,
-        # Wider range for drift durations
-        'duration_range': [500, 1168],  # Changed from [24, 168]
-        # More varied magnitude range
-        'magnitude_range': [5, 50],   # Changed from [10, 50]
-        'negative_positive_ratio': 0.5,
-        'context_aware': {
-            'subtle_prob': 0.5,
-            'medium_prob': 0.3,
-            'obvious_prob': 0.2
-        }
-    },
+    # 'drift': {
+    #     'frequency': 0.0000,
+    #     # Wider range for drift durations
+    #     'duration_range': [500, 1168],  # Changed from [24, 168]
+    #     # More varied magnitude range
+    #     'magnitude_range': [5, 50],   # Changed from [10, 50]
+    #     'negative_positive_ratio': 0.5,
+    #     'context_aware': {
+    #         'subtle_prob': 0.5,
+    #         'medium_prob': 0.3,
+    #         'obvious_prob': 0.2
+    #     }
+    # },
     
-    'flatline': {
-        'frequency': 0.000,
-        # More varied durations
-        'duration_range': (10, 200),  # Changed from (20, 200)
-        'value_method': 'first_value'
-    },
+    # 'flatline': {
+    #     'frequency': 0.000,
+    #     # More varied durations
+    #     'duration_range': (10, 200),  # Changed from (20, 200)
+    #     'value_method': 'first_value'
+    # },
     
     'offset': {
         'frequency': 0.0000,
@@ -92,11 +92,11 @@ SYNTHETIC_ERROR_PARAMS = {
         'intensity_range': (1, 4)  # Changed from (2, 4)
     },
     
-    'baseline_shift': {
-        'frequency': 0,  # Still disabled
-        'magnitude_range': (100, 600),  # Changed from (200, 600)
-        'negative_positive_ratio': 0.5
-    },
+    # 'baseline_shift': {
+    #     'frequency': 0,  # Still disabled
+    #     'magnitude_range': (100, 600),  # Changed from (200, 600)
+    #     'negative_positive_ratio': 0.5
+    # },
     
     # Updated physical limits
     'PHYSICAL_LIMITS': {

@@ -411,9 +411,11 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
             ),
             plot_bgcolor='white',
             paper_bgcolor='white',
-            margin=dict(l=80, r=80, t=180, b=80)  # Increased top margin for config box
+            margin=dict(l=80, r=80, t=180, b=80),  # Increased top margin for config box
+            dragmode='zoom'  # Enable box zooming in both directions
         )
-        
+        fig.update_xaxes(fixedrange=False)
+        fig.update_yaxes(fixedrange=False)
         # Create model configuration text
         config_text = ""
         if model_config:

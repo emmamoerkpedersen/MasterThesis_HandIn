@@ -6,14 +6,9 @@ and model evaluation. It uses modular utility functions from the utils package t
 the code clean and maintainable.
 """
 import pandas as pd
-import torch
 from pathlib import Path
 import sys
 import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
 # Add the parent directory to Python path to allow imports from experiments
 sys.path.append(str(Path(__file__).parent))
 

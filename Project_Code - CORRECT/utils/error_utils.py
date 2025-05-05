@@ -24,8 +24,8 @@ def configure_error_params(base_error_config, error_frequency):
     # Set error frequencies based on the error_frequency parameter
     # Distribute the total error frequency across different error types
     error_config['offset']['frequency'] = error_frequency * 0.3     # 30% of errors are offsets
-    error_config['drift']['frequency'] = error_frequency * 0.2      # 20% of errors are drifts
-    error_config['flatline']['frequency'] = error_frequency * 0.2   # 20% of errors are flatlines
+    #error_config['drift']['frequency'] = error_frequency * 0.2      # 20% of errors are drifts
+    #error_config['flatline']['frequency'] = error_frequency * 0.2   # 20% of errors are flatlines
     error_config['spike']['frequency'] = error_frequency * 0.15     # 15% of errors are spikes
     error_config['noise']['frequency'] = error_frequency * 0.15     # 15% of errors are noise
     
@@ -40,8 +40,8 @@ def print_error_frequencies(error_config):
     """
     print(f"Error frequencies by type:")
     print(f"  Offset: {error_config['offset']['frequency']:.5f}")
-    print(f"  Drift: {error_config['drift']['frequency']:.5f}")
-    print(f"  Flatline: {error_config['flatline']['frequency']:.5f}")
+    #print(f"  Drift: {error_config['drift']['frequency']:.5f}")
+    #print(f"  Flatline: {error_config['flatline']['frequency']:.5f}")
     print(f"  Spike: {error_config['spike']['frequency']:.5f}")
     print(f"  Noise: {error_config['noise']['frequency']:.5f}")
 
