@@ -17,11 +17,13 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 
 class ForecastingLSTM(nn.Module):
     """
-    LSTM model for water level forecasting with configurable components:
+    Advanced LSTM model for water level forecasting with:
     - Multi-head attention mechanisms
+    - Dual-branch architecture for separate time scale processing
+    - Residual connections for stability during anomalies
     """
     def __init__(self, input_size, hidden_size, num_layers, output_size, dropout, 
-                 use_attention=False, num_attention_heads=4):
+                 use_attention=False, num_attention_heads=3):
         super(ForecastingLSTM, self).__init__()
         self.model_name = 'ForecastingLSTM'
         self.input_size = input_size
@@ -30,9 +32,10 @@ class ForecastingLSTM(nn.Module):
         self.num_layers = num_layers
         self.use_attention = use_attention
         self.num_attention_heads = num_attention_heads
+        self.long_term_emphasis = 0.5  # Default value, will be overridden if specified
         
-        # Main LSTM for processing raw input
-        self.main_lstm = nn.LSTM(
+        # Long-term branch LSTM for capturing long-term dependencies
+        self.long_term_lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
@@ -40,10 +43,19 @@ class ForecastingLSTM(nn.Module):
             dropout=dropout if num_layers > 1 else 0
         )
         
+        # Short-term branch LSTM for handling recent patterns
+        self.short_term_lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size//2,  # Smaller size for short-term
+            num_layers=2,  # Fewer layers for short-term
+            batch_first=True,
+            dropout=dropout if 2 > 1 else 0
+        )
+        
         # Multi-head attention mechanisms (optional)
         if use_attention:
-            # Create multiple attention heads for main LSTM
-            self.main_attention_heads = nn.ModuleList([
+            # Create multiple attention heads for long-term branch
+            self.long_term_attention_heads = nn.ModuleList([
                 nn.Sequential(
                     nn.Linear(hidden_size, hidden_size),
                     nn.Tanh(),
@@ -52,16 +64,32 @@ class ForecastingLSTM(nn.Module):
             ])
             
             # Projection layer to combine attention heads
-            self.main_attention_combine = nn.Linear(hidden_size * num_attention_heads, hidden_size)
+            self.long_term_attention_combine = nn.Linear(hidden_size * num_attention_heads, hidden_size)
+            
+            # Simpler attention for short-term branch
+            self.short_term_attention = nn.Sequential(
+                nn.Linear(hidden_size//2, hidden_size//2),
+                nn.Tanh(),
+                nn.Linear(hidden_size//2, 1)
+            )
+        
+        # Fusion layer to combine long and short term representations
+        self.fusion_layer = nn.Linear(hidden_size + hidden_size//2, hidden_size)
         
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
         
-        # Fully connected layer to map to output
-        self.fc = nn.Linear(hidden_size, output_size)
+        # Fully connected layers with residual connections
+        self.fc1 = nn.Linear(hidden_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.output_layer = nn.Linear(hidden_size, output_size)
         
         # Store temporal attention weights
         self.temporal_attention_weights = None
+        
+        # Normalization layers for stability
+        self.layer_norm1 = nn.LayerNorm(hidden_size)
+        self.layer_norm2 = nn.LayerNorm(hidden_size)
     
     def apply_multi_head_attention(self, lstm_out, attention_heads, attention_combine):
         """Apply multi-head attention and combine results."""
@@ -92,26 +120,68 @@ class ForecastingLSTM(nn.Module):
         # Combine through projection layer
         return attention_combine(multi_head_output).squeeze(1)
     
+    def apply_simple_attention(self, lstm_out, attention_layer):
+        """Apply simple attention for short-term branch."""
+        # Calculate attention weights
+        weights = attention_layer(lstm_out)
+        weights = torch.softmax(weights, dim=1)
+        
+        # Apply attention weights
+        attended = torch.bmm(weights.transpose(1, 2), lstm_out)
+        
+        return attended.squeeze(1)
+    
     def forward(self, x):
         batch_size, seq_len, num_features = x.size()
         
-        # Process through main LSTM
-        main_out, _ = self.main_lstm(x)
+        # Process through long-term branch
+        long_term_out, _ = self.long_term_lstm(x)
+        
+        # Process through short-term branch
+        # For short-term, we might want to focus on more recent data
+        recent_steps = min(seq_len, 48)  # Look at most recent ~12 hours
+        short_term_out, _ = self.short_term_lstm(x[:, -recent_steps:, :])
         
         if self.use_attention:
-            final_output = self.apply_multi_head_attention(
-                main_out, 
-                self.main_attention_heads,
-                self.main_attention_combine
+            # Apply attention to both branches
+            long_term_repr = self.apply_multi_head_attention(
+                long_term_out, 
+                self.long_term_attention_heads,
+                self.long_term_attention_combine
+            )
+            
+            short_term_repr = self.apply_simple_attention(
+                short_term_out,
+                self.short_term_attention
             )
         else:
-            final_output = main_out[:, -1, :]  # Use last hidden state if no attention
+            # Use last hidden states if no attention
+            long_term_repr = long_term_out[:, -1, :]
+            short_term_repr = short_term_out[:, -1, :]
+        
+        # Get the long-term emphasis factor (default to 0.5 if not specified)
+        long_term_emphasis = getattr(self, 'long_term_emphasis', 0.5)
+        
+        # Combine representations with emphasis on long-term
+        combined_repr = torch.cat([
+            long_term_repr * long_term_emphasis,  # Emphasized long-term
+            short_term_repr * (1 - long_term_emphasis)  # De-emphasized short-term
+        ], dim=1)
+        
+        fused_repr = self.fusion_layer(combined_repr)
         
         if self.training:
-            final_output = self.dropout(final_output)
+            fused_repr = self.dropout(fused_repr)
+        
+        # Apply residual connections and layer normalization
+        hidden1 = self.fc1(fused_repr)
+        hidden1 = self.layer_norm1(hidden1 + fused_repr)  # Residual connection
+        
+        hidden2 = self.fc2(hidden1)
+        hidden2 = self.layer_norm2(hidden2 + hidden1)  # Another residual connection
         
         # Generate forecast
-        forecasts = self.fc(final_output)
+        forecasts = self.output_layer(hidden2)
         
         return forecasts
     
@@ -138,37 +208,13 @@ class WaterLevelForecaster:
         self.preprocessor = None
         self.anomaly_threshold = config.get('z_score_threshold', 5)
         self.prediction_window = config.get('prediction_window', 24)
-        self.temporal_attention_history = []
         
-        # Define feature tiers based on importance
-        self.feature_tiers = {
-            'tier1': [
-                'water_level_ma_3h',
-                'water_level_ma_12h',
-                'water_level_lag_6h'
-            ],
-            'tier2': [
-                'water_level_ma_roc_6h',
-                'water_level_roc_12h',
-                'water_level_ma_roc_24h'
-            ],
-            'tier3': [
-                'water_level_lag_72h',
-                'water_level_ma_48h',
-                'water_level_ma_96h'
-            ]
-        }
-        
-        # Confidence thresholds for each tier
-        self.confidence_thresholds = {
-            'tier1': 0.8,  # High confidence needed to stop at tier 1
-            'tier2': 0.6,  # Medium confidence for tier 2
-            'tier3': 0.4   # Lower threshold for tier 3
-        }
-        
-        # Add a memory of recent predictions for stability
-        self.recent_predictions = []
-        self.recent_window = config.get('recent_predictions_window', 20)
+        # Removed unused attributes:
+        # - temporal_attention_history
+        # - feature_tiers
+        # - confidence_thresholds
+        # - recent_predictions
+        # - recent_window
 
     def build_model(self, input_size):
         """
@@ -184,6 +230,23 @@ class WaterLevelForecaster:
         output_size = self.prediction_window  # Predict multiple steps ahead
         use_attention = self.config.get('use_attention', True)
         
+        # Advanced model architecture settings
+        use_dual_branch = self.config.get('use_dual_branch', False)
+        use_residual = self.config.get('use_residual', False)
+        long_term_emphasis = self.config.get('long_term_emphasis', 0.5)
+        
+        # Print summary of model architecture
+        print(f"\nBuilding model with the following architecture:")
+        print(f"  - Input size: {input_size}")
+        print(f"  - Hidden size: {hidden_size}")
+        print(f"  - Output size: {output_size}")
+        print(f"  - LSTM layers: {num_layers}")
+        print(f"  - Dropout: {dropout}")
+        print(f"  - Attention: {'Enabled' if use_attention else 'Disabled'}")
+        print(f"  - Dual-branch: {'Enabled' if use_dual_branch else 'Disabled'}")
+        print(f"  - Residual connections: {'Enabled' if use_residual else 'Disabled'}")
+        print(f"  - Long-term emphasis: {long_term_emphasis:.2f}")
+        
         # Initialize and return the model
         model = ForecastingLSTM(
             input_size=input_size,
@@ -194,12 +257,15 @@ class WaterLevelForecaster:
             use_attention=use_attention
         ).to(self.device)
         
+        # Set long-term emphasis
+        model.long_term_emphasis = long_term_emphasis
+        
         self.model = model
         return model
     
     def train(self, train_data, val_data, project_root, station_id):
         """
-        Train the forecasting model.
+        Train the forecasting model with a simplified training approach.
         
         Args:
             train_data: Training data
@@ -219,7 +285,7 @@ class WaterLevelForecaster:
             train_data, val_data, _ = self.preprocessor.load_and_split_data(project_root, station_id)
         
         # Extract parameters from config
-        num_epochs = self.config.get('epochs', 100)
+        num_epochs = self.config.get('epochs', 50)  # Reduced default epochs
         patience = self.config.get('patience', 10)
         learning_rate = self.config.get('learning_rate', 0.001)
         batch_size = self.config.get('batch_size', 16)
@@ -269,14 +335,22 @@ class WaterLevelForecaster:
         
         # Initialize optimizer and loss function
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        criterion = nn.SmoothL1Loss()
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
         
-        # Training loop
+        # Use a combination of losses for robustness
+        mse_criterion = nn.MSELoss()
+        robust_criterion = nn.SmoothL1Loss()
+        
+        # Training loop with simplified approach
         best_val_loss = float('inf')
         epochs_no_improve = 0
         best_model_weights = None
         
-        print(f"Starting training for {num_epochs} epochs (patience: {patience})...")
+        # Keep track of losses for plotting
+        training_loss_history = []
+        validation_loss_history = []
+        
+        print(f"\nStarting training for {num_epochs} epochs...")
         
         # Create progress bar for epochs
         epoch_pbar = tqdm(range(num_epochs), desc="Training", unit="epoch")
@@ -299,6 +373,11 @@ class WaterLevelForecaster:
                 X_batch = X_train[start_idx:end_idx]
                 y_batch = y_train[start_idx:end_idx]
                 
+                # Add a small amount of noise for robustness (10% of the time)
+                if np.random.random() < 0.1:
+                    noise = torch.randn_like(X_batch) * 0.05
+                    X_batch = X_batch + noise
+                
                 optimizer.zero_grad()
                 y_pred = self.model(X_batch)
                 
@@ -306,7 +385,13 @@ class WaterLevelForecaster:
                 if y_pred.shape != y_batch.shape:
                     y_pred = y_pred.view(y_batch.shape)
                 
-                loss = criterion(y_pred, y_batch)
+                # Combine MSE and Huber loss for robustness
+                mse_loss = mse_criterion(y_pred, y_batch)
+                robust_loss = robust_criterion(y_pred, y_batch)
+                
+                # Use 70% MSE, 30% robust loss
+                loss = 0.7 * mse_loss + 0.3 * robust_loss
+                
                 loss.backward()
                 
                 # Gradient clipping to prevent exploding gradients
@@ -319,20 +404,27 @@ class WaterLevelForecaster:
                 batch_pbar.set_postfix({"loss": f"{loss.item():.6f}"})
             
             avg_train_loss = train_loss / num_batches
+            training_loss_history.append(avg_train_loss)
             
             # Validation
             self.model.eval()
             val_loss = 0
-            valid_val_samples = 0
             
             with torch.no_grad():
+                # Standard validation
                 val_preds = self.model(X_val)
                 
                 # Reshape if needed
                 if val_preds.shape != y_val.shape:
                     val_preds = val_preds.view(y_val.shape)
                 
-                val_loss = criterion(val_preds, y_val).item()
+                # Calculate validation loss
+                val_loss = 0.7 * mse_criterion(val_preds, y_val).item() + 0.3 * robust_criterion(val_preds, y_val).item()
+            
+            validation_loss_history.append(val_loss)
+            
+            # Update learning rate
+            scheduler.step(val_loss)
             
             # Update epoch progress bar
             epoch_pbar.set_postfix({
@@ -355,7 +447,7 @@ class WaterLevelForecaster:
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve >= patience:
-                    tqdm.write(f"Early stopping at epoch {epoch+1}")
+                    print(f"Early stopping at epoch {epoch+1}")
                     break
         
         # Load best model weights
@@ -366,23 +458,20 @@ class WaterLevelForecaster:
         
         return self.model
     
-    def predict(self, test_data, steps_ahead=None, inject_errors=False, error_periods=None, stride_mode='default'):
+    def predict(self, test_data, steps_ahead=None, stride_mode='default'):
         """
         Make forecasts for the test data.
         
         Args:
             test_data: Test data
             steps_ahead: Number of steps to forecast ahead (defaults to config value)
-            inject_errors: Whether to inject synthetic errors into the test data (DEPRECATED)
-            error_periods: List of dictionaries with error periods and types (DEPRECATED)
-                Each dict should have: 'start', 'end', 'type', 'magnitude'
             stride_mode: Stride mode for prediction windows:
                          'default': use stride=1 (traditional sliding window)
                          'prediction_window': use stride equal to prediction window (more realistic operational scenario)
                          An integer can also be specified for a custom stride
                 
         Returns:
-            Dictionary with forecasts, anomalies, original data, and error-injected data
+            Dictionary with forecasts, anomalies, original data, and clean data
         """
         print("Preparing for prediction...")
         self.model.eval()
@@ -407,24 +496,13 @@ class WaterLevelForecaster:
             
         print(f"Using stride of {stride} for predictions")
         
-        # Store a copy of the original clean data
-        original_clean_data = test_data.copy()
+        # Store a copy of the original data
+        original_data = test_data.copy()
         
         # Create working copy of data
         working_data = test_data.copy()
         
-        # Inject errors if requested (DEPRECATED approach)
-        # Note: This is kept for backward compatibility but should not be used
-        # for proper error injection with all derived features
-        if inject_errors:
-            print("DEPRECATED: Using internal error injection. This will not properly update derived features.")
-            print("For proper error injection, use reconstruct_features_with_errors() before calling predict().")
-            working_data = self._inject_errors(working_data, error_periods)
-        
-        # Store the data with errors
-        data_with_errors = working_data.copy()
-        
-        # Prepare test data
+        # Prepare features and targets
         X_test_df = working_data[self.preprocessor.feature_cols]
         y_test_df = pd.DataFrame(working_data[self.preprocessor.output_features])
         
@@ -518,7 +596,7 @@ class WaterLevelForecaster:
         # to get predictions for every timestep
         if stride > 1:
             # Get all possible timestamps from the data
-            all_timestamps = original_clean_data.index
+            all_timestamps = original_data.index
             
             # Only use timestamps that are within our prediction range
             valid_timestamps = all_timestamps[all_timestamps >= forecast_df.index[0]]
@@ -552,29 +630,18 @@ class WaterLevelForecaster:
             # Now use this filled version for further processing
             forecast_df = filled_forecast_df.copy()
         
-        # Extract original data (with errors if injected)
-        error_injected_data = data_with_errors[self.preprocessor.output_features]
+        # Extract data for output
+        actual_data = working_data[self.preprocessor.output_features]
         
         # Align with forecast index
-        error_injected_data = error_injected_data.reindex(forecast_df.index)
+        actual_data = actual_data.reindex(forecast_df.index)
         
         # Get the clean data for the same timestamps
-        clean_data = original_clean_data[self.preprocessor.output_features].reindex(forecast_df.index)
+        clean_data = original_data[self.preprocessor.output_features].reindex(forecast_df.index)
         
         print("Detecting anomalies...")
-        # Detect anomalies by comparing error-injected data with predictions
-        if inject_errors:
-            # Compare predictions to clean data to evaluate prediction quality
-            prediction_quality = self.detect_anomalies(clean_data, forecast_df['step_1'])
-            # Compare error-injected data to clean data to identify true anomalies
-            true_anomalies = self.detect_anomalies(error_injected_data, clean_data)
-            # Compare error-injected data to predictions to see what the model detects
-            detected_anomalies = self.detect_anomalies(error_injected_data, forecast_df['step_1'])
-        else:
-            # Regular anomaly detection on the data
-            detected_anomalies = self.detect_anomalies(error_injected_data, forecast_df['step_1'])
-            true_anomalies = None
-            prediction_quality = None
+        # Detect anomalies by comparing actual data with predictions
+        detected_anomalies = self.detect_anomalies(actual_data, forecast_df['step_1'])
         
         print("Prediction completed successfully.")
         
@@ -582,86 +649,13 @@ class WaterLevelForecaster:
         results = {
             'timestamps': timestamps,
             'clean_data': clean_data,
-            'error_injected_data': error_injected_data,
+            'error_injected_data': actual_data,
             'forecasts': forecast_df,
             'detected_anomalies': detected_anomalies,
-            'true_anomalies': true_anomalies,
-            'prediction_quality': prediction_quality,
             'stride_used': stride
         }
         
         return results
-    
-    def _inject_errors(self, data, error_periods=None):
-        """
-        DEPRECATED: Inject synthetic errors into the raw water level data.
-        
-        This method is kept for backward compatibility but does NOT properly update
-        derived features (like lag features, moving averages, etc.) after error injection.
-        
-        For proper error injection that updates all derived features, use the 
-        reconstruct_features_with_errors() function in run_forecast.py instead.
-        
-        Args:
-            data: DataFrame with water level data
-            error_periods: List of dictionaries with error periods and types
-                Each dict should have: 'start', 'end', 'type', 'magnitude'
-                Types: 'noise', 'offset', 'scaling', 'missing'
-            
-        Returns:
-            DataFrame with injected errors
-        """
-        # Use default error periods if none provided
-        if error_periods is None:
-            error_periods = [
-                {'start': '2022-02-10', 'end': '2022-03-01', 'type': 'offset', 'magnitude': 100},
-                {'start': '2022-05-15', 'end': '2022-06-01', 'type': 'scaling', 'magnitude': 1.5},
-                {'start': '2022-09-01', 'end': '2022-09-15', 'type': 'noise', 'magnitude': 50},
-                {'start': '2022-11-01', 'end': '2022-11-15', 'type': 'missing', 'magnitude': 0}
-            ]
-        
-        # Get the output feature column name
-        output_feature = self.preprocessor.output_features
-        if isinstance(output_feature, list):
-            output_feature = output_feature[0]
-        
-        # Create a working copy of the data to modify
-        modified_data = data.copy()
-        
-        # Inject errors for each specified period
-        for period in error_periods:
-            start = pd.Timestamp(period['start'])
-            end = pd.Timestamp(period['end'])
-            error_type = period['type']
-            magnitude = period['magnitude']
-            
-            # Get mask for the period
-            mask = (modified_data.index >= start) & (modified_data.index <= end)
-            
-            # Skip if no data points in this period
-            if not mask.any():
-                continue
-            
-            # Apply error to the target output feature only
-            if error_type == 'noise':
-                # Generate random noise with the correct shape
-                noise = np.random.normal(0, magnitude, size=sum(mask))
-                # Apply noise directly
-                modified_data.loc[mask, output_feature] += noise
-            
-            elif error_type == 'offset':
-                # Apply offset
-                modified_data.loc[mask, output_feature] += magnitude
-            
-            elif error_type == 'scaling':
-                # Apply scaling
-                modified_data.loc[mask, output_feature] *= magnitude
-            
-            elif error_type == 'missing':
-                # Set values to NaN (simulating missing data)
-                modified_data.loc[mask, output_feature] = np.nan
-        
-        return modified_data
     
     def detect_anomalies(self, actual_values, predicted_values):
         """
@@ -773,8 +767,21 @@ class WaterLevelForecaster:
         combined_z = np.maximum(z_scores_abs, z_scores_pct)
         combined_z = combined_z * (1 + streak_factor * 0.5)  # Lower impact from streak factor
         
-        # Identify anomalies based on threshold
-        anomaly_flags = combined_z > self.anomaly_threshold
+        # Calculate absolute error (to avoid flagging very small changes)
+        abs_error = np.abs(actual - predicted)
+        
+        # Calculate percent error
+        percent_error = np.abs(actual - predicted) / (np.abs(predicted) + 1e-10) * 100
+        
+        # Identify anomalies based on multiple criteria
+        # 1. Combined z-score must exceed threshold
+        # 2. Either absolute error is significant OR percent error is significant
+        threshold_exceeded = combined_z > self.anomaly_threshold
+        significant_abs_error = abs_error > 1.0  # Minimum 1.0 unit absolute error
+        significant_pct_error = percent_error > 15.0  # Minimum 15% error
+        
+        # Apply all criteria
+        anomaly_flags = threshold_exceeded & (significant_abs_error | significant_pct_error)
         
         # Define confidence levels based on z-score
         # Instead of anomaly types, we'll use confidence levels
@@ -845,6 +852,25 @@ class WaterLevelForecaster:
         if 'config' in checkpoint:
             self.config.update(checkpoint['config'])
         
+        # Check if attention should be enabled based on model state dict
+        if any('attention' in key for key in checkpoint['model_state_dict'].keys()):
+            self.config['use_attention'] = True
+            print("Enabling attention based on model weights")
+            
+        # Get number of attention heads if available
+        num_attention_heads = 8  # Default
+        attention_head_keys = [k for k in checkpoint['model_state_dict'].keys() if 'long_term_attention_heads' in k]
+        if attention_head_keys:
+            # Extract head count from pattern 'long_term_attention_heads.N...'
+            head_indices = set()
+            for key in attention_head_keys:
+                parts = key.split('.')
+                if len(parts) > 1 and parts[1].isdigit():
+                    head_indices.add(int(parts[1]))
+            if head_indices:
+                num_attention_heads = max(head_indices) + 1
+                print(f"Detected {num_attention_heads} attention heads in model")
+        
         # Get model architecture
         if 'model_architecture' in checkpoint:
             arch = checkpoint['model_architecture']
@@ -853,7 +879,9 @@ class WaterLevelForecaster:
                 hidden_size=arch['hidden_size'],
                 num_layers=arch['num_layers'],
                 output_size=arch['output_size'],
-                dropout=self.config.get('dropout', 0.2)
+                dropout=self.config.get('dropout', 0.2),
+                use_attention=self.config.get('use_attention', False),
+                num_attention_heads=num_attention_heads
             ).to(self.device)
         else:
             # Backward compatibility
@@ -871,3 +899,4 @@ class WaterLevelForecaster:
         print(f"Model loaded from {path}")
         return True
     
+   
