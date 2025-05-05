@@ -35,7 +35,7 @@ class ForecastVisualizer:
             title: Plot title
             save_path: Path to save the plot
         """
-        # Extract data
+        # Extract and ensure proper data format
         original_data = results['clean_data']
         forecast_data = results['forecasts']
         
@@ -43,36 +43,70 @@ class ForecastVisualizer:
         error_injected_data = results.get('error_injected_data')
         clean_forecast = results.get('clean_forecast')
         
+        # Convert numpy arrays to pandas Series/DataFrame with proper timestamps
+        if isinstance(original_data, np.ndarray):
+            # Get the actual timestamps from the data if available
+            if 'timestamps' in results:
+                index = pd.to_datetime(results['timestamps'])
+                original_data = pd.DataFrame(original_data, index=index)
+            else:
+                # If no timestamps provided, use the original data's index
+                print("Warning: No timestamps provided. Using default index.")
+                original_data = pd.DataFrame(original_data)
+        
+        # Get the actual date range from the data
+        date_range = original_data.index
+        print(f"Data range: {date_range[0]} to {date_range[-1]}")
+        
+        if isinstance(forecast_data, np.ndarray):
+            # Create DataFrame with same index as original data
+            forecast_df = pd.DataFrame(
+                np.zeros(len(date_range)) * np.nan,
+                index=date_range
+            )
+            # Fill in the forecast values at the appropriate indices
+            forecast_df.iloc[-len(forecast_data):] = forecast_data
+            forecast_data = forecast_df
+        
+        if error_injected_data is not None and isinstance(error_injected_data, np.ndarray):
+            # Create DataFrame with same index as original data
+            error_df = pd.DataFrame(
+                np.zeros(len(date_range)) * np.nan,
+                index=date_range
+            )
+            # Fill in the error-injected values
+            error_df.iloc[:len(error_injected_data)] = error_injected_data
+            error_injected_data = error_df
+        
+        if clean_forecast is not None and isinstance(clean_forecast, np.ndarray):
+            # Create DataFrame with same index as original data
+            clean_df = pd.DataFrame(
+                np.zeros(len(date_range)) * np.nan,
+                index=date_range
+            )
+            # Fill in the clean forecast values
+            clean_df.iloc[-len(clean_forecast):] = clean_forecast
+            clean_forecast = clean_df
+        
         # Create figure
         plt.figure(figsize=(16, 8))
         
         # Plot water levels and forecasts
-        plt.plot(original_data.index, original_data.values, 'b-', label='Original Water Levels', linewidth=1)
+        plt.plot(original_data.index, original_data.values.flatten(), 'b-', label='Original Water Levels', linewidth=1)
         
         # If we have error-injected data, plot it
         if error_injected_data is not None:
-            plt.plot(error_injected_data.index, error_injected_data.values, 'r-', 
+            plt.plot(error_injected_data.index, error_injected_data.values.flatten(), 'r-', 
                     label='Water Levels (with injected errors)', linewidth=1)
         
         # Plot the forecast
-        if 'step_24' in forecast_data.columns:
-            plt.plot(forecast_data.index, forecast_data['step_24'].values, 'g-', 
-                    label='24-Step Ahead Forecast', linewidth=1.5)
-        else:
-            # Use the last column as the forecast
-            last_step = forecast_data.columns[-1]
-            plt.plot(forecast_data.index, forecast_data[last_step].values, 'g-', 
-                    label=f'{last_step.replace("step_", "")}-Step Ahead Forecast', linewidth=1.5)
+        plt.plot(forecast_data.index, forecast_data.values.flatten(), 'g-', 
+                label='Forecast', linewidth=1.5)
         
         # Plot the clean forecast if available
         if clean_forecast is not None:
-            if 'step_24' in clean_forecast.columns:
-                plt.plot(clean_forecast.index, clean_forecast['step_24'].values, '--', color='purple',
-                        label='24-Step Ahead Forecast (clean data)', linewidth=1.5)
-            else:
-                last_step = clean_forecast.columns[-1]
-                plt.plot(clean_forecast.index, clean_forecast[last_step].values, '--', color='purple',
-                        label=f'{last_step.replace("step_", "")}-Step Ahead Forecast (clean data)', linewidth=1.5)
+            plt.plot(clean_forecast.index, clean_forecast.values.flatten(), '--', color='purple',
+                    label='Forecast (clean data)', linewidth=1.5)
         
         plt.title(title, fontsize=16)
         plt.xlabel('Date', fontsize=14)
@@ -80,8 +114,10 @@ class ForecastVisualizer:
         plt.grid(True, alpha=0.3)
         plt.legend(loc='upper right')
         
-        # Format dates on x-axis
-        plt.gca().xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%Y-%m'))
+        # Format dates on x-axis if we have datetime index
+        if isinstance(original_data.index, pd.DatetimeIndex):
+            plt.gca().xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%Y-%m-%d %H:%M'))
+            plt.xticks(rotation=45)
         
         plt.tight_layout()
         

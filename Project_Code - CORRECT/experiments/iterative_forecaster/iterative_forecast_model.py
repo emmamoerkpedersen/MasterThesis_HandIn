@@ -252,7 +252,7 @@ class WaterLevelForecaster:
         criterion = nn.SmoothL1Loss(reduction='none')  # Use 'none' to handle masking
         
         # Training loop
-        num_epochs = self.config.get('num_epochs', 10)
+        num_epochs = self.config.get('epochs', 10)
         best_val_loss = float('inf')
         patience = self.config.get('patience', 5)
         patience_counter = 0
@@ -372,7 +372,8 @@ class WaterLevelForecaster:
         # Create results dictionary
         results = {
             'forecasts': predictions,
-            'clean_data': data[self.preprocessor.output_features].values
+            'clean_data': data[self.preprocessor.output_features].values,
+            'timestamps': data.index  # Add timestamps from the original data
         }
         
         return results

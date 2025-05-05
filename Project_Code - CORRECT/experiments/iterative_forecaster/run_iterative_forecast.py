@@ -27,10 +27,10 @@ DEFAULT_CONFIG = {
     'sequence_length': 100,  # Extended sequence length to capture more history
     'prediction_window': 30,    # Predict one step ahead
     'sequence_stride': 30,      # Stride for creating sequences
-    'epochs': 10,           # Increased for better convergence
+    'epochs': 2,           # Increased for better convergence
     'patience': 5,             # Early stopping patience
     'z_score_threshold': 5,   # Anomaly detection threshold
-    'learning_rate': 0.001,     
+    'learning_rate': 0.1,     
     
     # Iterative training parameters
     'max_iterations': 5,        # Maximum number of iterations per batch
@@ -439,7 +439,8 @@ def main():
         'batch_size': config['batch_size'],
         'hidden_size': config['hidden_size'],
         'prediction window': config['prediction_window'],
-        'stride': config['sequence_stride']
+        'stride': config['sequence_stride'],
+        'learning rate': config['learning_rate']
     }.items():
         print(f"  - {key.replace('_', ' ').title()}: {format_config_value(key, value)}")
   
