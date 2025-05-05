@@ -65,6 +65,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         open_browser: Whether to open the plot in browser (default: True)
         metrics: Optional dictionary with additional performance metrics
         title_suffix: Optional suffix to add to the plot title
+        show_config: Whether to show model configuration (default: False)
     """
     # Ensure output directory exists using relative path
     output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
@@ -91,74 +92,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         vinge_data = test_data[['vinge']].copy()
         print(f"Found vinge data with {len(vinge_data[~vinge_data['vinge'].isna()])} non-null values")
     
-    # If no vinge data in test_data, try to load from preprocessed data
-    if vinge_data is None or (isinstance(vinge_data, pd.DataFrame) and vinge_data['vinge'].count() == 0):
-        try:
-            print("Vinge data not found in test_data or has no valid entries, trying to load from original data...")
-            # Try to find the data in different possible locations using relative paths
-            possible_data_dirs = [
-                Path(os.path.join(PROJECT_ROOT, "data_utils/Sample data")),
-                Path(os.path.join(PROJECT_ROOT, "../data_utils/Sample data")),
-                Path(os.path.join(PROJECT_ROOT, "data_utils")),
-                Path(os.path.join(PROJECT_ROOT, "../data_utils"))
-            ]
-            
-            # Try each location until we find the file or exhaust all options
-            found_data = False
-            for data_dir in possible_data_dirs:
-                if (data_dir / "original_data.pkl").exists():
-                    print(f"Found original_data.pkl in {data_dir}")
-                    preprocessed_data = pd.read_pickle(data_dir / "original_data.pkl")
-                    found_data = True
-                    break
-            
-            # If we didn't find the file, just skip vinge data
-            if not found_data:
-                print("Could not find original_data.pkl in any of the expected locations. Proceeding without vinge data.")
-                vinge_data = None
-            else:
-                # Process vinge data if we found it
-                if station_id in preprocessed_data:
-                    station_data = preprocessed_data[station_id]
-                    
-                    # Check if vinge data exists for this station
-                    if 'vinge' in station_data:
-                        # Handle different structures - could be Series or DataFrame
-                        vinge_raw = station_data['vinge']
-                        if isinstance(vinge_raw, pd.DataFrame):
-                            vinge_data = vinge_raw
-                            print(f"Vinge data is already a DataFrame with columns: {vinge_data.columns}")
-                        else:
-                            # Convert to DataFrame if it's a Series
-                            vinge_data = pd.DataFrame({'vinge': vinge_raw})
-                        
-                        print(f"Loaded vinge data for station {station_id}: {len(vinge_data)} records")
-                        
-                        # Filter vinge data to match test data time range if test_actual has dates
-                        if len(test_actual) > 0:
-                            start_date = test_actual.index.min()
-                            end_date = test_actual.index.max()
-                            vinge_data = vinge_data[
-                                (vinge_data.index >= start_date) & 
-                                (vinge_data.index <= end_date)
-                            ]
-                            print(f"Filtered vinge data to match test period: {len(vinge_data)} records")
-                        
-                        # Check if we have any non-null vinge values
-                        if 'vinge' in vinge_data.columns:
-                            non_null_count = vinge_data['vinge'].count()
-                            print(f"Found {non_null_count} non-null vinge measurements")
-                    else:
-                        print(f"No vinge data found for station {station_id}")
-                        vinge_data = None
-                else:
-                    print(f"Station {station_id} not found in preprocessed data")
-                    vinge_data = None
-        except Exception as e:
-            print(f"Error loading vinge data: {str(e)}")
-            print("Continuing without vinge data.")
-            vinge_data = None
-    
     # Print lengths for debugging
     print(f"Length of test_actual: {len(test_actual)}")
     print(f"Length of predictions: {len(test_predictions)}")
@@ -169,19 +102,32 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     else:
         predictions_values = test_predictions.values if isinstance(test_predictions, pd.Series) else test_predictions
     
-    # Trim the predictions to match actual data length if needed
-    if len(predictions_values) > len(test_actual):
-        print("Trimming predictions to match actual data length")
-        predictions_values = predictions_values[:len(test_actual)]
+    # For iterative forecasting, shift predictions to align with their actual prediction times
+    if model_config and model_config.get('model_type') == 'iterative':
+        sequence_length = model_config.get('sequence_length', 50)
+        prediction_window = model_config.get('prediction_window', 10)
+        
+        # Create a Series of NaN values with the same length as test_actual
+        predictions_series = pd.Series(
+            index=test_actual.index,
+            data=np.nan
+        )
+        
+        # Place predictions at their correct future positions
+        if len(predictions_values) > 0:
+            # Calculate the start index for predictions (sequence_length steps from the start)
+            start_idx = sequence_length
+            # Place each prediction at its correct future position
+            for i in range(0, len(predictions_values), prediction_window):
+                if start_idx + i + prediction_window <= len(test_actual):
+                    predictions_series.iloc[start_idx + i:start_idx + i + prediction_window] = predictions_values[i:i + prediction_window]
     else:
-        print("Using full predictions")
-    
-    # Create a pandas Series for predictions with the matching datetime index
-    predictions_series = pd.Series(
-        data=predictions_values,
-        index=test_actual.index[:len(predictions_values)],
-        name='Predictions'
-    )
+        # For standard model, just align with actual data
+        predictions_series = pd.Series(
+            data=predictions_values,
+            index=test_actual.index[:len(predictions_values)],
+            name='Predictions'
+        )
     
     # Generate timestamp for unique filenames
     timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")

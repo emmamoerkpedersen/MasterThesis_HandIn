@@ -76,11 +76,15 @@ class FeatureScaler:
         Returns:
             tuple: (scaled_features, scaled_target)
         """
-        # Reset the fitted state
-        self.is_fitted = False
-        
-        # Call scale_data to fit the scalers and transform the data
-        return self.scale_data(features, target)
+        # Only reset fitted state if not already fitted
+        if not self.is_fitted:
+            # Call scale_data to fit the scalers and transform the data
+            scaled_features, scaled_target = self.scale_data(features, target)
+            self.is_fitted = True
+            return scaled_features, scaled_target
+        else:
+            # If already fitted, just transform
+            return self.transform(features, target)
     
     def inverse_transform_target(self, scaled_target):
         """

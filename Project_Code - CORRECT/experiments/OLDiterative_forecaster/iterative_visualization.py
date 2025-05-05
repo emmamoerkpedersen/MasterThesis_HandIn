@@ -50,7 +50,6 @@ class ForecastVisualizer:
                 index = pd.to_datetime(results['timestamps'])
                 original_data = pd.DataFrame(original_data, index=index)
             else:
-                # If no timestamps provided, use the original data's index
                 print("Warning: No timestamps provided. Using default index.")
                 original_data = pd.DataFrame(original_data)
         
@@ -92,7 +91,8 @@ class ForecastVisualizer:
         plt.figure(figsize=(16, 8))
         
         # Plot water levels and forecasts
-        plt.plot(original_data.index, original_data.values.flatten(), 'b-', label='Original Water Levels', linewidth=1)
+        plt.plot(original_data.index, original_data.values.flatten(), 'b-', 
+                label='Original Water Levels', linewidth=1)
         
         # If we have error-injected data, plot it
         if error_injected_data is not None:
@@ -105,8 +105,8 @@ class ForecastVisualizer:
         
         # Plot the clean forecast if available
         if clean_forecast is not None:
-            plt.plot(clean_forecast.index, clean_forecast.values.flatten(), '--', color='purple',
-                    label='Forecast (clean data)', linewidth=1.5)
+            plt.plot(clean_forecast.index, clean_forecast.values.flatten(), '--', 
+                    color='purple', label='Forecast (clean data)', linewidth=1.5)
         
         plt.title(title, fontsize=16)
         plt.xlabel('Date', fontsize=14)

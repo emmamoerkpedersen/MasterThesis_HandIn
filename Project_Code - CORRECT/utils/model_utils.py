@@ -92,7 +92,7 @@ def save_model(model, path='final_model.pth'):
     print(f"Model saved to {path}")
     return path
 
-def process_val_predictions(val_predictions, preprocessor, validation_data):
+def process_val_predictions(val_predictions, preprocessor, validation_data, model_config=None):
     """
     Process validation predictions and align with validation data.
     
@@ -100,6 +100,7 @@ def process_val_predictions(val_predictions, preprocessor, validation_data):
         val_predictions: Raw validation predictions tensor
         preprocessor: Data preprocessor with inverse transform capability
         validation_data: Validation data DataFrame
+        model_config: Model configuration dictionary
         
     Returns:
         DataFrame with processed validation predictions
@@ -107,12 +108,47 @@ def process_val_predictions(val_predictions, preprocessor, validation_data):
     from utils.pipeline_utils import prepare_prediction_dataframe
     
     # Convert validation predictions to numpy and reshape
-    val_predictions_np = val_predictions.cpu().numpy()
+    val_predictions_np = val_predictions.cpu().numpy() if isinstance(val_predictions, torch.Tensor) else val_predictions
     
-    # Preserve temporal order during inverse transform
-    predictions_reshaped = val_predictions_np.reshape(-1, 1)
+    # Print debug info about original shape
+    print(f"Original validation predictions shape: {val_predictions_np.shape}")
+    
+    # Handle multidimensional arrays (more than 2D)
+    if len(val_predictions_np.shape) > 2:
+        print(f"Flattening {len(val_predictions_np.shape)}-dimensional array")
+        # For 3D or higher, flatten all but the first dimension first
+        flattened_shape = (val_predictions_np.shape[0], -1)
+        val_predictions_np = val_predictions_np.reshape(flattened_shape)
+        print(f"Reshaped to: {val_predictions_np.shape}")
+    
+    # Now flatten to 1D
+    predictions_flattened = val_predictions_np.flatten()
+    print(f"Final flattened shape: {predictions_flattened.shape}")
+    
+    # Inverse transform the predictions
+    predictions_reshaped = predictions_flattened.reshape(-1, 1)
     predictions_original = preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
+    
+    # Handle iterative forecasting predictions differently
+    if model_config is not None and model_config.get('model_type') == 'iterative':
+        sequence_length = model_config.get('sequence_length', 50)
+        
+        # Create array of NaNs with the same length as validation data
+        aligned_predictions = np.full(len(validation_data), np.nan)
+        
+        # Place predictions after sequence_length
+        if len(predictions_flattened) > 0:
+            # Calculate how many predictions we can place
+            available_space = len(aligned_predictions) - sequence_length
+            num_predictions = min(len(predictions_flattened), available_space)
+            aligned_predictions[sequence_length:sequence_length + num_predictions] = predictions_flattened[:num_predictions]
+            
+        predictions_flattened = aligned_predictions
+    
+    # Print data lengths for debugging
+    print(f"Validation predictions length: {len(predictions_flattened)}")
+    print(f"Validation data length: {len(validation_data)}")
     
     # Create DataFrame with aligned predictions
     return prepare_prediction_dataframe(
@@ -121,13 +157,14 @@ def process_val_predictions(val_predictions, preprocessor, validation_data):
         len(validation_data)
     )
 
-def process_test_predictions(test_predictions, test_data):
+def process_test_predictions(test_predictions, test_data, model_config=None):
     """
     Process test predictions and align with test data.
     
     Args:
         test_predictions: Raw test predictions array
         test_data: Test data DataFrame
+        model_config: Model configuration dictionary
         
     Returns:
         DataFrame with processed test predictions
@@ -154,6 +191,22 @@ def process_test_predictions(test_predictions, test_data):
     # Now flatten to 1D
     test_predictions = test_predictions.flatten()
     print(f"Final flattened shape: {test_predictions.shape}")
+    
+    # Handle iterative forecasting predictions differently
+    if model_config is not None and model_config.get('model_type') == 'iterative':
+        sequence_length = model_config.get('sequence_length', 50)
+        
+        # Create array of NaNs with the same length as test data
+        aligned_predictions = np.full(len(test_data), np.nan)
+        
+        # Place predictions after sequence_length
+        if len(test_predictions) > 0:
+            # Calculate how many predictions we can place
+            available_space = len(aligned_predictions) - sequence_length
+            num_predictions = min(len(test_predictions), available_space)
+            aligned_predictions[sequence_length:sequence_length + num_predictions] = test_predictions[:num_predictions]
+            
+        test_predictions = aligned_predictions
     
     # Print data lengths for debugging
     print(f"Test predictions length: {len(test_predictions)}")

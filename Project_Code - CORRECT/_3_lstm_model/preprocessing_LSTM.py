@@ -42,12 +42,21 @@ class DataPreprocessor:
         Update the feature scaler with the latest feature columns.
         This should be called after adding new features.
         """
+        # If we already have a fitted scaler, preserve its state
+        was_fitted = getattr(self.feature_scaler, 'is_fitted', False)
+        old_scalers = getattr(self.feature_scaler, 'scalers', {})
+        
+        # Create new scaler with updated feature columns
         self.feature_scaler = FeatureScaler(
             feature_cols=self.feature_cols,
             output_features=self.output_features,
             device=self.device
         )
-        #print(f"Updated feature scaler with columns: {self.feature_cols}")
+        
+        # If we had a fitted scaler, restore its state
+        if was_fitted and old_scalers:
+            self.feature_scaler.scalers = old_scalers
+            self.feature_scaler.is_fitted = True
     
     def load_and_split_data(self, project_root, station_id):
         """
@@ -84,7 +93,7 @@ class DataPreprocessor:
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
         start_date = pd.Timestamp('2010-01-04')
-        end_date = pd.Timestamp('2011-01-07')
+        end_date = pd.Timestamp('2025-01-07')
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
@@ -153,13 +162,13 @@ class DataPreprocessor:
         #Filter data to only include the features and target feature
         data = data[all_features]
 
-        test_data = data
-        train_data = data
-        val_data = data
-        # # Split data based on years
-        # test_data = data[(data.index.year == 2024)]
-        # val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
-        # train_data = data[data.index.year < 2022]  # Training is everything before 2022
+        # test_data = data
+        # train_data = data
+        # val_data = data
+        # Split data based on years
+        test_data = data[(data.index.year == 2024)]
+        val_data = data[(data.index.year >= 2022) & (data.index.year <= 2023)]  # Validation is 2022-2023
+        train_data = data[data.index.year < 2022]  # Training is everything before 2022
         
         
         print(f"\nSplit Summary:")
@@ -309,3 +318,110 @@ class DataPreprocessor:
         Add cumulative features to the data.
         """
         return self.feature_engineer._add_cumulative_features(data)
+
+    def _create_iterative_sequences(self, features, target, sequence_length=50, prediction_window=10):
+        """
+        Create sequences for iterative forecasting with specified stride.
+        
+        Args:
+            features: numpy array of input features
+            target: numpy array of target values
+            sequence_length: length of input sequence (default: 50)
+            prediction_window: number of steps to predict (default: 10)
+            
+        Returns:
+            X: input sequences
+            y: target sequences
+        """
+        # Ensure inputs are numpy arrays
+        features = np.array(features)
+        target = np.array(target)
+        
+        X, y = [], []
+        
+        # Create sequences with stride equal to prediction_window
+        for i in range(0, len(features) - sequence_length - prediction_window + 1, prediction_window):
+            # Input sequence
+            feature_seq = features[i:i+sequence_length]
+            # Target sequence (prediction window after input sequence)
+            target_seq = target[i+sequence_length:i+sequence_length+prediction_window]
+            
+            # Only check NaN values in feature sequence
+            if np.sum(np.isnan(feature_seq)) > 0.5 * feature_seq.size:
+                continue
+            
+            # Fill NaN values only in features, preserve NaN in targets
+            feature_seq = pd.DataFrame(feature_seq).ffill().bfill().values
+            
+            X.append(feature_seq)
+            y.append(target_seq)
+        
+        if not X:
+            raise ValueError("No valid sequences found after NaN handling")
+        
+        return np.array(X), np.array(y)
+
+    def prepare_iterative_data(self, data, sequence_length=50, prediction_window=10, is_training=True):
+        """
+        Prepare data for iterative forecasting.
+        
+        Args:
+            data: Input DataFrame
+            sequence_length: Length of input sequence
+            prediction_window: Length of prediction window
+            is_training: Whether this is training data (for scaler fitting)
+            
+        Returns:
+            tuple: (X, y) tensors ready for model input
+        """
+        # Add time and cumulative features if enabled
+        if self.config.get('use_time_features', False):
+            data = self._add_time_features(data)
+        
+        if self.config.get('use_cumulative_features', False):
+            data = self._add_cumulative_features(data)
+            
+        # Add lagged features if enabled
+        if self.config.get('use_lagged_features', False):
+            lags = self.config.get('lag_hours', [1, 2, 3, 6, 12, 24])
+            data = self.feature_engineer.add_lagged_features(data, 
+                                                           target_col=self.output_features,
+                                                           lags=lags)
+            # Update feature columns with new lagged features
+            self.feature_cols = self.feature_engineer.feature_cols.copy()
+            self.update_feature_scaler()
+        
+        # Get features and target
+        feature_cols = self.feature_cols
+        target_col = self.output_features
+        
+        # Ensure all feature columns exist in data
+        missing_cols = [col for col in feature_cols if col not in data.columns]
+        if missing_cols:
+            raise ValueError(f"Missing columns in data: {missing_cols}")
+        
+        # Extract features and target
+        features = data[feature_cols]
+        target = pd.DataFrame(data[target_col])
+        
+        # Scale data using FeatureScaler
+        if is_training:
+            # Only fit_transform during training
+            scaled_features, scaled_target = self.feature_scaler.fit_transform(features, target)
+        else:
+            # For validation/test, just transform using the already fitted scaler
+            if not self.feature_scaler.is_fitted:
+                raise ValueError("Feature scaler has not been fitted. Please fit the scaler on training data first.")
+            scaled_features, scaled_target = self.feature_scaler.transform(features, target)
+        
+        # Create sequences for iterative forecasting
+        X, y = self._create_iterative_sequences(
+            scaled_features, 
+            scaled_target,
+            sequence_length=sequence_length,
+            prediction_window=prediction_window
+        )
+        
+        # Convert to tensors and move to device
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        return torch.FloatTensor(X).to(device), torch.FloatTensor(y).to(device)

@@ -20,14 +20,14 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 # Default configuration
 DEFAULT_CONFIG = {
     # Model parameters
-    'hidden_size': 16,          # Increased for more model capacity
+    'hidden_size': 5,          # Increased for more model capacity
     'num_layers': 1,            # Using three layers for better modeling
     'dropout': 0.2,             
     'batch_size': 16,          # Reduced batch size for better training
     'sequence_length': 100,  # Extended sequence length to capture more history
     'prediction_window': 30,    # Predict one step ahead
     'sequence_stride': 30,      # Stride for creating sequences
-    'epochs': 2,           # Increased for better convergence
+    'epochs': 1,           # Increased for better convergence
     'patience': 5,             # Early stopping patience
     'z_score_threshold': 5,   # Anomaly detection threshold
     'learning_rate': 0.1,     
@@ -365,15 +365,9 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
 def load_and_filter_data(preprocessor, project_root, station_id):
     """Load data and filter out low importance features"""
     train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
-        
-    # Reinitialize the feature scaler with updated columns
-    preprocessor.feature_scaler = preprocessor.feature_scaler.__class__(
-        feature_cols=preprocessor.feature_cols,
-        output_features=preprocessor.output_features,
-        device=preprocessor.device
-    )
     
-    print(f"\nRemaining features ({len(preprocessor.feature_cols)}):")
+    print(f"\nFeature Summary:")
+    print(f"Total features: {len(preprocessor.feature_cols)}")
     for feature in preprocessor.feature_cols:
         print(f"  - {feature}")
     

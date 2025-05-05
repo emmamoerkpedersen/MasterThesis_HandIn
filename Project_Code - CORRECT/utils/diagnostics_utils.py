@@ -94,7 +94,7 @@ def setup_basic_diagnostics(train_data, feature_cols, output_path):
         
         feature_plot_dir = Path(output_path) / "feature_plots"
         feature_plot_dir.mkdir(parents=True, exist_ok=True)
-        plot_features_stacked_plots(train_data, feature_cols, output_dir=feature_plot_dir)
+        plot_features_stacked_plots(train_data, feature_cols, output_dir=feature_plot_dir, years_to_show=0)
         print(f"Generated feature plots in {feature_plot_dir}")
     except Exception as e:
         print(f"Error setting up basic diagnostics: {str(e)}")
