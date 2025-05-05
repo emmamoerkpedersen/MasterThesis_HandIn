@@ -20,25 +20,25 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 # Default configuration
 DEFAULT_CONFIG = {
     # Model parameters
-    'hidden_size': 14,          # Increased for more model capacity
+    'hidden_size': 5,          # Increased for more model capacity
     'num_layers': 1,            # Using three layers for better modeling
     'dropout': 0.2,             
     'batch_size': 16,          # Reduced batch size for better training
     'sequence_length': 100,  # Extended sequence length to capture more history
     'prediction_window': 30,    # Predict one step ahead
     'sequence_stride': 30,      # Stride for creating sequences
-    'epochs': 10,           # Increased for better convergence
+    'epochs': 1,           # Increased for better convergence
     'patience': 5,             # Early stopping patience
     'z_score_threshold': 5,   # Anomaly detection threshold
-    'learning_rate': 0.01,     
+    'learning_rate': 0.1,     
     
     # Iterative training parameters
     'max_iterations': 5,        # Maximum number of iterations per batch
     'convergence_threshold': 0.01,  # Threshold for prediction convergence
     
     # Model architecture configuration
-    'use_time_features': True,  
-    'use_cumulative_features': True, 
+    'use_time_features': False,  
+    'use_cumulative_features': False, 
     'use_lagged_features': False,  
     'lag_hours': [72, 96, 168, 336, 720, 1440],  # Lag hours (1d, 2d, 4d, 7d, 14d, 30d, 60d)
     
@@ -131,7 +131,7 @@ def parse_args():
     parser.add_argument('--ma_hours', type=str, default='6,12,24',
                        help='Comma-separated list of hours for moving average features')
     
-    parser.add_argument('--sequence_length', type=int, default=500,
+    parser.add_argument('--sequence_length', type=int, default=100,
                         help='Sequence length to use for the model (number of timesteps)')
     
                        
@@ -152,7 +152,6 @@ def train_and_save_model(forecaster, train_data, val_data, project_root, station
     
     # Print training configuration
     print("\nTraining Configuration:")
-    print(f"  - Max Iterations per Batch: {forecaster.config['max_iterations']}")
     print(f"  - Convergence Threshold: {forecaster.config['convergence_threshold']}")
     print(f"  - Batch Size: {forecaster.config['batch_size']}")
     print(f"  - Sequence Length: {forecaster.config['sequence_length']}")
@@ -179,7 +178,7 @@ def reconstruct_features_with_errors(forecaster, original_data, error_periods):
     
     # Create a copy of just the essential columns (raw data before feature engineering)
     # First, determine which columns are raw data vs derived features
-    raw_columns = ['temperature', 'rainfall', output_feature]
+    raw_columns = ['temperature', 'rainfall', 'vst_raw_feature', output_feature]
     
     # Add any feature station columns
     for station in forecaster.config['feature_stations']:
@@ -288,8 +287,7 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
         'clean_data': val_results_clean['clean_data'],
         'error_injected_data': val_data_with_errors[output_feature],
         'forecasts': val_results_with_errors['forecasts'],
-        'clean_forecast': val_results_clean['forecasts'],
-        'detected_anomalies': val_results_with_errors['detected_anomalies']
+        'clean_forecast': val_results_clean['forecasts']
     }
     
     # Create plots directory
@@ -302,14 +300,14 @@ def run_validation_with_errors(forecaster, visualizer, val_data, error_periods, 
     print("\nCreating visualizations...")
     
     # Plot validation results
-    visualizer.plot_forecast_with_anomalies(
+    visualizer.plot_forecast(
         combined_results,
         title="Water Level Forecasting with Injected Errors (Iterative Training)",
         save_path=plots_dir / "water_forecast_with_errors.png"
     )
     
     # Interactive Plotly plot
-    visualizer.plot_forecast_with_anomalies_plotly(
+    visualizer.plot_forecast_plotly(
         combined_results,
         title="Water Level Forecasting with Injected Errors - Interactive (Iterative Training)",
         save_path=interactive_dir / "water_forecast_with_errors.html"
@@ -331,7 +329,7 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
     # Plot test results
     print("\nPlotting test results...")
     # Static matplotlib plot
-    visualizer.plot_forecast_with_anomalies(
+    visualizer.plot_forecast(
         test_results,
         title="Water Level Forecasting for Test Data",
         save_path=plots_dir / "water_forecast_test.png"
@@ -339,7 +337,7 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
     
     # Interactive Plotly plot
     print("\nCreating interactive visualizations...")
-    visualizer.plot_forecast_with_anomalies_plotly(
+    visualizer.plot_forecast_plotly(
         test_results,
         title="Water Level Forecasting for Test Data - Interactive",
         save_path=interactive_dir / "water_forecast_test.html"
@@ -356,25 +354,10 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
     
     # Interactive simplified plot
     visualizer.plot_forecast_simple_plotly(
-        test_results,
-        title="Water Level Forecast vs Actual - Interactive (Simplified)",
-        save_path=interactive_dir / "water_forecast_simple.html"
+       test_results,
+       title="Water Level Forecast vs Actual - Interactive (Simplified)",
+       save_path=interactive_dir / "water_forecast_simple.html"
     )
-    
-    # Summarize anomalies in test data
-    test_anomalies = test_results['detected_anomalies'] 
-    test_anomaly_count = test_anomalies['is_anomaly'].sum()
-    test_total_points = len(test_anomalies)
-    
-    print(f"\nTest Data Anomaly Detection Summary:")
-    print(f"Total test data points: {test_total_points}")
-    print(f"Anomalies detected in test data: {test_anomaly_count} ({test_anomaly_count/test_total_points*100:.2f}%)")
-    
-    if 'anomaly_type' in test_anomalies.columns:
-        # Count by type
-        type_counts = test_anomalies[test_anomalies['is_anomaly']]['anomaly_type'].value_counts()
-        for anomaly_type, count in type_counts.items():
-            print(f"  - {anomaly_type.capitalize()} anomalies: {count} ({count/test_anomaly_count*100:.2f}%)")
     
     return test_results
 
@@ -382,15 +365,9 @@ def run_test_predictions(forecaster, visualizer, test_data, output_dir):
 def load_and_filter_data(preprocessor, project_root, station_id):
     """Load data and filter out low importance features"""
     train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
-        
-    # Reinitialize the feature scaler with updated columns
-    preprocessor.feature_scaler = preprocessor.feature_scaler.__class__(
-        feature_cols=preprocessor.feature_cols,
-        output_features=preprocessor.output_features,
-        device=preprocessor.device
-    )
     
-    print(f"\nRemaining features ({len(preprocessor.feature_cols)}):")
+    print(f"\nFeature Summary:")
+    print(f"Total features: {len(preprocessor.feature_cols)}")
     for feature in preprocessor.feature_cols:
         print(f"  - {feature}")
     
@@ -454,9 +431,13 @@ def main():
         'num_layers': config['num_layers'],
         'epochs': config['epochs'],
         'batch_size': config['batch_size'],
-        'hidden_size': config['hidden_size']
+        'hidden_size': config['hidden_size'],
+        'prediction window': config['prediction_window'],
+        'stride': config['sequence_stride'],
+        'learning rate': config['learning_rate']
     }.items():
         print(f"  - {key.replace('_', ' ').title()}: {format_config_value(key, value)}")
+  
     
     # Print custom features if any
     if custom_features:
@@ -491,7 +472,7 @@ def main():
         )
         
         # Also test on test data
-        run_test_predictions(forecaster, visualizer, test_data, output_path)
+        #run_test_predictions(forecaster, visualizer, test_data, output_path)
         
     elif args.mode == 'predict':
         # Prediction mode - load model and run on test data
@@ -505,7 +486,7 @@ def main():
             train_and_save_model(forecaster, train_data, val_data, project_dir, station_id, output_path)
         
         # Run predictions on test data
-        run_test_predictions(forecaster, visualizer, test_data, output_path)
+       # run_test_predictions(forecaster, visualizer, test_data, output_path)
         
     elif args.mode == 'test_error':
         # Error testing mode - train model and run with injected errors
@@ -524,7 +505,7 @@ def main():
         
         print(f"\n=== Test Data Predictions ({args.prediction_mode} mode) ===")
         # Run predictions on test data
-        run_test_predictions(forecaster, visualizer, test_data, test_dir)
+        #run_test_predictions(forecaster, visualizer, test_data, test_dir)
     
     
     print("\nDone!")

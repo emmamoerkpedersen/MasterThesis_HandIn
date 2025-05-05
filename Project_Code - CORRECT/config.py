@@ -129,39 +129,40 @@ PHYSICAL_LIMITS = {
 # LSTM Configuration
 LSTM_CONFIG = {
 
-    'hidden_size': 128,         
+    'hidden_size': 64,         
     'num_layers': 3,            
     'dropout': 0.25,             
     'batch_size': 16,
-    'sequence_length': 5000,
-    'epochs': 100,
-    'patience': 15,            
+    'sequence_length': 100,
+    'prediction_window': 25,
+    'epochs': 10,
+    'patience': 8,            
 
     'warmup_length': 100,
     'learning_rate': 0.001,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
-
+    'objective_function': 'mse_loss',
     'use_time_features': True,  
     'use_cumulative_features': True, 
     # Add lag features for better prediction
     'use_lagged_features':False,
-    'lag_hours': [1, 2, 3, 6, 12, 24],  # Lag periods in hours
+    'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
         'rainfall',
-        'temperature'
+        'temperature', 'vst_raw_feature'
     ],
     'output_features': ['vst_raw'],
 
     'feature_stations': [
         {
             'station_id': '21006845',
-            'features': ['rainfall', 'vst_raw']
+            'features': ['rainfall']
         },
         {
             'station_id': '21006847',
-            'features': ['rainfall', 'vst_raw']
+            'features': ['rainfall']
         }
     ]
 }
