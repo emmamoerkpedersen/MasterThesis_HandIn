@@ -51,7 +51,7 @@ def set_plot_style():
     plt.rcParams['axes.edgecolor'] = '#cccccc'
     plt.rcParams['axes.linewidth'] = 1.0
 
-def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None, show_config=False):
+def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None, show_config=False, synthetic_data=None):
     """
     Create an interactive plot with aligned datetime indices, rainfall data, and model configuration.
     
@@ -66,6 +66,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         metrics: Optional dictionary with additional performance metrics
         title_suffix: Optional suffix to add to the plot title
         show_config: Whether to show model configuration (default: False)
+        synthetic_data: Optional DataFrame containing data with synthetic errors
     """
     # Ensure output directory exists using relative path
     output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
@@ -188,18 +189,30 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
                 go.Scatter(
                     x=test_actual.index,
                     y=test_actual.values,
-                    name="VST RAW",
+                    name="VST RAW (Clean)",
                     line=dict(color='#1f77b4', width=1)
                 ),
                 row=2, col=1
             )
             
+            # Add synthetic error data if available
+            if synthetic_data is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=synthetic_data.index,
+                        y=synthetic_data['vst_raw'].values,
+                        name="VST RAW (with Synthetic Errors)",
+                        line=dict(color='#d62728', width=1, dash='dot')
+                    ),
+                    row=2, col=1
+                )
+            
             fig.add_trace(
                 go.Scatter(
                     x=predictions_series.index,
                     y=predictions_series.values,
-                    name="Predicted",
-                    line=dict(color='#d62728', width=1)
+                    name="Predictions",
+                    line=dict(color='#2ca02c', width=1)
                 ),
                 row=2, col=1
             )
@@ -299,17 +312,28 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
                 go.Scatter(
                     x=test_actual.index,
                     y=test_actual.values,
-                    name="VST RAW",
+                    name="VST RAW (Clean)",
                     line=dict(color='#1f77b4', width=1)
                 )
             )
+            
+            # Add synthetic error data if available
+            if synthetic_data is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=synthetic_data.index,
+                        y=synthetic_data['vst_raw'].values,
+                        name="VST RAW (with Synthetic Errors)",
+                        line=dict(color='#d62728', width=1, dash='dot')
+                    )
+                )
             
             fig.add_trace(
                 go.Scatter(
                     x=predictions_series.index,
                     y=predictions_series.values,
-                    name="Predicted",
-                    line=dict(color='#d62728', width=1)
+                    name="Predictions",
+                    line=dict(color='#2ca02c', width=1)
                 )
             )
             
@@ -471,7 +495,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
             # Add as annotation at the top of the plot
             fig.add_annotation(
                 x=0.5,  # Center of the plot
-                y=1.05,  # Just above the plot title
+                y=1.50,  # Just above the plot title
                 xref="paper", 
                 yref="paper",
                 text=compact_text,

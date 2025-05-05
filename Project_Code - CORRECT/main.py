@@ -275,7 +275,20 @@ def run_pipeline(
     
     # Plot validation results
     if model_diagnostics:
-        create_full_plot(original_val_data, val_predictions_df, str(station_id), model_config, best_val_loss, title_suffix=val_plot_title)
+        # Add data with synthetic errors to the plot if errors were injected
+        synthetic_data = None
+        if inject_synthetic_errors and val_data_with_errors_raw is not None:
+            synthetic_data = val_data_with_errors_raw
+        
+        create_full_plot(
+            original_val_data, 
+            val_predictions_df, 
+            str(station_id), 
+            model_config, 
+            best_val_loss, 
+            title_suffix=val_plot_title,
+            synthetic_data=synthetic_data
+        )
         
         # Plot convergence
         plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
@@ -288,8 +301,15 @@ def run_pipeline(
     test_predictions_df = process_test_predictions(test_predictions, original_test_data, model_config)
     
     # Plot test results with model config
-    if model_diagnostics:
-        create_full_plot(original_test_data, test_predictions_df, str(station_id), model_config, title_suffix=test_plot_title)
+    # if model_diagnostics:
+    #     create_full_plot(
+    #         original_test_data, 
+    #         test_predictions_df, 
+    #         str(station_id), 
+    #         model_config, 
+    #         title_suffix=test_plot_title,
+    #         synthetic_data=None  # No synthetic errors in test data
+    #     )
     
     # Calculate metrics using original test data
     if model_type == 'iterative':

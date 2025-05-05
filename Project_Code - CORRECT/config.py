@@ -135,7 +135,7 @@ LSTM_CONFIG = {
     'batch_size': 16,
     'sequence_length': 100,
     'prediction_window': 25,
-    'epochs': 20,
+    'epochs': 10,
     'patience': 8,            
 
     'warmup_length': 100,
@@ -146,7 +146,7 @@ LSTM_CONFIG = {
     'use_time_features': True,  
     'use_cumulative_features': True, 
     # Add lag features for better prediction
-    'use_lagged_features':True,
+    'use_lagged_features':False,
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [

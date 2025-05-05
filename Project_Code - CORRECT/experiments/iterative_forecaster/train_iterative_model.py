@@ -65,18 +65,28 @@ class IterativeForecastTrainer:
 
     def _run_epoch(self, data_loader, training=True):
         """
-        Runs an epoch for training or validation with iterative forecasting
+        Runs an epoch for training or validation with iterative forecasting.
+        Includes warmup period where loss is not calculated for initial timesteps.
         """
         self.model.train() if training else self.model.eval()
         total_loss = 0
+        num_batches_with_loss = 0
         
         # Lists to store validation predictions and targets
         all_predictions = []
         all_targets = []
 
+        # Get warmup length from config
+        warmup_length = self.config.get('warmup_length', 0)
+
         with torch.set_grad_enabled(training):
             for batch_idx, (batch_X, batch_y) in enumerate(tqdm(data_loader, desc="Training" if training else "Validating", leave=False)):
-                self.optimizer.zero_grad()
+                # Move data to device
+                batch_X = batch_X.to(self.device)
+                batch_y = batch_y.to(self.device)
+                
+                if training:
+                    self.optimizer.zero_grad()
                 
                 # Initialize previous predictions as None for first sequence
                 prev_predictions = None
@@ -87,36 +97,50 @@ class IterativeForecastTrainer:
                 # Store predictions for next iteration if not in training mode
                 if not training:
                     prev_predictions = outputs.detach()
+                    # Always store predictions and targets for validation
+                    all_predictions.append(outputs.cpu().detach())
+                    all_targets.append(batch_y.cpu())
                 
                 # Create mask for valid predictions (non-NaN values)
                 non_nan_mask = ~torch.isnan(batch_y)
-                valid_mask = non_nan_mask
                 
-                valid_outputs = outputs[valid_mask]
-                valid_target = batch_y[valid_mask]
+                # Add warmup mask - don't calculate loss for warmup period
+                # Only apply warmup to the first batch
+                if warmup_length > 0 and batch_idx == 0:
+                    warmup_mask = torch.ones_like(non_nan_mask, dtype=torch.bool)
+                    warmup_mask[:, :warmup_length] = False
+                    valid_mask = non_nan_mask & warmup_mask
+                else:
+                    valid_mask = non_nan_mask
                 
-                if valid_target.size(0) == 0:
-                    continue
-
-                loss = self.criterion(valid_outputs, valid_target)
-                
-                if training:
-                    loss.backward()
-                    self.optimizer.step()
-                
-                total_loss += loss.item()
-
-                if not training:
-                    all_predictions.append(outputs.cpu().detach())
-                    all_targets.append(batch_y.cpu())
+                # Only proceed with loss calculation if we have valid points
+                if valid_mask.any():
+                    valid_outputs = outputs[valid_mask]
+                    valid_target = batch_y[valid_mask]
+                    
+                    if valid_target.size(0) > 0:
+                        loss = self.criterion(valid_outputs, valid_target)
+                        
+                        if training:
+                            loss.backward()
+                            self.optimizer.step()
+                        
+                        total_loss += loss.item()
+                        num_batches_with_loss += 1
 
         if training:
-            return total_loss / len(data_loader)
+            # Return average loss only for batches where loss was calculated
+            return total_loss / max(1, num_batches_with_loss)
         else:
-            # Concatenate all validation predictions and targets
+            # For validation, always return predictions and targets
+            if len(all_predictions) == 0:
+                # Return empty tensors with correct shape if no predictions
+                return 0.0, torch.empty(0, device=self.device), torch.empty(0, device=self.device)
+            
             val_predictions = torch.cat(all_predictions, dim=0)
             val_targets = torch.cat(all_targets, dim=0)
-            return total_loss / len(data_loader), val_predictions, val_targets
+            avg_loss = total_loss / max(1, num_batches_with_loss)
+            return avg_loss, val_predictions, val_targets
 
     def train(self, train_data, val_data, epochs, batch_size, patience):
         """
