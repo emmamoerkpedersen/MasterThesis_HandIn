@@ -134,11 +134,11 @@ LSTM_CONFIG = {
     'dropout': 0.25,             
     'batch_size': 16,
     'sequence_length': 100,
-    'prediction_window': 25,
-    'epochs': 10,
+    'prediction_window': 10,
+    'epochs': 100,
     'patience': 8,            
 
-    'warmup_length': 100,
+    'warmup_length': 1,
     'learning_rate': 0.001,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
@@ -146,7 +146,7 @@ LSTM_CONFIG = {
     'use_time_features': True,  
     'use_cumulative_features': True, 
     # Add lag features for better prediction
-    'use_lagged_features':False,
+    'use_lagged_features': False,
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
