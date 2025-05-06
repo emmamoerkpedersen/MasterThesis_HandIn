@@ -25,7 +25,7 @@ class IterativeForecastTrainer:
             preprocessor: Instance of DataPreprocessor
         """
         self.config = config
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cpu')#('cuda' if torch.cuda.is_available() else 'cpu')
         self.preprocessor = preprocessor
 
         # Initialize LSTM Model using parameters from config
@@ -127,6 +127,15 @@ class IterativeForecastTrainer:
                         
                         total_loss += loss.item()
                         num_batches_with_loss += 1
+                
+                # Explicitly clear variables to free GPU memory
+                if torch.cuda.is_available():
+                    del batch_X, batch_y, outputs
+                    if 'valid_outputs' in locals():
+                        del valid_outputs
+                    if 'valid_target' in locals():
+                        del valid_target
+                    torch.cuda.empty_cache()
 
         if training:
             # Return average loss only for batches where loss was calculated
@@ -146,6 +155,22 @@ class IterativeForecastTrainer:
         """
         Train the iterative LSTM model.
         """
+        # Try to reduce batch size if using GPU to prevent memory issues
+        if torch.cuda.is_available():
+            # Dynamically adjust batch size based on GPU memory
+            try:
+                # Get total GPU memory in MB
+                total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**2
+                # Heuristic: reduce batch size for GPUs with less memory
+                if total_memory < 8000:  # Less than 8GB
+                    # Reduce batch size, but ensure it's at least 16
+                    batch_size = max(16, batch_size // 2)
+                    print(f"Reduced batch size to {batch_size} for GPU memory optimization")
+            except:
+                # If we can't check GPU memory, reduce batch size anyway just to be safe
+                batch_size = max(16, batch_size // 2)
+                print(f"Reduced batch size to {batch_size} for GPU memory optimization")
+            
         # Check if data needs preprocessing
         if not isinstance(train_data, tuple):
             # First, fit the scaler on all training data
@@ -176,20 +201,31 @@ class IterativeForecastTrainer:
         print(f"\nTraining sequences shape: {train_sequences[0].shape}")
         print(f"Validation sequences shape: {val_sequences[0].shape}")
         
-        # Create data loaders with num_workers for parallel data loading
+        # Determine if we should pin memory - only if CUDA is available and tensors are on CPU
+        pin_memory = False
+        if torch.cuda.is_available():
+            # Only pin memory if data is on CPU
+            if train_sequences[0].device.type == 'cpu':
+                pin_memory = True
+        
+        # Create data loaders with safer settings
+        num_workers = 0 if torch.cuda.is_available() else 2  # Reduce workers for GPU to minimize memory issues
+        
         train_loader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(train_sequences[0], train_sequences[1]), 
             batch_size=batch_size, 
             shuffle=True,
-            num_workers=4,
-            pin_memory=True
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            persistent_workers=False
         )
         val_loader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(val_sequences[0], val_sequences[1]), 
             batch_size=batch_size, 
             shuffle=False,
-            num_workers=4,
-            pin_memory=True
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            persistent_workers=False
         )
 
         # Initialize early stopping
@@ -201,29 +237,50 @@ class IterativeForecastTrainer:
         # Training loop with progress bar
         current_lr = self.optimizer.param_groups[0]['lr']
         for epoch in range(epochs):
-            train_loss = self._run_epoch(train_loader, training=True)
-            val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
+            try:
+                train_loss = self._run_epoch(train_loader, training=True)
+                val_loss, val_predictions, val_targets = self._run_epoch(val_loader, training=False)
 
-            # Store history
-            history['train_loss'].append(train_loss)
-            history['val_loss'].append(val_loss)
+                # Store history
+                history['train_loss'].append(train_loss)
+                history['val_loss'].append(val_loss)
 
-            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {current_lr:.2e}")
+                print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {current_lr:.2e}")
 
-            # Early stopping
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-                best_model_state = self.model.state_dict().copy()
-            else:
-                patience_counter += 1
-                if patience_counter >= patience:
-                    print("Early stopping triggered!")
-                    break
+                # Early stopping
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    best_model_state = self.model.state_dict().copy()
+                else:
+                    patience_counter += 1
+                    if patience_counter >= patience:
+                        print("Early stopping triggered!")
+                        break
+                
+                # Clear GPU memory between epochs
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    
+            except RuntimeError as e:
+                if "CUDA" in str(e):
+                    print(f"CUDA error occurred: {str(e)}")
+                    if "out of memory" in str(e) or "mapping of buffer object failed" in str(e):
+                        # Clear GPU memory and try to save what we have so far
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        
+                        print("GPU memory issue occurred. Saving current best model and terminating training.")
+                        break
+                else:
+                    # Re-raise other runtime errors
+                    raise
 
         # Restore best model
         if best_model_state:
             self.model.load_state_dict(best_model_state)
+        else:
+            print("Warning: No best model was saved during training.")
 
         return history, val_predictions, val_targets
 
@@ -314,5 +371,10 @@ class IterativeForecastTrainer:
             
             if batch_idx % 10 == 0:
                 print(f"Batch {batch_idx}: Average Loss = {total_loss / (batch_idx + 1):.4f}")
+            
+            # Explicitly clear variables to free GPU memory
+            if torch.cuda.is_available():
+                del data, targets, all_predictions
+                torch.cuda.empty_cache()
         
         return total_loss / len(train_loader) 
