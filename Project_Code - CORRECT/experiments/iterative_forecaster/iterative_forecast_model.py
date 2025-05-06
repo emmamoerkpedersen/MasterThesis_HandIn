@@ -2,7 +2,6 @@ import torch.nn as nn
 from pathlib import Path
 import sys
 
-
 # Add the necessary paths
 current_dir = Path(__file__).resolve().parent
 project_dir = current_dir.parent.parent
@@ -53,6 +52,8 @@ class ForecastingLSTM(nn.Module):
         """
         batch_size, seq_len, num_features = x.size()
         
+
+        
         # If we have previous predictions, incorporate them into input
         if prev_predictions is not None:
             # Create updated input using previous predictions
@@ -70,7 +71,7 @@ class ForecastingLSTM(nn.Module):
                 x_updated[:, original_values_to_keep:original_values_to_keep + predictions_to_use, 0] = prev_predictions[:, -predictions_to_use:]
             
             # Use the updated input
-            x = x_updated
+            x = x_updated # Shape: (batch_size, seq_len, num_features)
         
         # Process through LSTM
         main_out, _ = self.main_lstm(x)
@@ -82,5 +83,6 @@ class ForecastingLSTM(nn.Module):
         # Generate forecast for multiple steps
         forecast = self.fc(final_output)  # Shape: (batch_size, prediction_window)
         
+  
         return forecast
     

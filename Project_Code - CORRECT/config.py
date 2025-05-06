@@ -50,26 +50,26 @@ SYNTHETIC_ERROR_PARAMS = {
         }
     },
     
-    'drift': {
-        'frequency': 0.0000,
-        # Wider range for drift durations
-        'duration_range': [500, 1168],  # Changed from [24, 168]
-        # More varied magnitude range
-        'magnitude_range': [5, 50],   # Changed from [10, 50]
-        'negative_positive_ratio': 0.5,
-        'context_aware': {
-            'subtle_prob': 0.5,
-            'medium_prob': 0.3,
-            'obvious_prob': 0.2
-        }
-    },
+    # 'drift': {
+    #     'frequency': 0.0000,
+    #     # Wider range for drift durations
+    #     'duration_range': [500, 1168],  # Changed from [24, 168]
+    #     # More varied magnitude range
+    #     'magnitude_range': [5, 50],   # Changed from [10, 50]
+    #     'negative_positive_ratio': 0.5,
+    #     'context_aware': {
+    #         'subtle_prob': 0.5,
+    #         'medium_prob': 0.3,
+    #         'obvious_prob': 0.2
+    #     }
+    # },
     
-    'flatline': {
-        'frequency': 0.000,
-        # More varied durations
-        'duration_range': (10, 200),  # Changed from (20, 200)
-        'value_method': 'first_value'
-    },
+    # 'flatline': {
+    #     'frequency': 0.000,
+    #     # More varied durations
+    #     'duration_range': (10, 200),  # Changed from (20, 200)
+    #     'value_method': 'first_value'
+    # },
     
     'offset': {
         'frequency': 0.0000,
@@ -92,11 +92,11 @@ SYNTHETIC_ERROR_PARAMS = {
         'intensity_range': (1, 4)  # Changed from (2, 4)
     },
     
-    'baseline_shift': {
-        'frequency': 0,  # Still disabled
-        'magnitude_range': (100, 600),  # Changed from (200, 600)
-        'negative_positive_ratio': 0.5
-    },
+    # 'baseline_shift': {
+    #     'frequency': 0,  # Still disabled
+    #     'magnitude_range': (100, 600),  # Changed from (200, 600)
+    #     'negative_positive_ratio': 0.5
+    # },
     
     # Updated physical limits
     'PHYSICAL_LIMITS': {
@@ -134,11 +134,11 @@ LSTM_CONFIG = {
     'dropout': 0.25,             
     'batch_size': 16,
     'sequence_length': 100,
-    'prediction_window': 25,
-    'epochs': 10,
+    'prediction_window': 10,
+    'epochs': 100,
     'patience': 8,            
 
-    'warmup_length': 100,
+    'warmup_length': 1,
     'learning_rate': 0.001,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
@@ -146,7 +146,7 @@ LSTM_CONFIG = {
     'use_time_features': True,  
     'use_cumulative_features': True, 
     # Add lag features for better prediction
-    'use_lagged_features':False,
+    'use_lagged_features': False,
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
