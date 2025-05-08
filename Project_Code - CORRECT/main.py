@@ -19,7 +19,8 @@ sys.path.append(str(Path(__file__).parent))
 # Local imports
 # Configuration
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
-from _4_anomaly_detection.z_score import calculate_z_scores 
+from _4_anomaly_detection.z_score import calculate_z_scores, calculate_z_scores_mad
+from _4_anomaly_detection.anomaly_visualization import plot_water_level_anomalies
 
 # Pipeline utilities
 from utils.pipeline_utils import (
@@ -257,28 +258,24 @@ def run_pipeline(
     # Calculate Z-scores
     if inject_synthetic_errors and val_data_with_errors_raw is not None:
         print("Calculating Z-scores for data with synthetic errors")
-        # Use data with synthetic errors
-        from _4_anomaly_detection.z_score import calculate_z_scores
-        z_scores, anomalies = calculate_z_scores(
+        # Use data with synthetic error
+        z_scores, anomalies = calculate_z_scores_mad(
             val_data_with_errors_raw['vst_raw'].values, 
             val_predictions_df['vst_raw'].values,
-            window_size=150,
-            threshold=5.0  # Lowered threshold to catch more anomalies
+            window_size=100,
+            threshold=15.0  
         )
     else:
         print("Calculating Z-scores for clean data")
         # Use clean data
-        from _4_anomaly_detection.z_score import calculate_z_scores
-        z_scores, anomalies = calculate_z_scores(
+        z_scores, anomalies = calculate_z_scores_mad(
             original_val_data['vst_raw'].values, 
             val_predictions_df['vst_raw'].values,
-            window_size=150,
-            threshold=5.0  # Lowered threshold to catch more anomalies
+            window_size=100,
+            threshold=15.0  
         )
     print(f"Number of anomalies detected: {np.sum(anomalies)}")
     
-    # Create anomaly visualization
-    from _4_anomaly_detection.anomaly_visualization import plot_water_level_anomalies
     
     print("Creating anomaly visualization...")
     if inject_synthetic_errors and val_data_with_errors_raw is not None:

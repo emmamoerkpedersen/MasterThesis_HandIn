@@ -38,7 +38,7 @@ def calculate_z_scores(y_true, y_pred, window_size=100, threshold=6.0):
 
     return z_scores, anomalies
 
-def calculate_z_scores_mad(y_true, y_pred, window_size=100, threshold=6.0):
+def calculate_z_scores_mad(y_true, y_pred, window_size=100, threshold=15.0):
     # Calculate residuals, handling NaN values
     residuals = np.full_like(y_true, np.nan, dtype=np.float32)
     valid_mask = ~(np.isnan(y_true) | np.isnan(y_pred))
