@@ -1,10 +1,11 @@
 import numpy as np
 
-def calculate_z_scores(y_true, y_pred, window_size=500, threshold=10.0):
+def calculate_z_scores(y_true, y_pred, window_size=100, threshold=5.0):
     # Calculate residuals, handling NaN values
     residuals = np.full_like(y_true, np.nan, dtype=np.float32)
     valid_mask = ~(np.isnan(y_true) | np.isnan(y_pred))
-    residuals[valid_mask] = y_true[valid_mask] - y_pred[valid_mask]
+    # Calculate absolute residuals
+    residuals[valid_mask] = abs(y_true[valid_mask] - y_pred[valid_mask])
     
     z_scores = np.full_like(residuals, np.nan, dtype=np.float32)
     anomalies = np.zeros_like(residuals, dtype=bool)

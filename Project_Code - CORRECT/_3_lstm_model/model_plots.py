@@ -1342,7 +1342,7 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
     if title_suffix:
         title = f'{title} - {title_suffix}'
     
-    # Get the actual test data with its datetime index
+    # Get the actual test data with its datetime index (for reference only)
     test_actual = test_data['vst_raw']
     
     # Get rainfall data without resampling
@@ -1460,12 +1460,13 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
             )
             
             # Add water level data to second subplot (bottom)
+            # First add original data as a light gray line for reference
             fig.add_trace(
                 go.Scatter(
                     x=test_actual.index,
                     y=test_actual.values,
-                    name="VST RAW (Clean)",
-                    line=dict(color='#1f77b4', width=1)
+                    name="VST RAW (Reference)",
+                    line=dict(color='rgba(128, 128, 128, 0.3)', width=1)
                 ),
                 row=2, col=1
             )
@@ -1523,27 +1524,28 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
                 row=2, col=1
             )
             
-            # Add anomalies as scatter points
+            # Add anomalies as scatter points on the synthetic data
             if isinstance(anomalies, pd.Series):
                 anomaly_indices = anomalies[anomalies].index
             else:
                 anomaly_indices = test_actual.index[anomalies]
             
-            fig.add_trace(
-                go.Scatter(
-                    x=anomaly_indices,
-                    y=test_actual[anomaly_indices],
-                    mode='markers',
-                    name='Anomalies',
-                    marker=dict(
-                        color='red',
-                        size=8,
-                        symbol='x',
-                        line=dict(width=2)
-                    )
-                ),
-                row=2, col=1
-            )
+            if synthetic_df is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=anomaly_indices,
+                        y=synthetic_df.loc[anomaly_indices, 'vst_raw'],
+                        mode='markers',
+                        name='Anomalies',
+                        marker=dict(
+                            color='red',
+                            size=8,
+                            symbol='x',
+                            line=dict(width=2)
+                        )
+                    ),
+                    row=2, col=1
+                )
             
             # Update y-axes labels and ranges
             fig.update_yaxes(
@@ -1583,12 +1585,14 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
             
         else:
             fig = go.Figure()
+            
+            # Add original data as a light gray line for reference
             fig.add_trace(
                 go.Scatter(
                     x=test_actual.index,
                     y=test_actual.values,
-                    name="VST RAW (Clean)",
-                    line=dict(color='#1f77b4', width=1)
+                    name="VST RAW (Reference)",
+                    line=dict(color='rgba(128, 128, 128, 0.3)', width=1)
                 )
             )
             
@@ -1628,7 +1632,7 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
                         x=synthetic_df.index,
                         y=synthetic_df['vst_raw'].values,
                         name="VST RAW (with Synthetic Errors)",
-                        line=dict(color='#d62728', width=1, dash='dot')
+                        line=dict(color='#d62728', width=1)
                     )
                 )
             
@@ -1642,26 +1646,27 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
                 )
             )
             
-            # Add anomalies as scatter points
+            # Add anomalies as scatter points on the synthetic data
             if isinstance(anomalies, pd.Series):
                 anomaly_indices = anomalies[anomalies].index
             else:
                 anomaly_indices = test_actual.index[anomalies]
             
-            fig.add_trace(
-                go.Scatter(
-                    x=anomaly_indices,
-                    y=test_actual[anomaly_indices],
-                    mode='markers',
-                    name='Anomalies',
-                    marker=dict(
-                        color='red',
-                        size=8,
-                        symbol='x',
-                        line=dict(width=2)
+            if synthetic_df is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=anomaly_indices,
+                        y=synthetic_df.loc[anomaly_indices, 'vst_raw'],
+                        mode='markers',
+                        name='Anomalies',
+                        marker=dict(
+                            color='red',
+                            size=8,
+                            symbol='x',
+                            line=dict(width=2)
+                        )
                     )
                 )
-            )
         
         # Update layout
         fig.update_layout(

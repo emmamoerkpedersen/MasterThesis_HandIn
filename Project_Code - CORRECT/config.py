@@ -121,7 +121,7 @@ LSTM_CONFIG = {
     'batch_size': 16,
     'sequence_length': 100,
     'prediction_window': 10,
-    'epochs': 10,
+    'epochs': 5,
     'patience': 8,            
 
     'warmup_length': 1,
