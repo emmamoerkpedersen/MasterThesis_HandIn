@@ -262,8 +262,8 @@ def run_pipeline(
         z_scores, anomalies = calculate_z_scores_mad(
             val_data_with_errors_raw['vst_raw'].values, 
             val_predictions_df['vst_raw'].values,
-            window_size=100,
-            threshold=15.0  
+            window_size=model_config['window_size'],
+            threshold=model_config['threshold']  
         )
     else:
         print("Calculating Z-scores for clean data")
@@ -271,8 +271,8 @@ def run_pipeline(
         z_scores, anomalies = calculate_z_scores_mad(
             original_val_data['vst_raw'].values, 
             val_predictions_df['vst_raw'].values,
-            window_size=100,
-            threshold=15.0  
+            window_size=model_config['window_size'],
+            threshold=model_config['threshold']  
         )
     print(f"Number of anomalies detected: {np.sum(anomalies)}")
     

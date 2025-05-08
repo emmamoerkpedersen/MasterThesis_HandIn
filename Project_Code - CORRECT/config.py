@@ -127,6 +127,9 @@ LSTM_CONFIG = {
     'warmup_length': 50,
     'learning_rate': 0.001,    
 
+    'threshold': 15,
+    'window_size': 100,
+
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
     'objective_function': 'smoothL1_loss',
     'use_time_features': False,  
