@@ -34,7 +34,7 @@ SYNTHETIC_ERROR_PARAMS = {
     'use_context_aware': False,
     
     'spike': {
-        'count_per_year': 0,  # Base count: 5 spikes per year
+        'count_per_year': 2,  # Base count: 5 spikes per year
         # Wider range to allow for more subtle spikes
         'magnitude_range': (0.1, 1.0),  # Changed from (0.4, 0.8)
         'negative_positiv_ratio': 0.5,
@@ -121,7 +121,7 @@ LSTM_CONFIG = {
     'batch_size': 16,
     'sequence_length': 100,
     'prediction_window': 10,
-    'epochs': 10,
+    'epochs': 2,
     'patience': 8,            
 
     'warmup_length': 1,

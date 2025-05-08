@@ -48,7 +48,7 @@ from utils.model_utils import (
 
 # Model infrastructure
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence, plot_anomalies
+from _3_lstm_model.model_plots import create_full_plot, plot_convergence
 from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
 
 # Experiment modules
@@ -256,12 +256,63 @@ def run_pipeline(
     
     # Calculate Z-scores
     if inject_synthetic_errors and val_data_with_errors_raw is not None:
+        print("Calculating Z-scores for data with synthetic errors")
         # Use data with synthetic errors
-        z_scores, anomalies = calculate_z_scores(val_data_with_errors_raw['vst_raw'].values, val_predictions_df['vst_raw'].values)
+        from _4_anomaly_detection.z_score import calculate_z_scores
+        z_scores, anomalies = calculate_z_scores(
+            val_data_with_errors_raw['vst_raw'].values, 
+            val_predictions_df['vst_raw'].values,
+            window_size=150,
+            threshold=5.0  # Lowered threshold to catch more anomalies
+        )
     else:
+        print("Calculating Z-scores for clean data")
         # Use clean data
-        z_scores, anomalies = calculate_z_scores(original_val_data['vst_raw'].values, val_predictions_df['vst_raw'].values)
+        from _4_anomaly_detection.z_score import calculate_z_scores
+        z_scores, anomalies = calculate_z_scores(
+            original_val_data['vst_raw'].values, 
+            val_predictions_df['vst_raw'].values,
+            window_size=150,
+            threshold=5.0  # Lowered threshold to catch more anomalies
+        )
     print(f"Number of anomalies detected: {np.sum(anomalies)}")
+    
+    # Create anomaly visualization
+    from _4_anomaly_detection.anomaly_visualization import plot_water_level_anomalies
+    
+    print("Creating anomaly visualization...")
+    if inject_synthetic_errors and val_data_with_errors_raw is not None:
+        # Use data with synthetic errors for visualization
+        test_data_viz = val_data_with_errors_raw
+    else:
+        # Use clean data for visualization
+        test_data_viz = original_val_data
+    
+    # Create the visualization with detected anomalies
+    plot_title = f"Water Level Forecasting with Anomaly Detection - Station {station_id}"
+    if inject_synthetic_errors:
+        plot_title += " (Data with Synthetic Errors)"
+    
+    # Create output directory
+    anomaly_viz_dir = Path(project_root) / "results" / "anomaly_detection"
+    anomaly_viz_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate visualization
+    png_path, html_path = plot_water_level_anomalies(
+        test_data=test_data_viz,
+        predictions=val_predictions_df['vst_raw'],
+        z_scores=z_scores,
+        anomalies=anomalies,
+        title=plot_title,
+        output_dir=anomaly_viz_dir,
+        save_png=True,
+        save_html=True,
+        show_plot=False,  # Don't show plot directly to avoid blocking the pipeline
+    )
+    
+    print(f"Anomaly visualization saved to:")
+    print(f"PNG: {png_path}")
+    print(f"HTML: {html_path}")
     
     # Set plot titles
     val_plot_title = "Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data"
@@ -298,18 +349,6 @@ def run_pipeline(
             synthetic_data=synthetic_data
         )
         plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
-
-        # Generate anomaly plot
-        plot_anomalies(
-            test_data=original_val_data,
-            test_predictions=val_predictions_df,
-            anomalies=anomalies,
-            station_id=station_id,
-            model_config=model_config,
-            best_val_loss=best_val_loss,
-            title_suffix=val_plot_title,
-            synthetic_data=synthetic_data
-        )
     # Generate test predictions
     print("\nMaking predictions on test set...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
