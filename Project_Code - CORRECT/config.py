@@ -124,7 +124,7 @@ LSTM_CONFIG = {
     'epochs': 2,
     'patience': 8,            
 
-    'warmup_length': 50,
+    'warmup_length': 1,
     'learning_rate': 0.001,    
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
