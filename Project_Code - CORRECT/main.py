@@ -19,6 +19,7 @@ sys.path.append(str(Path(__file__).parent))
 # Local imports
 # Configuration
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
+from _4_anomaly_detection.z_score import calculate_z_scores 
 
 # Pipeline utilities
 from utils.pipeline_utils import (
@@ -47,7 +48,7 @@ from utils.model_utils import (
 
 # Model infrastructure
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence
+from _3_lstm_model.model_plots import create_full_plot, plot_convergence, plot_anomalies
 from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
 
 # Experiment modules
@@ -253,6 +254,15 @@ def run_pipeline(
     # Process validation predictions
     val_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
     
+    # Calculate Z-scores
+    if inject_synthetic_errors and val_data_with_errors_raw is not None:
+        # Use data with synthetic errors
+        z_scores, anomalies = calculate_z_scores(val_data_with_errors_raw['vst_raw'].values, val_predictions_df['vst_raw'].values)
+    else:
+        # Use clean data
+        z_scores, anomalies = calculate_z_scores(original_val_data['vst_raw'].values, val_predictions_df['vst_raw'].values)
+    print(f"Number of anomalies detected: {np.sum(anomalies)}")
+    
     # Set plot titles
     val_plot_title = "Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data"
     test_plot_title = "Model Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Model Trained on Clean Data"
@@ -288,7 +298,18 @@ def run_pipeline(
             synthetic_data=synthetic_data
         )
         plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
-    
+
+        # Generate anomaly plot
+        plot_anomalies(
+            test_data=original_val_data,
+            test_predictions=val_predictions_df,
+            anomalies=anomalies,
+            station_id=station_id,
+            model_config=model_config,
+            best_val_loss=best_val_loss,
+            title_suffix=val_plot_title,
+            synthetic_data=synthetic_data
+        )
     # Generate test predictions
     print("\nMaking predictions on test set...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)

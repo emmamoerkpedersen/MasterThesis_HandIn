@@ -1,6 +1,6 @@
 import numpy as np
 
-def calculate_z_scores(y_true, y_pred, window_size=100, threshold=3.0):
+def calculate_z_scores(y_true, y_pred, window_size=150, threshold=10.0):
     residuals = y_true - y_pred
     z_scores = np.full_like(residuals, np.nan, dtype=np.float32)
     anomalies = np.zeros_like(residuals, dtype=bool)

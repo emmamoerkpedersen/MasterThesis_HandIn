@@ -635,7 +635,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         
     return png_path
 
-def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, best_val_loss=None, metrics=None, vinge_data=None, show_config=False, title_suffix=None, synthetic_data=None):
+def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, best_val_loss=None, metrics=None, vinge_data=None, show_config=False, title_suffix=None, synthetic_data=None, anomalies=None):
     """
     Create a publication-quality matplotlib plot with just water level data and save as PNG.
     Designed for thesis report with consistent colors and clean styling.
@@ -652,6 +652,7 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
         vinge_data: Optional DataFrame containing manual board (VINGE) measurements
         title_suffix: Optional suffix to add to the plot title
         synthetic_data: Optional DataFrame containing data with synthetic errors
+        anomalies: Optional Boolean array indicating anomaly locations
     """
     # Set default output directory if not provided
     if output_dir is None:
@@ -1311,3 +1312,421 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
     plt.close(fig)
     
     return output_path
+
+def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None, show_config=False, synthetic_data=None):
+    """
+    Create an interactive plot with aligned datetime indices, rainfall data, model configuration, and anomalies.
+    
+    Args:
+        test_data: DataFrame containing test data with datetime index
+        test_predictions: DataFrame or Series containing predictions
+        anomalies: Boolean array or Series indicating anomaly locations
+        station_id: ID of the station being analyzed
+        model_config: Optional dictionary containing model configuration parameters
+        best_val_loss: Optional best validation loss achieved during training
+        create_html: Whether to create HTML plot (default: True)
+        open_browser: Whether to open the plot in browser (default: True)
+        metrics: Optional dictionary with additional performance metrics
+        title_suffix: Optional suffix to add to the plot title
+        show_config: Whether to show model configuration (default: False)
+        synthetic_data: Optional DataFrame containing data with synthetic errors
+    """
+    # Ensure output directory exists using relative path
+    output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    station_id = str(station_id)
+    
+    # Create the title with optional suffix
+    title = f'Prediction Analysis with Anomalies for Station {station_id}'
+    if title_suffix:
+        title = f'{title} - {title_suffix}'
+    
+    # Get the actual test data with its datetime index
+    test_actual = test_data['vst_raw']
+    
+    # Get rainfall data without resampling
+    rainfall_data = None
+    if 'rainfall' in test_data.columns:
+        rainfall_data = test_data['rainfall']
+    
+    # Print lengths for debugging
+    print(f"Length of test_actual: {len(test_actual)}")
+    print(f"Length of predictions: {len(test_predictions)}")
+    
+    # Extract predictions values - handle both DataFrame and Series inputs
+    if isinstance(test_predictions, pd.DataFrame):
+        predictions_values = test_predictions['vst_raw'].values
+    else:
+        predictions_values = test_predictions.values if isinstance(test_predictions, pd.Series) else test_predictions
+    
+    # Create a Series of NaN values with the same length as test_actual
+    predictions_series = pd.Series(
+        index=test_actual.index,
+        data=np.nan
+    )
+
+    # Get sequence length from model config, default to 50 if not specified
+    sequence_length = model_config.get('sequence_length', 50) if model_config else 50
+
+    if model_config and model_config.get('model_type') == 'iterative':
+        prediction_window = model_config.get('prediction_window', 10)
+        
+        # Place predictions at their correct future positions
+        if len(predictions_values) > 0:
+            # Calculate the start index for predictions (sequence_length steps from the start)
+            start_idx = sequence_length
+            # Place each prediction at its correct future position
+            for i in range(0, len(predictions_values), prediction_window):
+                if start_idx + i + prediction_window <= len(test_actual):
+                    predictions_series.iloc[start_idx + i:start_idx + i + prediction_window] = predictions_values[i:i + prediction_window]
+    else:
+        # For standard model, still account for sequence_length offset
+        if len(predictions_values) > 0:
+            # Place predictions starting from sequence_length
+            end_idx = min(sequence_length + len(predictions_values), len(test_actual))
+            predictions_series.iloc[sequence_length:end_idx] = predictions_values[:end_idx-sequence_length]
+    
+    # Generate timestamp for unique filenames
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create error periods directory
+    error_periods_dir = output_dir / 'error_periods'
+    error_periods_dir.mkdir(exist_ok=True)
+    
+    # Extract error periods and synthetic data DataFrame from synthetic_data dict if available
+    error_periods = []
+    synthetic_df = None
+    if synthetic_data is not None:
+        if isinstance(synthetic_data, dict):
+            error_periods = synthetic_data.get('error_periods', [])
+            synthetic_df = synthetic_data.get('data', None)
+        elif hasattr(synthetic_data, 'error_periods'):
+            error_periods = synthetic_data.error_periods
+            synthetic_df = synthetic_data
+        elif isinstance(synthetic_data, pd.DataFrame):
+            synthetic_df = synthetic_data
+    
+    # Always create the PNG version with config text at the bottom
+    png_path = create_water_level_plot_png(
+        test_actual, 
+        predictions_series, 
+        station_id, 
+        timestamp, 
+        model_config, 
+        output_dir,
+        best_val_loss,
+        metrics=metrics,
+        show_config=show_config,
+        title_suffix=title_suffix,
+        synthetic_data=synthetic_data,  # Pass the full structure with both data and error_periods
+        anomalies=anomalies  # Pass anomalies to the PNG creation function
+    )
+    
+    # Create the HTML version only if requested
+    if create_html:
+        # Create subplots - rainfall on top, water level on bottom
+        subplot_rows = 2 if rainfall_data is not None else 1
+        
+        if rainfall_data is not None:
+            specs = [[{"secondary_y": False}] for _ in range(subplot_rows)]
+            subplot_titles = [
+                'Rainfall',
+                f'Water Level - Station {station_id}'
+            ]
+            
+            fig = make_subplots(
+                rows=subplot_rows,
+                cols=1,
+                shared_xaxes=True,
+                vertical_spacing=0.08,
+                subplot_titles=subplot_titles,
+                specs=specs,
+                row_heights=[0.3, 0.7]  # Give more space to rainfall
+            )
+            
+            # Add rainfall data to first subplot (top)
+            fig.add_trace(
+                go.Bar(
+                    x=rainfall_data.index,
+                    y=rainfall_data.values,
+                    name="Rainfall",
+                    marker_color='rgba(0, 0, 255, 0.6)',  # More visible blue
+                    opacity=0.8,
+                    width=60*60*1000,  # 1-hour width in milliseconds
+                    yaxis="y1"
+                ),
+                row=1, col=1
+            )
+            
+            # Add water level data to second subplot (bottom)
+            fig.add_trace(
+                go.Scatter(
+                    x=test_actual.index,
+                    y=test_actual.values,
+                    name="VST RAW (Clean)",
+                    line=dict(color='#1f77b4', width=1)
+                ),
+                row=2, col=1
+            )
+            
+            # Add synthetic error data if available
+            if synthetic_df is not None:
+                # Add colored background regions for different error types
+                error_colors = {
+                    'spike': 'rgba(255, 0, 0, 0.1)',      # Light red
+                    'flatline': 'rgba(0, 255, 0, 0.1)',   # Light green
+                    'drift': 'rgba(0, 0, 255, 0.1)',      # Light blue
+                    'offset': 'rgba(255, 165, 0, 0.1)',   # Light orange
+                    'baseline_shift': 'rgba(128, 0, 128, 0.1)',  # Light purple
+                    'noise': 'rgba(128, 128, 128, 0.1)'   # Light gray
+                }
+                
+                # Add error type backgrounds
+                for error_type, color in error_colors.items():
+                    # Find periods with this error type
+                    type_periods = [p for p in error_periods if p.error_type == error_type]
+                    
+                    for period in type_periods:
+                        fig.add_shape(
+                            type="rect",
+                            x0=period.start_time,
+                            x1=period.end_time,
+                            y0=test_actual.min(),
+                            y1=test_actual.max(),
+                            fillcolor=color,
+                            opacity=0.3,
+                            layer="below",
+                            line_width=0,
+                            row=2, col=1
+                        )
+                
+                # Add synthetic data line
+                fig.add_trace(
+                    go.Scatter(
+                        x=synthetic_df.index,
+                        y=synthetic_df['vst_raw'].values,
+                        name="VST RAW (with Synthetic Errors)",
+                        line=dict(color='#d62728', width=1, dash='dot')
+                    ),
+                    row=2, col=1
+                )
+            
+            # Add predictions
+            fig.add_trace(
+                go.Scatter(
+                    x=predictions_series.index,
+                    y=predictions_series.values,
+                    name="Predictions",
+                    line=dict(color='#2ca02c', width=1)
+                ),
+                row=2, col=1
+            )
+            
+            # Add anomalies as scatter points
+            if isinstance(anomalies, pd.Series):
+                anomaly_indices = anomalies[anomalies].index
+            else:
+                anomaly_indices = test_actual.index[anomalies]
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=anomaly_indices,
+                    y=test_actual[anomaly_indices],
+                    mode='markers',
+                    name='Anomalies',
+                    marker=dict(
+                        color='red',
+                        size=8,
+                        symbol='x',
+                        line=dict(width=2)
+                    )
+                ),
+                row=2, col=1
+            )
+            
+            # Update y-axes labels and ranges
+            fig.update_yaxes(
+                title_text="Rainfall (mm)",
+                row=1, col=1,
+                autorange=True,
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)',
+                rangemode='nonnegative'
+            )
+            
+            fig.update_yaxes(
+                title_text="Water Level (mm)",
+                row=2, col=1,
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)'
+            )
+            
+            # Update x-axes
+            fig.update_xaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)',
+                rangeslider_visible=False,
+                row=1, col=1
+            )
+            
+            fig.update_xaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(128, 128, 128, 0.2)',
+                rangeslider_visible=True,
+                row=2, col=1
+            )
+            
+        else:
+            fig = go.Figure()
+            fig.add_trace(
+                go.Scatter(
+                    x=test_actual.index,
+                    y=test_actual.values,
+                    name="VST RAW (Clean)",
+                    line=dict(color='#1f77b4', width=1)
+                )
+            )
+            
+            # Add synthetic error data if available
+            if synthetic_df is not None:
+                # Add colored background regions for different error types
+                error_colors = {
+                    'spike': 'rgba(255, 0, 0, 0.1)',      # Light red
+                    'flatline': 'rgba(0, 255, 0, 0.1)',   # Light green
+                    'drift': 'rgba(0, 0, 255, 0.1)',      # Light blue
+                    'offset': 'rgba(255, 165, 0, 0.1)',   # Light orange
+                    'baseline_shift': 'rgba(128, 0, 128, 0.1)',  # Light purple
+                    'noise': 'rgba(128, 128, 128, 0.1)'   # Light gray
+                }
+                
+                # Add error type backgrounds
+                for error_type, color in error_colors.items():
+                    # Find periods with this error type
+                    type_periods = [p for p in error_periods if p.error_type == error_type]
+                    
+                    for period in type_periods:
+                        fig.add_shape(
+                            type="rect",
+                            x0=period.start_time,
+                            x1=period.end_time,
+                            y0=test_actual.min(),
+                            y1=test_actual.max(),
+                            fillcolor=color,
+                            opacity=0.3,
+                            layer="below",
+                            line_width=0
+                        )
+                
+                # Add synthetic data line
+                fig.add_trace(
+                    go.Scatter(
+                        x=synthetic_df.index,
+                        y=synthetic_df['vst_raw'].values,
+                        name="VST RAW (with Synthetic Errors)",
+                        line=dict(color='#d62728', width=1, dash='dot')
+                    )
+                )
+            
+            # Add predictions
+            fig.add_trace(
+                go.Scatter(
+                    x=predictions_series.index,
+                    y=predictions_series.values,
+                    name="Predictions",
+                    line=dict(color='#2ca02c', width=1)
+                )
+            )
+            
+            # Add anomalies as scatter points
+            if isinstance(anomalies, pd.Series):
+                anomaly_indices = anomalies[anomalies].index
+            else:
+                anomaly_indices = test_actual.index[anomalies]
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=anomaly_indices,
+                    y=test_actual[anomaly_indices],
+                    mode='markers',
+                    name='Anomalies',
+                    marker=dict(
+                        color='red',
+                        size=8,
+                        symbol='x',
+                        line=dict(width=2)
+                    )
+                )
+            )
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                'text': title,
+                'y': 0.95,
+                'x': 0.5,
+                'xanchor': 'center',
+                'yanchor': 'top',
+                'font': {'size': 24}
+            },
+            width=1500,
+            height=1000,
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            margin=dict(l=80, r=80, t=180, b=80),
+            dragmode='zoom'
+        )
+        fig.update_xaxes(fixedrange=False)
+        fig.update_yaxes(fixedrange=False)
+
+        # Add range selector buttons
+        fig.update_xaxes(
+            rangeslider_visible=True,
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=7, label="1w", step="day", stepmode="backward"),
+                    dict(count=1, label="1m", step="month", stepmode="backward"),
+                    dict(count=3, label="3m", step="month", stepmode="backward"),
+                    dict(count=6, label="6m", step="month", stepmode="backward"),
+                    dict(count=1, label="1y", step="year", stepmode="backward"),
+                    dict(step="all", label="all")
+                ]),
+                bgcolor='rgba(150, 200, 250, 0.4)',
+                activecolor='rgba(100, 150, 200, 0.8)'
+            ),
+            row=subplot_rows, col=1
+        )
+        
+        # Save HTML plot
+        html_path = output_dir / f'anomalies_station_{station_id}_{timestamp}.html'
+        fig.write_html(str(html_path), include_plotlyjs='cdn', full_html=True, config={
+            'displayModeBar': True,
+            'responsive': True,
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': f'station_{station_id}_anomalies_{timestamp}',
+                'height': 1000,
+                'width': 1500,
+                'scale': 2
+            }
+        })
+        
+        # Open HTML in browser if requested
+        if open_browser:
+            absolute_path = os.path.abspath(html_path)
+            print(f"Opening plot in browser: {absolute_path}")
+            webbrowser.open('file://' + str(absolute_path))
+        
+    return png_path
