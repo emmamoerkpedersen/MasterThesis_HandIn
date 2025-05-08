@@ -28,7 +28,7 @@ class IterativeForecastTrainer:
             preprocessor: Instance of DataPreprocessor
         """
         self.config = config
-        self.device = torch.device('cpu')#('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.preprocessor = preprocessor
 
         # Initialize LSTM Model using parameters from config

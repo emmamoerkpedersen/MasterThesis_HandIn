@@ -32,6 +32,7 @@ class ForecastingLSTM(nn.Module):
         )
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
+        
         # Fully connected layer to map to output
         self.fc = nn.Linear(hidden_size, output_size)
         

@@ -1,5 +1,5 @@
 """
-This module contains functions for running error frequency experiments.
+This module contains functions for running error multiplier experiments.
 """
 import pandas as pd
 import numpy as np
@@ -12,36 +12,36 @@ from datetime import datetime
 # Import plot functions from model_plots module
 from _3_lstm_model.model_plots import create_water_level_plot_png
 
-def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
+def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
     """
-    Run experiments with different error frequencies to analyze impact on model performance.
+    Run experiments with different error multipliers to analyze impact on model performance.
     
     Args:
         run_pipeline: Function to run the model pipeline
-        error_frequencies: List of error frequencies to test (between 0 and 1)
-                          If None, uses default values [0.0, 0.05, 0.1, 0.15]
+        error_multipliers: List of error multipliers to test
+                          If None, uses default values [0.0, 0.5, 1.0, 1.5, 2.0, 3.0]
     """
-    if error_frequencies is None:
-        error_frequencies = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.15]
+    if error_multipliers is None:
+        error_multipliers = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0]
     
     # Set up paths
     project_root = Path(__file__).parents[1]
     data_path = project_root / "data_utils" / "Sample data" / "VST_RAW.txt"
     output_path = project_root / "results"
-    compare_plots_dir = output_path / "error_frequency_plots"
+    compare_plots_dir = output_path / "error_multiplier_plots"
     
     # Create output directories if they don't exist
     output_path.mkdir(parents=True, exist_ok=True)
     compare_plots_dir.mkdir(parents=True, exist_ok=True)
     
-    print("\nRunning LSTM model with varying error frequencies to analyze impact")
+    print("\nRunning LSTM model with varying error multipliers to analyze impact")
     
     # Create a dataframe to store all results
     all_results = pd.DataFrame()
     
-    # First run the clean model once (error_frequency = 0.0)
+    # First run the clean model once (error_multiplier = 0.0)
     print(f"\n{'='*80}")
-    print(f"Running baseline model with clean data (0% error frequency)")
+    print(f"Running baseline model with clean data (0x error multiplier)")
     print(f"{'='*80}")
     
     try:
@@ -55,7 +55,7 @@ def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
             inject_synthetic_errors=False,  # No synthetic errors for baseline
             model_diagnostics=True,         # Enable basic model plots
             advanced_diagnostics=False,     # But disable advanced diagnostics
-            error_frequency=0.0,
+            error_multiplier=0.0,
         )
         
         # Save the clean model for later use
@@ -88,14 +88,14 @@ def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
             'clean_val_loss': np.nan
         }
     
-    # Now run for each non-zero error frequency
-    for error_freq in [f for f in error_frequencies if f > 0]:
+    # Now run for each non-zero error multiplier
+    for error_mult in [m for m in error_multipliers if m > 0]:
         print(f"\n{'='*80}")
-        print(f"Running experiment with error frequency: {error_freq*100:.1f}%")
+        print(f"Running experiment with error multiplier: {error_mult:.1f}x")
         print(f"{'='*80}")
         
         try:
-            # Run pipeline with current error frequency
+            # Run pipeline with current error multiplier
             performance_metrics = run_pipeline(
                 project_root=project_root,
                 data_path=data_path, 
@@ -105,12 +105,12 @@ def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
                 inject_synthetic_errors=True,  # Enable synthetic error injection
                 model_diagnostics=True,        # Enable basic model plots 
                 advanced_diagnostics=False,    # But disable advanced diagnostics
-                error_frequency=error_freq,
+                error_multiplier=error_mult,
             )
             
             # Create a record for this experiment
             experiment_record = {
-                'error_frequency': error_freq,
+                'error_multiplier': error_mult,
                 'error_rmse': performance_metrics.get('error_model', {}).get('rmse', np.nan),
                 'error_mae': performance_metrics.get('error_model', {}).get('mae', np.nan),
                 'error_r2': performance_metrics.get('error_model', {}).get('r2', np.nan),
@@ -139,17 +139,17 @@ def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
             all_results = pd.concat([all_results, pd.DataFrame([experiment_record])], ignore_index=True)
             
             # Save the cumulative results after each run
-            cumulative_results_path = output_path / "error_frequency_results.csv"
+            cumulative_results_path = output_path / "error_multiplier_results.csv"
             all_results.to_csv(cumulative_results_path, index=False)
             print(f"\nSaved cumulative results to: {cumulative_results_path}")
             
             # Also add to the standard error comparison file
             standard_metrics_file = output_path / "error_comparison_metrics.csv"
             if standard_metrics_file.exists():
-                # Read existing file, check if we already have this frequency
+                # Read existing file, check if we already have this multiplier
                 existing_df = pd.read_csv(standard_metrics_file)
-                # Remove any existing row with this error frequency to avoid duplicates
-                existing_df = existing_df[existing_df['error_frequency'] != error_freq]
+                # Remove any existing row with this error multiplier to avoid duplicates
+                existing_df = existing_df[existing_df['error_multiplier'] != error_mult]
                 # Add our new result
                 updated_df = pd.concat([existing_df, pd.DataFrame([experiment_record])], ignore_index=True)
                 updated_df.to_csv(standard_metrics_file, index=False)
@@ -157,10 +157,10 @@ def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
                 # Create new file with just this result
                 pd.DataFrame([experiment_record]).to_csv(standard_metrics_file, index=False)
             
-            print(f"\nExperiment with {error_freq*100:.1f}% error frequency completed!")
+            print(f"\nExperiment with {error_mult:.1f}x error multiplier completed!")
             
         except Exception as e:
-            print(f"\nError running pipeline with {error_freq*100:.1f}% error frequency: {e}")
+            print(f"\nError running pipeline with {error_mult:.1f}x error multiplier: {e}")
             traceback.print_exc()
     
     print("\nAll experiments completed!")
@@ -171,7 +171,7 @@ def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
         
         print("\nSummary of Results:")
         print(f"{'='*80}")
-        print(final_results[['error_frequency', 'clean_rmse', 'error_rmse', 'clean_mae', 'error_mae', 'clean_nse', 'error_nse']])
+        print(final_results[['error_multiplier', 'clean_rmse', 'error_rmse', 'clean_mae', 'error_mae', 'clean_nse', 'error_nse']])
         
         # Calculate percentage degradation if not already done
         if 'rmse_pct_increase' not in final_results.columns:
@@ -183,63 +183,63 @@ def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
         
         print("\nPerformance Degradation:")
         print(f"{'='*80}")
-        print(final_results[['error_frequency', 'rmse_pct_increase', 'mae_pct_increase', 'nse_pct_decrease']])
+        print(final_results[['error_multiplier', 'rmse_pct_increase', 'mae_pct_increase', 'nse_pct_decrease']])
         
-        # Create plots to visualize the relationship between error frequency and model performance
+        # Create plots to visualize the relationship between error multiplier and model performance
         plt.figure(figsize=(15, 10))
         
-        # Sort results by error frequency for smooth plots
-        final_results = final_results.sort_values('error_frequency')
+        # Sort results by error multiplier for smooth plots
+        final_results = final_results.sort_values('error_multiplier')
         
-        # Plot 1: Absolute metrics by frequency
+        # Plot 1: Absolute metrics by multiplier
         plt.subplot(2, 2, 1)
-        plt.plot(final_results['error_frequency'], final_results['clean_rmse'], 'o-', label='Clean Model RMSE')
-        plt.plot(final_results['error_frequency'], final_results['error_rmse'], 'o-', label='Error Model RMSE')
-        plt.title('RMSE vs Error Frequency')
-        plt.xlabel('Error Frequency')
+        plt.plot(final_results['error_multiplier'], final_results['clean_rmse'], 'o-', label='Clean Model RMSE')
+        plt.plot(final_results['error_multiplier'], final_results['error_rmse'], 'o-', label='Error Model RMSE')
+        plt.title('RMSE vs Error Multiplier')
+        plt.xlabel('Error Multiplier')
         plt.ylabel('RMSE (mm)')
         plt.grid(True, alpha=0.3)
         plt.legend()
         
         plt.subplot(2, 2, 2)
-        plt.plot(final_results['error_frequency'], final_results['clean_mae'], 'o-', label='Clean Model MAE')
-        plt.plot(final_results['error_frequency'], final_results['error_mae'], 'o-', label='Error Model MAE')
-        plt.title('MAE vs Error Frequency')
-        plt.xlabel('Error Frequency')
+        plt.plot(final_results['error_multiplier'], final_results['clean_mae'], 'o-', label='Clean Model MAE')
+        plt.plot(final_results['error_multiplier'], final_results['error_mae'], 'o-', label='Error Model MAE')
+        plt.title('MAE vs Error Multiplier')
+        plt.xlabel('Error Multiplier')
         plt.ylabel('MAE (mm)')
         plt.grid(True, alpha=0.3)
         plt.legend()
         
-        # Plot 2: Percentage changes by frequency
+        # Plot 2: Percentage changes by multiplier
         plt.subplot(2, 2, 3)
-        plt.plot(final_results['error_frequency'], final_results['rmse_pct_increase'], 'o-', label='RMSE % Increase')
-        plt.plot(final_results['error_frequency'], final_results['mae_pct_increase'], 'o-', label='MAE % Increase')
-        plt.title('Error Metrics % Increase vs Error Frequency')
-        plt.xlabel('Error Frequency')
+        plt.plot(final_results['error_multiplier'], final_results['rmse_pct_increase'], 'o-', label='RMSE % Increase')
+        plt.plot(final_results['error_multiplier'], final_results['mae_pct_increase'], 'o-', label='MAE % Increase')
+        plt.title('Error Metrics % Increase vs Error Multiplier')
+        plt.xlabel('Error Multiplier')
         plt.ylabel('Percentage Increase (%)')
         plt.grid(True, alpha=0.3)
         plt.legend()
         
-        # Plot 3: NSE by frequency
+        # Plot 3: NSE by multiplier
         plt.subplot(2, 2, 4)
-        plt.plot(final_results['error_frequency'], final_results['clean_nse'], 'o-', label='Clean Model NSE')
-        plt.plot(final_results['error_frequency'], final_results['error_nse'], 'o-', label='Error Model NSE')
-        plt.title('NSE vs Error Frequency')
-        plt.xlabel('Error Frequency')
+        plt.plot(final_results['error_multiplier'], final_results['clean_nse'], 'o-', label='Clean Model NSE')
+        plt.plot(final_results['error_multiplier'], final_results['error_nse'], 'o-', label='Error Model NSE')
+        plt.title('NSE vs Error Multiplier')
+        plt.xlabel('Error Multiplier')
         plt.ylabel('NSE')
         plt.grid(True, alpha=0.3)
         plt.legend()
         
         plt.tight_layout()
-        plot_path = output_path / "error_frequency_impact.png"
+        plot_path = output_path / "error_multiplier_impact.png"
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"\nSaved error frequency impact visualization to: {plot_path}")
+        print(f"\nSaved error multiplier impact visualization to: {plot_path}")
         
         # Create a summary HTML file
         try:
             create_summary_html(final_results, output_path, compare_plots_dir)
-            print(f"\nCreated summary HTML file at: {output_path / 'error_frequency_summary.html'}")
+            print(f"\nCreated summary HTML file at: {output_path / 'error_multiplier_summary.html'}")
         except Exception as e:
             print(f"\nError creating summary HTML: {e}")
             traceback.print_exc()
@@ -250,7 +250,7 @@ def run_error_frequency_experiments(run_pipeline, error_frequencies=None):
 
 def create_summary_html(results_df, output_path, plots_dir):
     """
-    Create an HTML summary page of all error frequency experiment results.
+    Create an HTML summary page of all error multiplier experiment results.
     
     Args:
         results_df: DataFrame containing results from all experiments
@@ -262,7 +262,7 @@ def create_summary_html(results_df, output_path, plots_dir):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Error Frequency Experiment Results</title>
+        <title>Error Multiplier Experiment Results</title>
         <style>
             body {{ font-family: Arial, sans-serif; margin: 20px; }}
             h1 {{ color: #333366; }}
@@ -281,13 +281,13 @@ def create_summary_html(results_df, output_path, plots_dir):
         </style>
     </head>
     <body>
-        <h1>Error Frequency Experiment Results</h1>
+        <h1>Error Multiplier Experiment Results</h1>
         <p>Generated on: {timestamp}</p>
         
         <h2>Performance Metrics</h2>
         <table>
             <tr>
-                <th>Error Frequency</th>
+                <th>Error Multiplier</th>
                 <th>Clean RMSE</th>
                 <th>Error RMSE</th>
                 <th>RMSE % Increase</th>
@@ -303,10 +303,10 @@ def create_summary_html(results_df, output_path, plots_dir):
         
         <h2>Performance Visualization</h2>
         <div class="plot-container">
-            <img src="{impact_plot_path}" alt="Error Frequency Impact" />
+            <img src="{impact_plot_path}" alt="Error Multiplier Impact" />
         </div>
         
-        <h2>Prediction Comparison by Error Frequency</h2>
+        <h2>Prediction Comparison by Error Multiplier</h2>
         <div class="comparison-grid">
             {prediction_plots}
         </div>
@@ -316,10 +316,10 @@ def create_summary_html(results_df, output_path, plots_dir):
     
     # Generate table rows
     table_rows = ""
-    for _, row in results_df.sort_values('error_frequency').iterrows():
+    for _, row in results_df.sort_values('error_multiplier').iterrows():
         table_rows += f"""
         <tr>
-            <td>{row['error_frequency']:.3f}</td>
+            <td>{row['error_multiplier']:.3f}</td>
             <td>{row['clean_rmse']:.4f}</td>
             <td>{row['error_rmse']:.4f}</td>
             <td>{row.get('rmse_pct_increase', np.nan):.2f}%</td>
@@ -336,27 +336,27 @@ def create_summary_html(results_df, output_path, plots_dir):
     prediction_plots = ""
     for plot_file in plots_dir.glob("*.png"):
         if "water_level" in plot_file.name:
-            # Extract error frequency from filename if possible, otherwise use the filename
-            freq_str = "Unknown"
+            # Extract error multiplier from filename if possible, otherwise use the filename
+            mult_str = "Unknown"
             try:
-                # Try to extract error frequency from filename
-                freq_parts = plot_file.stem.split("_")
-                for i, part in enumerate(freq_parts):
-                    if part == "freq" and i < len(freq_parts) - 1:
-                        freq_str = f"Error Frequency: {float(freq_parts[i+1]):.2f}"
+                # Try to extract error multiplier from filename
+                mult_parts = plot_file.stem.split("_")
+                for i, part in enumerate(mult_parts):
+                    if part == "mult" and i < len(mult_parts) - 1:
+                        mult_str = f"Error Multiplier: {float(mult_parts[i+1]):.2f}"
                         break
             except:
-                freq_str = plot_file.stem
+                mult_str = plot_file.stem
                 
             prediction_plots += f"""
             <div class="comparison-item">
-                <h3>{freq_str}</h3>
-                <img src="{plots_dir.name}/{plot_file.name}" alt="Predictions with {freq_str}" />
+                <h3>{mult_str}</h3>
+                <img src="{plots_dir.name}/{plot_file.name}" alt="Predictions with {mult_str}" />
             </div>
             """
     
     # Find the main impact plot
-    impact_plot_path = "error_frequency_impact.png"
+    impact_plot_path = "error_multiplier_impact.png"
     
     # Format the HTML
     html_content = html_content.format(
@@ -367,5 +367,5 @@ def create_summary_html(results_df, output_path, plots_dir):
     )
     
     # Write the HTML file
-    with open(output_path / "error_frequency_summary.html", "w") as f:
+    with open(output_path / "error_multiplier_summary.html", "w") as f:
         f.write(html_content) 

@@ -65,6 +65,27 @@ class SyntheticErrorGenerator:
         self.used_indices = set()  # Track all used indices
         self.use_context_aware = self.config.get('use_context_aware', False)  # New toggle
     
+    def _calculate_years_in_data(self, time_index):
+        """
+        Calculate approximately how many years of data are in the time index.
+        
+        Args:
+            time_index: pandas DatetimeIndex
+            
+        Returns:
+            float: Number of years in the data
+        """
+        if len(time_index) < 2:
+            return 1.0
+            
+        # Calculate time span in days
+        start_date = time_index[0]
+        end_date = time_index[-1]
+        days = (end_date - start_date).total_seconds() / (24 * 3600)
+        
+        # Convert to years (approximate)
+        return max(1.0, days / 365.25)
+    
     def _is_period_available(self, start_idx: int, end_idx: int, buffer: int = 24) -> bool:
         """
         Check if a period is available for error injection.
@@ -139,12 +160,15 @@ class SyntheticErrorGenerator:
         
         # Get spike parameters from config
         spike_config = self.config['spike']
-        frequency = spike_config['frequency']
+        count_per_year = spike_config.get('count_per_year', 0)
         mag_range = spike_config['magnitude_range']
         negative_positiv_ratio = spike_config['negative_positiv_ratio']
         
-        # Calculate number of spikes to inject
-        n_spikes = max(1, int(len(data) * frequency))
+        # Calculate years in data and total number of spikes
+        years_in_data = self._calculate_years_in_data(data.index)
+        n_spikes = max(1, int(count_per_year * years_in_data))
+        
+        print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_spikes} spikes...")
         
         # Calculate local statistics if context-aware is enabled
@@ -227,11 +251,12 @@ class SyntheticErrorGenerator:
         
         # Get flatline parameters from config
         flatline_config = self.config['flatline']
-        frequency = flatline_config['frequency']
+        count_per_year = flatline_config.get('count_per_year', 0)
         duration_range = flatline_config['duration_range']
         
-        # Calculate number of flatlines to inject
-        n_flatlines = int(len(data) * frequency)
+        # Calculate years in data and total number of flatlines
+        years_in_data = self._calculate_years_in_data(data.index)
+        n_flatlines = int(count_per_year * years_in_data)
         
         successful_injections = 0
         max_attempts = n_flatlines * 10
@@ -287,19 +312,12 @@ class SyntheticErrorGenerator:
         """
         modified_data = data.copy()
         
-        # Debug prints
-        #print(f"\nDrift Debug:")
-        #print(f"Data range: {data.index.min()} to {data.index.max()}")
-        #print(f"Data length: {len(data)}")
-        
         drift_config = self.config['drift']
-        base_frequency = drift_config['frequency']
-        #print(f"Base frequency: {base_frequency}")
-        #print(f"Expected drifts: {len(data) * base_frequency}")
+        count_per_year = drift_config.get('count_per_year', 0)
         
-        # Calculate number of drifts
-        n_drifts = max(1, int(len(data) * base_frequency))
-        #print(f"Number of drifts to inject: {n_drifts}")
+        # Calculate years in data and total number of drifts
+        years_in_data = self._calculate_years_in_data(data.index)
+        n_drifts = max(1, int(count_per_year * years_in_data))
         
         successful_injections = 0
         max_attempts = n_drifts * 10
@@ -383,15 +401,19 @@ class SyntheticErrorGenerator:
         
         # Get offset parameters from config
         offset_config = self.config['offset']
-        base_frequency = offset_config['frequency']
+        count_per_year = offset_config.get('count_per_year', 0)
         min_duration = offset_config['min_duration']
         max_duration_multiplier = offset_config['max_duration_multiplier']
         mag_range = offset_config['magnitude_range']
         negative_positiv_ratio = offset_config['negative_positiv_ratio']
         magnitude_multiplier_range = offset_config['magnitude_multiplier']
         
-        # Calculate number of offsets to inject
-        n_offsets = max(1, int(len(data) * base_frequency))
+        # Calculate years in data and total number of offsets
+        years_in_data = self._calculate_years_in_data(data.index)
+        n_offsets = max(1, int(count_per_year * years_in_data))
+        
+        print(f"Data spans approximately {years_in_data:.1f} years")
+        print(f"Attempting to inject {n_offsets} offset periods...")
         
         # Calculate maximum duration based on data length
         max_duration = min(
@@ -401,9 +423,17 @@ class SyntheticErrorGenerator:
         
         # Randomly select injection points, ensuring they don't overlap
         possible_indices = np.arange(0, len(data) - min_duration)
-        offset_indices = np.random.choice(possible_indices, size=n_offsets, replace=False)
         
-        for idx in offset_indices:
+        # Try to place offsets while respecting constraints
+        successful_injections = 0
+        max_attempts = n_offsets * 10
+        attempts = 0
+        
+        while successful_injections < n_offsets and attempts < max_attempts:
+            # Select a random index
+            idx = np.random.choice(possible_indices)
+            attempts += 1
+            
             # Calculate local statistics for context-aware magnitude
             window = slice(max(0, idx-24), min(len(data), idx+24))
             local_std = modified_data.iloc[window].std().values[0]
@@ -421,6 +451,10 @@ class SyntheticErrorGenerator:
             duration = np.random.randint(min_duration, max_duration)
             end_idx = min(idx + duration, len(modified_data))
             
+            # Check if period is available
+            if not self._is_period_available(idx, end_idx):
+                continue
+                
             # Store original values
             original_values = modified_data.iloc[idx:end_idx].copy()
             
@@ -460,6 +494,7 @@ class SyntheticErrorGenerator:
                 )
             )
             self._mark_period_used(idx, end_idx)
+            successful_injections += 1
         
         return modified_data, offset_periods
 
@@ -476,18 +511,27 @@ class SyntheticErrorGenerator:
         
         # Get noise parameters from config
         noise_config = self.config['noise']
-        frequency = noise_config['frequency']
+        count_per_year = noise_config.get('count_per_year', 0)
         duration_range = noise_config['duration_range']  # hours
         intensity_range = noise_config['intensity_range']  # multiplier of normal noise level
         
-        # Calculate number of noise periods to inject
-        n_noise_periods = int(len(data) * frequency)
+        # Calculate years in data and total number of noise periods
+        years_in_data = self._calculate_years_in_data(data.index)
+        n_noise_periods = int(count_per_year * years_in_data)
         
-        # Randomly select injection points, ensuring they don't overlap
-        possible_indices = np.arange(0, len(data) - duration_range[1])  # Use max duration
-        noise_indices = np.random.choice(possible_indices, size=n_noise_periods, replace=False)
+        print(f"Data spans approximately {years_in_data:.1f} years")
+        print(f"Attempting to inject {n_noise_periods} noise periods...")
         
-        for idx in noise_indices:
+        # Try to place noise periods while respecting constraints
+        successful_injections = 0
+        max_attempts = n_noise_periods * 10
+        attempts = 0
+        
+        while successful_injections < n_noise_periods and attempts < max_attempts:
+            # Select a random index
+            idx = np.random.randint(0, len(data) - duration_range[1])
+            attempts += 1
+            
             # Determine duration of noise period
             duration = np.random.randint(duration_range[0], duration_range[1])
             end_idx = min(idx + duration, len(modified_data))
@@ -523,6 +567,7 @@ class SyntheticErrorGenerator:
                 )
                 
                 self._mark_period_used(idx, end_idx)
+                successful_injections += 1
 
         return modified_data
 
@@ -536,10 +581,11 @@ class SyntheticErrorGenerator:
         
         # Get baseline shift parameters from config
         shift_config = self.config['baseline_shift']
-        frequency = shift_config['frequency']
+        count_per_year = shift_config.get('count_per_year', 0)
         
-        # Calculate number of shifts
-        n_shifts = max(1, int(len(data) * frequency))
+        # Calculate years in data and total number of shifts
+        years_in_data = self._calculate_years_in_data(data.index)
+        n_shifts = max(1, int(count_per_year * years_in_data))
         
         # Try to inject shifts
         successful_shifts = 0
@@ -547,14 +593,9 @@ class SyntheticErrorGenerator:
         max_attempts = n_shifts * 10
         
         while successful_shifts < n_shifts and attempts < max_attempts:
-            # Debug for each attempt
-            #print(f"Attempt {attempts + 1}: Trying to inject shift...")
-            
             idx = np.random.randint(0, len(data) - 1)
-            #print(f"Selected index: {idx} (date: {data.index[idx]})")
             
             if self._is_period_available(idx, idx + 1):
-                #print("Period is available for injection")
                 # Store original values
                 original_values = modified_data.iloc[idx:idx+2].copy()
                 
@@ -582,9 +623,7 @@ class SyntheticErrorGenerator:
                 # Mark shift point as used
                 self._mark_period_used(idx, idx + 1)
                 successful_shifts += 1
-            else:
-                #print("Period already used")
-                pass
+            
             attempts += 1
         
         return modified_data
@@ -606,11 +645,11 @@ class SyntheticErrorGenerator:
             # Default error types ordered by typical duration
             all_error_types = ['offset', 'drift', 'baseline_shift', 'flatline', 'spike', 'noise']
             
-            # Filter error types based on frequency > 0 in config
+            # Filter error types based on count_per_year > 0 in config
             active_error_types = [
                 et for et in all_error_types 
                 if et in (error_types or all_error_types) 
-                and self.config.get(et, {}).get('frequency', 0) > 0
+                and self.config.get(et, {}).get('count_per_year', 0) > 0
             ]
             
             print(f"Active error types: {active_error_types}")  # Debug print
@@ -623,7 +662,7 @@ class SyntheticErrorGenerator:
             # Inject only active error types
             for error_type in active_error_types:
                 try:
-                    #print(f"Injecting {error_type} errors...")  # Debug print
+                    print(f"Injecting {error_type} errors...")  # Debug print
                     if error_type == 'spike':
                         modified_data = self.inject_spike_errors(modified_data)
                     elif error_type == 'flatline':
@@ -646,7 +685,7 @@ class SyntheticErrorGenerator:
                 ground_truth.loc[mask, 'error'] = True
                 ground_truth.loc[mask, 'error_type'] = period.error_type
             
-            #print(f"Successfully injected {len(self.error_periods)} errors")  # Debug print
+            print(f"Successfully injected {len(self.error_periods)} errors")  # Debug print
             return modified_data, ground_truth
         
         except Exception as e:

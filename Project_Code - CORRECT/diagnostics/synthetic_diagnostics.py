@@ -9,6 +9,7 @@ from plotly.subplots import make_subplots
 from _2_synthetic.synthetic_errors import ErrorPeriod
 import seaborn as sns
 from config import SYNTHETIC_ERROR_PARAMS
+import numpy as np
 
 def plot_synthetic_errors(original_data: pd.DataFrame, 
                          modified_data: pd.DataFrame,
@@ -313,27 +314,39 @@ def plot_synthetic_vs_actual(original_data, modified_data, error_periods, statio
     Returns:
         Path to the saved plot or None if not applicable
     """
+    # Set publication-quality styling
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 12,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'figure.titlesize': 18
+    })
+    
     # Create a dictionary for actual anomalies (from real-world observations)
     # In a real application, this should come from labeled data
     actual_anomalies = {
         'spike': [
-            ('2019-06-15', '2019-06-16'),
-            ('2019-08-20', '2019-08-21')
+            ('2023-04-01', '2023-04-02'),  # Replace with actual anomalies when found
         ],
         'drift': [
-            ('2019-03-01', '2019-03-15')
+            ('2023-02-01', '2023-02-15')   # Replace with actual anomalies when found
         ],
         'offset': [
-            ('2019-07-01', '2019-07-10')
+            ('2022-06-01', '2022-06-10')   # Replace with actual anomalies when found
         ],
         'baseline_shift': [
-            ('2019-09-01', '2019-09-30')
+            ('2022-09-01', '2022-09-30')   # Replace with actual anomalies when found
         ],
         'flatline': [
-            ('2019-04-10', '2019-04-17')
+            ('2023-01-10', '2023-01-17')   # Replace with actual anomalies when found
         ],
         'noise': [
-            ('2019-05-01', '2019-05-07')
+            ('2023-05-01', '2023-05-07')   # Replace with actual anomalies when found
         ]
     }
     
@@ -347,30 +360,29 @@ def plot_synthetic_vs_actual(original_data, modified_data, error_periods, statio
     
     # Create a subplot for each error type, with 2 columns (synthetic vs actual)
     n_types = len(error_types)
-    fig, axes = plt.subplots(n_types, 2, figsize=(20, 6*n_types))
+    fig, axes = plt.subplots(n_types, 2, figsize=(20, 5*n_types), dpi=300)
     
     if n_types == 1:
         axes = axes.reshape(1, -1)  # Make single axis row into 2D array for consistent indexing
     
-    # Define zoom windows for each error type - using wider windows to show more context
+    # Define zoom windows for each error type - using balanced windows
     zoom_windows = {
-        'spike': pd.Timedelta(days=7),       # 7 days for spike
-        'drift': pd.Timedelta(days=45),      # 45 days for drift
-        'offset': pd.Timedelta(days=21),     # 21 days for offset
-        'baseline_shift': pd.Timedelta(days=45),  # 45 days for baseline shift
-        'flatline': pd.Timedelta(days=14),   # 14 days for flatline
-        'noise': pd.Timedelta(days=14)       # 14 days for noise
+        'spike': pd.Timedelta(days=5),       # 5 days for spike
+        'drift': pd.Timedelta(days=21),      # 21 days for drift
+        'offset': pd.Timedelta(days=14),     # 14 days for offset
+        'baseline_shift': pd.Timedelta(days=21),  # 21 days for baseline shift
+        'flatline': pd.Timedelta(days=7),    # 7 days for flatline
+        'noise': pd.Timedelta(days=7)        # 7 days for noise
     }
     
-    for idx, error_type in enumerate(error_types):
+    for idx, error_type in enumerate(sorted(error_types)):
         # Filter error periods for current type
         type_periods = [p for p in error_periods if p.error_type == error_type]
         
         if not type_periods:
             continue
             
-        # Find the most representative error period
-        # For example, one with the largest magnitude or longest duration
+        # Find the most representative error period based on error type
         if error_type == 'spike':
             # Choose spike with largest magnitude
             period = max(type_periods, 
@@ -391,9 +403,9 @@ def plot_synthetic_vs_actual(original_data, modified_data, error_periods, statio
         ax_synthetic = axes[idx, 0]
         
         # Calculate zoom window
-        window_size = zoom_windows.get(error_type, pd.Timedelta(days=14))
-        window_start = period.start_time - window_size/2
-        window_end = period.end_time + window_size/2
+        window_size = zoom_windows.get(error_type, pd.Timedelta(days=7))
+        window_start = period.start_time - window_size
+        window_end = period.end_time + window_size
         
         # Filter data for the window
         mask = (original_data.index >= window_start) & (original_data.index <= window_end)
@@ -402,33 +414,35 @@ def plot_synthetic_vs_actual(original_data, modified_data, error_periods, statio
         
         # Plot zoomed data
         ax_synthetic.plot(window_original.index, window_original['vst_raw'], 
-                        label='Original', color='blue', alpha=0.6)
+                        label='Original', color='#1f77b4', linewidth=1.0)
         ax_synthetic.plot(window_modified.index, window_modified['vst_raw'], 
-                        label='With Synthetic Error', color='red', alpha=0.6)
+                        label='With Synthetic Error', color='#d62728', linewidth=1.0, linestyle='--')
         
-        # Highlight synthetic error period
+        # Highlight synthetic error period with light yellow background
         ax_synthetic.axvspan(period.start_time, period.end_time, 
-                           color='yellow', alpha=0.3)
+                           color='#ffffcc', alpha=0.5)
         
         # Add error parameters to title
         params_str = ', '.join(f"{k}: {v:.2f}" if isinstance(v, float) 
                              else f"{k}: {v}" 
-                             for k, v in period.parameters.items())
-        ax_synthetic.set_title(f'Synthetic {error_type.capitalize()} Anomaly\n{params_str}')
+                             for k, v in period.parameters.items()
+                             if k not in ['original_values', 'modified_values'])
+        
+        ax_synthetic.set_title(f'Synthetic {error_type.title()} Error', fontweight='bold')
         
         # Format synthetic plot
-        ax_synthetic.set_xlabel('Date')
-        ax_synthetic.set_ylabel('Water Level (mm)')
+        ax_synthetic.set_xlabel('Date', fontweight='bold', labelpad=10)
+        ax_synthetic.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
         ax_synthetic.tick_params(axis='x', rotation=45)
-        ax_synthetic.legend()
-        ax_synthetic.grid(True)
+        ax_synthetic.legend(frameon=True, facecolor='white', edgecolor='#cccccc')
+        
+        # Remove top and right spines for cleaner look
+        ax_synthetic.spines['top'].set_visible(False)
+        ax_synthetic.spines['right'].set_visible(False)
+        ax_synthetic.grid(False)
         
         # Plot actual anomaly example (right column)
         ax_actual = axes[idx, 1]
-        
-        # Plot full range of data for context
-        ax_actual.plot(original_data.index, original_data['vst_raw'], 
-                      label='Data', color='blue', alpha=0.4)
         
         # If we have examples of this anomaly type, highlight them
         if error_type in actual_anomalies and actual_anomalies[error_type]:
@@ -437,44 +451,63 @@ def plot_synthetic_vs_actual(original_data, modified_data, error_periods, statio
             start_ts = pd.Timestamp(start_date)
             end_ts = pd.Timestamp(end_date)
             
-            # Highlight the anomaly period
-            ax_actual.axvspan(start_ts, end_ts, color='red', alpha=0.3, 
-                             label=f'Actual {error_type.capitalize()} Example')
-            
-            # Zoom to this period with some context
-            context_window = zoom_windows.get(error_type, pd.Timedelta(days=14))
-            context_start = start_ts - context_window/2
-            context_end = end_ts + context_window/2
+            # Create zoom window similar to synthetic plot
+            context_window = zoom_windows.get(error_type, pd.Timedelta(days=7))
+            context_start = start_ts - context_window
+            context_end = end_ts + context_window
             
             # Only use dates that are within our data range
             valid_start = max(context_start, original_data.index.min())
             valid_end = min(context_end, original_data.index.max())
             
-            ax_actual.set_xlim(valid_start, valid_end)
+            # Filter data for the real anomaly window
+            mask = (original_data.index >= valid_start) & (original_data.index <= valid_end)
+            window_data = original_data[mask]
             
-            # Plot the anomaly period with thicker line
+            # Plot the window data
+            ax_actual.plot(window_data.index, window_data['vst_raw'], 
+                         color='#1f77b4', linewidth=1.0, label='Actual Data')
+            
+            # Highlight the actual anomaly period
+            ax_actual.axvspan(start_ts, end_ts, color='#ffffcc', alpha=0.5)
+            
+            # Plot the anomaly period with different style
             anomaly_mask = (original_data.index >= start_ts) & (original_data.index <= end_ts)
             anomaly_data = original_data[anomaly_mask]
             ax_actual.plot(anomaly_data.index, anomaly_data['vst_raw'], 
-                         color='red', linewidth=2, alpha=0.8, 
-                         label=f'Highlighted Period')
+                         color='#ff7f0e', linewidth=1.5, 
+                         label='Anomaly Period')
             
-            ax_actual.set_title(f'Actual {error_type.capitalize()} Example\n{start_date} to {end_date}')
+            ax_actual.set_title(f'Real {error_type.title()} Error Example', fontweight='bold')
+            ax_actual.set_xlim(valid_start, valid_end)
         else:
-            ax_actual.set_title(f'No Actual {error_type.capitalize()} Example Available')
+            # If no real examples yet, show a message that this is a placeholder
+            ax_actual.text(0.5, 0.5, f'Placeholder for real {error_type} error example\n(to be replaced with actual data)',
+                        horizontalalignment='center', verticalalignment='center',
+                        transform=ax_actual.transAxes, fontsize=14, color='#555555')
+            ax_actual.set_title(f'Real {error_type.title()} Error Example', fontweight='bold')
         
         # Format actual plot
-        ax_actual.set_xlabel('Date')
-        ax_actual.set_ylabel('Water Level (mm)')
+        ax_actual.set_xlabel('Date', fontweight='bold', labelpad=10)
+        ax_actual.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
         ax_actual.tick_params(axis='x', rotation=45)
-        ax_actual.legend()
-        ax_actual.grid(True)
+        ax_actual.legend(frameon=True, facecolor='white', edgecolor='#cccccc')
         
-        # Increase y-axis range by 20% for both plots
+        # Remove top and right spines for cleaner look
+        ax_actual.spines['top'].set_visible(False)
+        ax_actual.spines['right'].set_visible(False)
+        ax_actual.grid(False)
+        
+        # Auto-adjust y-limits based on data in view with a small margin
         for ax in [ax_synthetic, ax_actual]:
-            y_min, y_max = ax.get_ylim()
-            y_range = y_max - y_min
-            ax.set_ylim(y_min - 0.1*y_range, y_max + 0.1*y_range)
+            if len(ax.lines) > 0:
+                y_data = np.concatenate([line.get_ydata() for line in ax.lines])
+                y_data = y_data[~np.isnan(y_data)]  # Remove NaNs
+                if len(y_data) > 0:
+                    y_min, y_max = np.min(y_data), np.max(y_data)
+                    y_range = y_max - y_min
+                    margin = 0.1 * y_range  # 10% margin
+                    ax.set_ylim(y_min - margin, y_max + margin)
     
     plt.tight_layout()
     
@@ -484,7 +517,7 @@ def plot_synthetic_vs_actual(original_data, modified_data, error_periods, statio
     
     # Save the figure
     output_path = diagnostic_dir / f'synthetic_vs_actual_comparison_{station_name}.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
     
     print(f"Saved synthetic vs actual comparison plot for {station_name} to {output_path}")

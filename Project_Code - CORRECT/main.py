@@ -64,7 +64,7 @@ def run_pipeline(
     inject_synthetic_errors: bool = False,
     model_diagnostics: bool = False,
     advanced_diagnostics: bool = False,
-    error_frequency: float = 0.1,
+    error_multiplier: float = 1.0,
     model_type: str = 'standard'
 ) -> dict:
     """
@@ -79,7 +79,7 @@ def run_pipeline(
         inject_synthetic_errors (bool): Whether to inject synthetic errors
         model_diagnostics (bool): Whether to generate basic model plots (prediction plots)
         advanced_diagnostics (bool): Whether to generate advanced model diagnostics
-        error_frequency (float): Frequency of synthetic errors to inject (0-1)
+        error_multiplier (float): Multiplier for error counts per year (1.0 = base counts)
         model_type (str): Type of model to use ('standard' or 'iterative')
     
     Returns:
@@ -146,10 +146,10 @@ def run_pipeline(
     val_data_with_errors = None
     
     if inject_synthetic_errors:
-        print(f"\nInjecting synthetic errors with frequency {error_frequency*100:.1f}% into TRAINING and VALIDATION data...")
+        print(f"\nInjecting synthetic errors with multiplier {error_multiplier:.1f}x into TRAINING and VALIDATION data...")
         try:
             # Configure and apply synthetic errors
-            error_config = configure_error_params(SYNTHETIC_ERROR_PARAMS, error_frequency)
+            error_config = configure_error_params(SYNTHETIC_ERROR_PARAMS, error_multiplier)
             print_error_frequencies(error_config)
             error_generator = SyntheticErrorGenerator(error_config)
             
@@ -260,7 +260,24 @@ def run_pipeline(
     
     # Generate validation plots
     if model_diagnostics:
-        synthetic_data = val_data_with_errors_raw if inject_synthetic_errors else None
+        # If synthetic errors were injected, build a dictionary with both the modified data and error periods for the main water level column
+        if inject_synthetic_errors:
+            # Use the first water level column for visualization
+            main_col = water_level_cols[0] if water_level_cols else None
+            val_key = f"{station_id}_val_{main_col}" if main_col else None
+            # Fallback: try just f"{station_id}_val" if above not found
+            if val_key not in stations_results and main_col:
+                val_key = f"{station_id}_val"
+            # Extract error periods and modified data for the main column
+            if val_key in stations_results:
+                synthetic_data = {
+                    'data': stations_results[val_key]['modified_data'],
+                    'error_periods': stations_results[val_key]['error_periods']
+                }
+            else:
+                synthetic_data = None
+        else:
+            synthetic_data = None
         create_full_plot(
             original_val_data, 
             val_predictions_df, 
@@ -332,10 +349,10 @@ if __name__ == "__main__":
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run LSTM water level prediction model')
-    parser.add_argument('--error_frequency', type=float, default=None, 
-                      help='Error frequency for synthetic errors (0-1). If not provided, no errors are injected.')
+    parser.add_argument('--error_multiplier', type=float, default=None, 
+                      help='Error multiplier for synthetic errors. If not provided, no errors are injected.')
     parser.add_argument('--run_experiments', action='store_true',
-                      help='Run experiments with different error frequencies')
+                      help='Run experiments with different error multipliers')
     parser.add_argument('--preprocess_diagnostics', action='store_true',
                       help='Generate preprocessing diagnostics')
     parser.add_argument('--synthetic_diagnostics', action='store_true',
@@ -371,8 +388,9 @@ if __name__ == "__main__":
         try:
             print("\nRunning LSTM model with configuration from config.py")
             
-            if args.error_frequency is not None:
-                print(f"Injecting synthetic errors with frequency {args.error_frequency*100:.1f}%")
+            if args.error_multiplier is not None:
+                print(f"Using error multiplier: {args.error_multiplier:.1f}x")
+                print(f"(This multiplies the base error counts per year defined in config.py)")
             
             if args.model_type == 'iterative':
                 print(f"\nUsing iterative forecaster with configuration:")
@@ -396,10 +414,10 @@ if __name__ == "__main__":
                 output_path=output_path,
                 preprocess_diagnostics=args.preprocess_diagnostics,
                 synthetic_diagnostics=args.synthetic_diagnostics,
-                inject_synthetic_errors=args.error_frequency is not None,
+                inject_synthetic_errors=args.error_multiplier is not None,
                 model_diagnostics=use_model_diagnostics,
                 advanced_diagnostics=use_advanced_diagnostics,
-                error_frequency=args.error_frequency if args.error_frequency is not None else 0.1,
+                error_multiplier=args.error_multiplier if args.error_multiplier is not None else 1.0,
                 model_type=args.model_type
             )
 
@@ -421,7 +439,7 @@ For iterative forecaster:
 python main.py --model_type iterative
 
 With error injection:
-python main.py --model_type iterative --error_frequency 0.1
+python main.py --model_type iterative --error_multiplier 2.0
 
 With diagnostics:
 python main.py --model_type iterative --model_diagnostics --advanced_diagnostics

@@ -10,6 +10,7 @@ from pathlib import Path
 import matplotlib.dates as mdates
 from matplotlib.colors import LinearSegmentedColormap
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from collections import defaultdict
 
 # Get the directory of the current script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -87,12 +88,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     if 'rainfall' in test_data.columns:
         rainfall_data = test_data['rainfall']
     
-    # Get vinge data if available in test_data
-    # vinge_data = None
-    # if 'vinge' in test_data.columns:
-    #     vinge_data = test_data[['vinge']].copy()
-    #     print(f"Found vinge data with {len(vinge_data[~vinge_data['vinge'].isna()])} non-null values")
-    
     # Print lengths for debugging
     print(f"Length of test_actual: {len(test_actual)}")
     print(f"Length of predictions: {len(test_predictions)}")
@@ -133,6 +128,23 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     # Generate timestamp for unique filenames
     timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     
+    # Create error periods directory
+    error_periods_dir = output_dir / 'error_periods'
+    error_periods_dir.mkdir(exist_ok=True)
+    
+    # Extract error periods and synthetic data DataFrame from synthetic_data dict if available
+    error_periods = []
+    synthetic_df = None
+    if synthetic_data is not None:
+        if isinstance(synthetic_data, dict):
+            error_periods = synthetic_data.get('error_periods', [])
+            synthetic_df = synthetic_data.get('data', None)
+        elif hasattr(synthetic_data, 'error_periods'):
+            error_periods = synthetic_data.error_periods
+            synthetic_df = synthetic_data
+        elif isinstance(synthetic_data, pd.DataFrame):
+            synthetic_df = synthetic_data
+    
     # Always create the PNG version with config text at the bottom
     png_path = create_water_level_plot_png(
         test_actual, 
@@ -143,9 +155,9 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         output_dir,
         best_val_loss,
         metrics=metrics,
-        #vinge_data=vinge_data,
         show_config=show_config,
-        title_suffix=title_suffix
+        title_suffix=title_suffix,
+        synthetic_data=synthetic_data  # Pass the full structure with both data and error_periods
     )
     
     # Create the HTML version only if requested
@@ -196,11 +208,41 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
             )
             
             # Add synthetic error data if available
-            if synthetic_data is not None:
+            if synthetic_df is not None:
+                # Add colored background regions for different error types
+                error_colors = {
+                    'spike': 'rgba(255, 0, 0, 0.1)',      # Light red
+                    'flatline': 'rgba(0, 255, 0, 0.1)',   # Light green
+                    'drift': 'rgba(0, 0, 255, 0.1)',      # Light blue
+                    'offset': 'rgba(255, 165, 0, 0.1)',   # Light orange
+                    'baseline_shift': 'rgba(128, 0, 128, 0.1)',  # Light purple
+                    'noise': 'rgba(128, 128, 128, 0.1)'   # Light gray
+                }
+                
+                # Add error type backgrounds
+                for error_type, color in error_colors.items():
+                    # Find periods with this error type
+                    type_periods = [p for p in error_periods if p.error_type == error_type]
+                    
+                    for period in type_periods:
+                        fig.add_shape(
+                            type="rect",
+                            x0=period.start_time,
+                            x1=period.end_time,
+                            y0=test_actual.min(),
+                            y1=test_actual.max(),
+                            fillcolor=color,
+                            opacity=0.3,
+                            layer="below",
+                            line_width=0,
+                            row=2, col=1
+                        )
+                
+                # Add synthetic data line
                 fig.add_trace(
                     go.Scatter(
-                        x=synthetic_data.index,
-                        y=synthetic_data['vst_raw'].values,
+                        x=synthetic_df.index,
+                        y=synthetic_df['vst_raw'].values,
                         name="VST RAW (with Synthetic Errors)",
                         line=dict(color='#d62728', width=1, dash='dot')
                     ),
@@ -216,59 +258,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
                 ),
                 row=2, col=1
             )
-            
-            # # Add vinge (manual board) data to the water level subplot if available
-            # if vinge_data is not None:
-            #     try:
-            #         # Get the vinge column (could be 'vinge', 'water_level_mm', or 'W.L [cm]')
-            #         vinge_column = None
-                    
-            #         # Try to identify the correct column to use
-            #         possible_columns = ['vinge', 'water_level_mm', 'W.L [cm]']
-            #         for col in possible_columns:
-            #             if col in vinge_data.columns:
-            #                 vinge_column = col
-            #                 break
-                    
-            #         # If we couldn't find a recognized column but have only one column, use that
-            #         if vinge_column is None and len(vinge_data.columns) == 1:
-            #             vinge_column = vinge_data.columns[0]
-            #             print(f"Using unrecognized column '{vinge_column}' for vinge data in HTML plot")
-                    
-            #         if vinge_column is not None:
-            #             # Filter out NaN values
-            #             vinge_no_nan = vinge_data.dropna(subset=[vinge_column])
-                        
-            #             if not vinge_no_nan.empty:
-            #                 # Convert to numeric if needed
-            #                 if not pd.api.types.is_numeric_dtype(vinge_no_nan[vinge_column]):
-            #                     vinge_no_nan[vinge_column] = pd.to_numeric(vinge_no_nan[vinge_column], errors='coerce')
-            #                     vinge_no_nan = vinge_no_nan.dropna(subset=[vinge_column])
-                            
-            #                 # Add vinge data to the water level subplot (row 2)
-            #                 fig.add_trace(
-            #                     go.Scatter(
-            #                         x=vinge_no_nan.index,
-            #                         y=vinge_no_nan[vinge_column].values,
-            #                         name="Vinge",
-            #                         mode='markers',
-            #                         marker=dict(
-            #                             color='#2ca02c',  # Green color
-            #                             size=8,
-            #                             symbol='circle'
-            #                         )
-            #                     ),
-            #                     row=2, col=1  # Add to water level subplot (row 2)
-            #                 )
-            #                 print(f"Added {len(vinge_no_nan)} manual board measurements to the rainfall+waterlevel subplot plot")
-            #             else:
-            #                 print("No valid vinge data points for HTML plot")
-            #         else:
-            #             print(f"Could not find a usable column in vinge data for HTML plot. Available columns: {vinge_data.columns}")
-            #     except Exception as e:
-            #         print(f"Error adding vinge data to single-plot HTML: {str(e)}")
-            #         import traceback
-            #         traceback.print_exc()
             
             # Update y-axes labels and ranges
             fig.update_yaxes(
@@ -318,11 +307,40 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
             )
             
             # Add synthetic error data if available
-            if synthetic_data is not None:
+            if synthetic_df is not None:
+                # Add colored background regions for different error types
+                error_colors = {
+                    'spike': 'rgba(255, 0, 0, 0.1)',      # Light red
+                    'flatline': 'rgba(0, 255, 0, 0.1)',   # Light green
+                    'drift': 'rgba(0, 0, 255, 0.1)',      # Light blue
+                    'offset': 'rgba(255, 165, 0, 0.1)',   # Light orange
+                    'baseline_shift': 'rgba(128, 0, 128, 0.1)',  # Light purple
+                    'noise': 'rgba(128, 128, 128, 0.1)'   # Light gray
+                }
+                
+                # Add error type backgrounds
+                for error_type, color in error_colors.items():
+                    # Find periods with this error type
+                    type_periods = [p for p in error_periods if p.error_type == error_type]
+                    
+                    for period in type_periods:
+                        fig.add_shape(
+                            type="rect",
+                            x0=period.start_time,
+                            x1=period.end_time,
+                            y0=test_actual.min(),
+                            y1=test_actual.max(),
+                            fillcolor=color,
+                            opacity=0.3,
+                            layer="below",
+                            line_width=0
+                        )
+                
+                # Add synthetic data line
                 fig.add_trace(
                     go.Scatter(
-                        x=synthetic_data.index,
-                        y=synthetic_data['vst_raw'].values,
+                        x=synthetic_df.index,
+                        y=synthetic_df['vst_raw'].values,
                         name="VST RAW (with Synthetic Errors)",
                         line=dict(color='#d62728', width=1, dash='dot')
                     )
@@ -336,58 +354,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
                     line=dict(color='#2ca02c', width=1)
                 )
             )
-            
-            # # Add vinge (manual board) data to the plot if available
-            # if vinge_data is not None:
-            #     try:
-            #         # Get the vinge column (could be 'vinge', 'water_level_mm', or 'W.L [cm]')
-            #         vinge_column = None
-                    
-            #         # Try to identify the correct column to use
-            #         possible_columns = ['vinge', 'water_level_mm', 'W.L [cm]']
-            #         for col in possible_columns:
-            #             if col in vinge_data.columns:
-            #                 vinge_column = col
-            #                 break
-                    
-            #         # If we couldn't find a recognized column but have only one column, use that
-            #         if vinge_column is None and len(vinge_data.columns) == 1:
-            #             vinge_column = vinge_data.columns[0]
-            #             print(f"Using unrecognized column '{vinge_column}' for vinge data in HTML plot")
-                    
-            #         if vinge_column is not None:
-            #             # Filter out NaN values
-            #             vinge_no_nan = vinge_data.dropna(subset=[vinge_column])
-                        
-            #             if not vinge_no_nan.empty:
-            #                 # Convert to numeric if needed
-            #                 if not pd.api.types.is_numeric_dtype(vinge_no_nan[vinge_column]):
-            #                     vinge_no_nan[vinge_column] = pd.to_numeric(vinge_no_nan[vinge_column], errors='coerce')
-            #                     vinge_no_nan = vinge_no_nan.dropna(subset=[vinge_column])
-                            
-            #                 # In the simple figure case (no rainfall)
-            #                 fig.add_trace(
-            #                     go.Scatter(
-            #                         x=vinge_no_nan.index,
-            #                         y=vinge_no_nan[vinge_column].values,
-            #                         name="Vinge",
-            #                         mode='markers',
-            #                         marker=dict(
-            #                             color='#2ca02c',  # Green color
-            #                             size=8,
-            #                             symbol='circle'
-            #                         )
-            #                     )
-            #                 )
-            #                 print(f"Added {len(vinge_no_nan)} manual board measurements to the simple HTML plot")
-            #             else:
-            #                 print("No valid vinge data points for HTML plot")
-            #         else:
-            #             print(f"Could not find a usable column in vinge data for HTML plot. Available columns: {vinge_data.columns}")
-            #     except Exception as e:
-            #         print(f"Error adding vinge data to single-plot HTML: {str(e)}")
-            #         import traceback
-            #         traceback.print_exc()
         
         # Update layout
         fig.update_layout(
@@ -416,6 +382,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         )
         fig.update_xaxes(fixedrange=False)
         fig.update_yaxes(fixedrange=False)
+        
         # Create model configuration text
         config_text = ""
         if model_config:
@@ -596,6 +563,70 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
             }
         })
         
+        # Create focused error period plots as PNGs, max 2 per error type
+        if error_periods:
+            print(f"Creating focused error period PNG plots for up to 2 of each error type...")
+            error_type_counts = defaultdict(int)
+            for i, period in enumerate(error_periods):
+                etype = period.error_type
+                if error_type_counts[etype] >= 5:
+                    continue
+                error_type_counts[etype] += 1
+
+                # Prepare zoomed-in range (add margin before/after)
+                margin = pd.Timedelta(hours=24)
+                x_start = period.start_time - margin
+                x_end = period.end_time + margin
+
+                # Slice data to the zoomed-in window
+                mask = (test_actual.index >= x_start) & (test_actual.index <= x_end)
+                y_clean = test_actual[mask].values
+                y_pred = predictions_series[mask].values
+                y_synth = synthetic_df['vst_raw'][mask].values if synthetic_df is not None else None
+
+                # Compute y-limits based on all available data in window
+                y_all = [y_clean, y_pred]
+                if y_synth is not None:
+                    y_all.append(y_synth)
+                y_concat = np.concatenate([arr[~np.isnan(arr)] for arr in y_all if arr is not None and len(arr) > 0])
+                if len(y_concat) > 0:
+                    ymin, ymax = np.min(y_concat), np.max(y_concat)
+                    yrange = ymax - ymin
+                    ypad = yrange * 0.05 if yrange > 0 else 1.0
+                    ylims = (ymin - ypad, ymax + ypad)
+                else:
+                    ylims = None
+
+                # Create figure
+                fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+
+                # Plot clean data
+                ax.plot(test_actual.index, test_actual.values, color='#1f77b4', linewidth=0.8, label='VST RAW')
+                # Plot synthetic data if available
+                if synthetic_df is not None:
+                    ax.plot(synthetic_df.index, synthetic_df['vst_raw'].values, color='#d62728', linewidth=0.8, linestyle='--', label='VST RAW (with Synthetic Errors)')
+                # Plot predictions
+                ax.plot(predictions_series.index, predictions_series.values, color='#2ca02c', linewidth=0.8, label='Predicted')
+
+                # Set x-limits to focus on error period
+                ax.set_xlim([x_start, x_end])
+                # Set y-limits for better visibility
+                if ylims is not None:
+                    ax.set_ylim(ylims)
+                ax.set_xlabel('Date', fontweight='bold')
+                ax.set_ylabel('Water Level (mm)', fontweight='bold')
+                ax.set_title(f'Error Period: {etype.title()} ({period.start_time.date()} to {period.end_time.date()})', fontweight='bold')
+                ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc')
+                fig.autofmt_xdate()
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                plt.tight_layout()
+
+                # Save PNG
+                error_plot_path = error_periods_dir / f'error_period_{etype}_{error_type_counts[etype]}_{timestamp}.png'
+                plt.savefig(error_plot_path, dpi=300, bbox_inches='tight', facecolor='white')
+                plt.close(fig)
+        
         # Open HTML in browser if requested
         if open_browser:
             absolute_path = os.path.abspath(html_path)
@@ -604,7 +635,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         
     return png_path
 
-def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, best_val_loss=None, metrics=None, vinge_data=None, show_config=False, title_suffix=None):
+def create_water_level_plot_png(actual, predictions, station_id, timestamp, model_config=None, output_dir=None, best_val_loss=None, metrics=None, vinge_data=None, show_config=False, title_suffix=None, synthetic_data=None):
     """
     Create a publication-quality matplotlib plot with just water level data and save as PNG.
     Designed for thesis report with consistent colors and clean styling.
@@ -620,74 +651,12 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
         metrics: Optional dictionary with additional performance metrics
         vinge_data: Optional DataFrame containing manual board (VINGE) measurements
         title_suffix: Optional suffix to add to the plot title
+        synthetic_data: Optional DataFrame containing data with synthetic errors
     """
     # Set default output directory if not provided
     if output_dir is None:
         output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
         output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # If vinge data is not provided or empty, try to load it from the preprocessed data
-    # if vinge_data is None or (isinstance(vinge_data, pd.DataFrame) and vinge_data.empty):
-    #     try:
-    #         print(f"Vinge data not provided, attempting to load from preprocessed data...")
-            
-    #         # Define possible directories to look for the data using relative paths
-    #         possible_dirs = [
-    #             Path(os.path.join(PROJECT_ROOT, "data_utils/Sample data")),
-    #             Path(os.path.join(PROJECT_ROOT, "../data_utils/Sample data")),
-    #             Path(os.path.join(PROJECT_ROOT, "data_utils")),
-    #             Path(os.path.join(PROJECT_ROOT, "../data_utils"))
-    #         ]
-            
-    #         preprocessed_data = None
-    #         # Try to load from possible directories
-    #         for data_dir in possible_dirs:
-    #             try:
-    #                 if (data_dir / "preprocessed_data.pkl").exists():
-    #                     print(f"Found preprocessed_data.pkl in {data_dir}")
-    #                     preprocessed_data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
-    #                     break
-    #                 elif (data_dir / "original_data.pkl").exists():
-    #                     print(f"Found original_data.pkl in {data_dir}")
-    #                     preprocessed_data = pd.read_pickle(data_dir / "original_data.pkl")
-    #                     break
-    #             except Exception as e:
-    #                 print(f"Could not load from {data_dir}: {str(e)}")
-            
-    #         if preprocessed_data is None:
-    #             print("Could not find preprocessed data in any of the expected locations.")
-    #         else:
-    #             # If we found the data, try to extract vinge data
-    #             if station_id in preprocessed_data:
-    #                 station_data = preprocessed_data[station_id]
-                    
-    #                 # Check if vinge data exists for this station
-    #                 if 'vinge' in station_data:
-    #                     # Handle different structures - could be Series or DataFrame
-    #                     vinge_raw = station_data['vinge']
-    #                     if isinstance(vinge_raw, pd.DataFrame):
-    #                         vinge_data = vinge_raw
-    #                         print(f"Loaded vinge data as DataFrame with columns: {vinge_data.columns}")
-    #                     else:
-    #                         # Convert to DataFrame if it's a Series
-    #                         vinge_data = pd.DataFrame({'vinge': vinge_raw})
-    #                         print(f"Converted vinge data Series to DataFrame")
-                        
-    #                     print(f"Loaded vinge data for station {station_id}: {len(vinge_data)} records")
-                        
-    #                     # Check if we have any non-null vinge values
-    #                     if 'vinge' in vinge_data.columns:
-    #                         non_null_count = vinge_data['vinge'].count()
-    #                         print(f"Found {non_null_count} non-null vinge measurements")
-    #                 else:
-    #                     print(f"No vinge data found for station {station_id}")
-    #             else:
-    #                 print(f"Station {station_id} not found in preprocessed data")
-    #     except Exception as e:
-    #         print(f"Error loading vinge data: {str(e)}")
-    #         import traceback
-    #         traceback.print_exc()
-    #         vinge_data = None
     
     # Set publication-quality styling
     plt.rcParams.update({
@@ -716,94 +685,59 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     # Main plot in top section
     ax = fig.add_subplot(gs[0])
     
+    # Extract error periods from synthetic data if available
+    error_periods = []
+    synthetic_df = None
+    if synthetic_data is not None:
+        if isinstance(synthetic_data, dict):
+            error_periods = synthetic_data.get('error_periods', [])
+            synthetic_df = synthetic_data.get('data', None)
+        elif hasattr(synthetic_data, 'error_periods'):
+            error_periods = synthetic_data.error_periods
+            synthetic_df = synthetic_data
+        elif isinstance(synthetic_data, pd.DataFrame):
+            synthetic_df = synthetic_data
+    
+    # Add colored background regions for different error types if synthetic data is available
+    if error_periods:
+        error_colors = {
+            'spike': '#ffcccc',      # Light red
+            'flatline': '#ccffcc',   # Light green
+            'drift': '#ccccff',      # Light blue
+            'offset': '#ffd699',     # Light orange
+            'baseline_shift': '#e6ccff',  # Light purple
+            'noise': '#e6e6e6'       # Light gray
+        }
+        
+        # Create a mapping to track which error types have been added to legend
+        error_legend_added = {}
+        
+        # Add error type backgrounds
+        for error_type, color in error_colors.items():
+            # Find periods with this error type
+            type_periods = [p for p in error_periods if p.error_type == error_type]
+            
+            for period in type_periods:
+                # Add to legend only for the first occurrence of each type
+                label = f'{error_type.title()} Error' if error_type not in error_legend_added else None
+                error_legend_added[error_type] = True
+                
+                ax.axvspan(
+                    period.start_time,
+                    period.end_time,
+                    color=color,
+                    alpha=0.3,
+                    label=label
+                )
+    
     # Plot with consistent colors - blue for actual, red for predicted
     ax.plot(actual.index, actual.values, color='#1f77b4', linewidth=0.8, label='VST RAW')
-    ax.plot(predictions.index, predictions.values, color='#d62728', linewidth=0.8, label='Predicted')
     
-    # Add VINGE measurements if provided (similar to preprocessing_diagnostics.py)
-    # if vinge_data is not None and (isinstance(vinge_data, pd.DataFrame) and not vinge_data.empty):
-    #     try:
-    #         # Check if vinge data is properly formatted
-    #         # Get the vinge column (could be 'vinge', 'water_level_mm', or 'W.L [cm]')
-    #         vinge_column = None
-            
-    #         # Try to identify the correct column to use
-    #         possible_columns = ['vinge', 'water_level_mm', 'W.L [cm]']
-    #         for col in possible_columns:
-    #             if col in vinge_data.columns:
-    #                 vinge_column = col
-    #                 print(f"Using '{col}' column for vinge data")
-    #                 break
-            
-    #         # If we couldn't find a recognized column but have only one column, use that
-    #         if vinge_column is None and len(vinge_data.columns) == 1:
-    #             vinge_column = vinge_data.columns[0]
-    #             print(f"Using unrecognized column '{vinge_column}' for vinge data")
-                
-    #         if vinge_column is not None:
-    #             # Ensure data is properly indexed with datetime
-    #             if not isinstance(vinge_data.index, pd.DatetimeIndex):
-    #                 if 'Date' in vinge_data.columns:
-    #                     try:
-    #                         vinge_data.set_index('Date', inplace=True)
-    #                         print("Set vinge data index to 'Date' column")
-    #                     except Exception as e:
-    #                         print(f"Error setting index to Date column: {str(e)}")
-                
-    #             # Only proceed if we have a proper DatetimeIndex now
-    #             if isinstance(vinge_data.index, pd.DatetimeIndex):
-    #                 # Filter to match the time range of actual data
-    #                 try:
-    #                     vinge_filtered = vinge_data[
-    #                         (vinge_data.index >= actual.index.min()) & 
-    #                         (vinge_data.index <= actual.index.max())
-    #                     ]
-    #                     print(f"Filtered vinge data to time range: {len(vinge_filtered)} records remain")
-                        
-    #                     # Drop NaN values
-    #                     vinge_filtered = vinge_filtered.dropna(subset=[vinge_column])
-    #                     print(f"After dropping NaNs: {len(vinge_filtered)} records remain")
-                        
-    #                     if not vinge_filtered.empty:
-    #                         try:
-    #                             # Convert to numeric if needed
-    #                             if not pd.api.types.is_numeric_dtype(vinge_filtered[vinge_column]):
-    #                                 vinge_filtered[vinge_column] = pd.to_numeric(vinge_filtered[vinge_column], errors='coerce')
-    #                                 vinge_filtered = vinge_filtered.dropna(subset=[vinge_column])
-    #                                 print(f"Converted vinge data to numeric, {len(vinge_filtered)} records remain")
-                                
-    #                             # Plot VINGE measurements with larger markers and higher zorder
-    #                             ax.scatter(
-    #                                 vinge_filtered.index, 
-    #                                 vinge_filtered[vinge_column],
-    #                                 color='#2ca02c',  # Green color
-    #                                 alpha=0.8, 
-    #                                 s=50,  # Larger point size
-    #                                 label='Vinge',
-    #                                 zorder=5,  # Ensure points are drawn on top
-    #                                 marker='o'
-    #                             )
-    #                             print(f"Added {len(vinge_filtered)} manual board measurements to the plot")
-    #                         except Exception as e:
-    #                             print(f"Error plotting vinge data points: {str(e)}")
-    #                             import traceback
-    #                             traceback.print_exc()
-    #                     else:
-    #                         print("No vinge data points within the plot time range")
-    #                 except Exception as e:
-    #                     print(f"Error filtering vinge data: {str(e)}")
-    #                     import traceback
-    #                     traceback.print_exc()
-    #             else:
-    #                 print(f"Vinge data does not have a DatetimeIndex. Current index type: {type(vinge_data.index)}")
-    #         else:
-    #             print(f"Could not find a usable column in vinge data. Available columns: {vinge_data.columns}")
-    #     except Exception as e:
-    #         print(f"Error processing vinge data for plotting: {str(e)}")
-    #         import traceback
-    #         traceback.print_exc()
-    # else:
-    #     print("No vinge data available for plotting")
+    # Add synthetic data if available
+    if synthetic_df is not None:
+        ax.plot(synthetic_df.index, synthetic_df['vst_raw'].values, color='#d62728', linewidth=0.8, linestyle='--', label='VST RAW (with Synthetic Errors)')
+    
+    ax.plot(predictions.index, predictions.values, color='#2ca02c', linewidth=0.8, label='Predicted')
     
     # Clean styling
     if title_suffix:
@@ -967,87 +901,6 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     plt.close()
     
     return output_path
-
-
-def plot_scaled_predictions(predictions, targets, test_data=None, title="Scaled Predictions vs Targets"):
-    
-        """
-        Plot scaled predictions and targets before inverse transformation.
-        
-        Args:
-            predictions: Scaled predictions array
-            targets: Scaled targets array
-            test_data: Original DataFrame with datetime index (optional)
-            title: Plot title
-        """
-        # Create figure
-        fig = go.Figure()
-        
-        # Flatten predictions and targets for plotting
-        flat_predictions = predictions.reshape(-1)
-        flat_targets = targets.reshape(-1)
-        
-        # Create x-axis points - either use dates from test_data or timesteps
-        if test_data is not None and hasattr(test_data, 'index'):
-            x_points = test_data.index[:len(flat_predictions)]
-            x_label = 'Date'
-        else:
-            x_points = np.arange(len(flat_predictions))
-            x_label = 'Timestep'
-        
-        # Add targets
-        fig.add_trace(
-            go.Scatter(
-                x=x_points,
-                y=flat_targets,
-                name="Scaled Targets",
-                line=dict(color='blue', width=1)
-            )
-        )
-
-        # Add predictions
-        fig.add_trace(
-            go.Scatter(
-                x=x_points,
-                y=flat_predictions,
-                name="Scaled Predictions",
-                line=dict(color='red', width=1)
-            )
-        )
-        
-        # Update layout
-        fig.update_layout(
-            title=title,
-            xaxis_title=x_label,
-            yaxis_title='Scaled Value',
-            width=1200,
-            height=600,
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            )
-        )
-        
-        # Add rangeslider if using dates
-        if test_data is not None and hasattr(test_data, 'index'):
-            fig.update_layout(
-                xaxis=dict(
-                    rangeslider=dict(visible=True),
-                    type="date"  # This will format the x-axis as dates
-                )
-            )
-        
-        # Save and open in browser using relative path
-        output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
-        output_dir.mkdir(parents=True, exist_ok=True)
-        html_path = output_dir / 'scaled_predictions.html'
-        fig.write_html(str(html_path))
-        print(f"Opening scaled predictions plot in browser...")
-        webbrowser.open('file://' + os.path.abspath(html_path))
 
 def plot_convergence(history, station_id, title=None):
     """
