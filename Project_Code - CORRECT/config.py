@@ -129,13 +129,13 @@ PHYSICAL_LIMITS = {
 # LSTM Configuration
 LSTM_CONFIG = {
 
-    'hidden_size': 128,         
+    'hidden_size': 12,         
     'num_layers': 3,            
     'dropout': 0.25,             
     'batch_size': 16,
     'sequence_length': 100,
     'prediction_window': 10,
-    'epochs': 100,
+    'epochs': 10,
     'patience': 8,            
 
     'warmup_length': 1,

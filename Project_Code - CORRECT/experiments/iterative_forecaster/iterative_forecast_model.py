@@ -51,8 +51,7 @@ class ForecastingLSTM(nn.Module):
             predictions: Tensor of shape (batch_size, prediction_window)
         """
         batch_size, seq_len, num_features = x.size()
-        
-
+    
         
         # If we have previous predictions, incorporate them into input
         if prev_predictions is not None:
