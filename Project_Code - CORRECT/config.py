@@ -34,7 +34,7 @@ SYNTHETIC_ERROR_PARAMS = {
     'use_context_aware': False,
     
     'spike': {
-        'frequency': 0.0000,
+        'count_per_year': 0,  # Base count: 5 spikes per year
         # Wider range to allow for more subtle spikes
         'magnitude_range': (0.1, 1.0),  # Changed from (0.4, 0.8)
         'negative_positiv_ratio': 0.5,
@@ -51,7 +51,7 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     # 'drift': {
-    #     'frequency': 0.0000,
+    #     'count_per_year': 0,  # Disabled by default
     #     # Wider range for drift durations
     #     'duration_range': [500, 1168],  # Changed from [24, 168]
     #     # More varied magnitude range
@@ -65,17 +65,17 @@ SYNTHETIC_ERROR_PARAMS = {
     # },
     
     # 'flatline': {
-    #     'frequency': 0.000,
+    #     'count_per_year': 0,  # Disabled by default
     #     # More varied durations
     #     'duration_range': (10, 200),  # Changed from (20, 200)
     #     'value_method': 'first_value'
     # },
     
     'offset': {
-        'frequency': 0.0000,
+        'count_per_year': 1,  # Base count: 2 offset periods per year
         # Wider range for offset magnitudes
-        'magnitude_range': (20, 500),  # Changed from (50, 500)
-        'negative_positiv_ratio': 0.7,
+        'magnitude_range': (50, 500),  # Changed from (50, 500)
+        'negative_positiv_ratio': 0.5,
         'min_duration': 24,
         'max_duration_multiplier': (15, 20),
         'magnitude_multiplier': (0.6, 1.4),  # Changed from (0.8, 1.2)
@@ -87,13 +87,13 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     'noise': {
-        'frequency': 0.0000,  # Still disabled
-        'duration_range': (4, 24),
-        'intensity_range': (1, 4)  # Changed from (2, 4)
+        'count_per_year': 0,  # Base count: 3 noise periods per year
+        'duration_range': (24, 168),
+        'intensity_range': (4, 10)  # Changed from (2, 4)
     },
     
     # 'baseline_shift': {
-    #     'frequency': 0,  # Still disabled
+    #     'count_per_year': 0,  # Disabled by default
     #     'magnitude_range': (100, 600),  # Changed from (200, 600)
     #     'negative_positive_ratio': 0.5
     # },
@@ -103,19 +103,6 @@ SYNTHETIC_ERROR_PARAMS = {
         'min_value': 0,
         'max_value': 3000,
         'max_rate_of_change': 50
-    }
-}
-
-# Three-Pass Anomaly Correction Parameters
-ANOMALY_CORRECTION_PARAMS = {
-    'contamination': 0.05,         # Expected proportion of anomalies (default: 5%)
-    'method': 'isolation_forest',  # Anomaly detection method ('isolation_forest', 'one_class_svm', 'statistical')
-    'smoothing_window': 5,         # Window size for residual smoothing
-    'correction_window': 24,       # Hours to look ahead/behind for context during correction
-    'min_segment_length': 3,       # Minimum length of anomaly segment to correct (in hours)
-    'visualization': {
-        'max_segments': 5,         # Maximum number of individual segments to visualize
-        'context_hours': 24        # Hours of context to show before/after anomaly in segment plots
     }
 }
 
@@ -130,11 +117,11 @@ PHYSICAL_LIMITS = {
 LSTM_CONFIG = {
 
     'hidden_size': 128,         
-    'num_layers': 3,            
+    'num_layers': 2,            
     'dropout': 0.25,             
     'batch_size': 16,
-    'sequence_length': 100,
-    'prediction_window': 10,
+    'sequence_length': 500,
+    'prediction_window': 20,
     'epochs': 100,
     'patience': 8,            
 
@@ -151,7 +138,8 @@ LSTM_CONFIG = {
     
     'feature_cols': [
         'rainfall',
-        'temperature', 'vst_raw_feature'
+        'temperature',
+        'vst_raw_feature'
     ],
     'output_features': ['vst_raw'],
 

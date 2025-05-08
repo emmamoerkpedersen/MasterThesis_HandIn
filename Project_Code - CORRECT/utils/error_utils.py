@@ -7,43 +7,38 @@ import numpy as np
 from pathlib import Path
 import traceback
 
-def configure_error_params(base_error_config, error_frequency):
+def configure_error_params(base_error_config, error_multiplier):
     """
-    Configure error parameters based on the specified error frequency.
+    Configure error parameters based on the specified error multiplier.
     
     Args:
         base_error_config: Base error configuration dictionary
-        error_frequency: Target error frequency (0-1)
+        error_multiplier: Multiplier for error counts per year
         
     Returns:
-        Modified error configuration with adjusted frequencies
+        Modified error configuration with adjusted counts
     """
     # Create a copy of the base configuration
     error_config = base_error_config.copy()
     
-    # Set error frequencies based on the error_frequency parameter
-    # Distribute the total error frequency across different error types
-    error_config['offset']['frequency'] = error_frequency * 0.3     # 30% of errors are offsets
-    #error_config['drift']['frequency'] = error_frequency * 0.2      # 20% of errors are drifts
-    #error_config['flatline']['frequency'] = error_frequency * 0.2   # 20% of errors are flatlines
-    error_config['spike']['frequency'] = error_frequency * 0.15     # 15% of errors are spikes
-    error_config['noise']['frequency'] = error_frequency * 0.15     # 15% of errors are noise
+    # Set error counts based on the error_multiplier parameter
+    error_config['offset']['count_per_year'] = 2 * error_multiplier     # 2 offsets per year
+    error_config['spike']['count_per_year'] = 5 * error_multiplier      # 5 spikes per year
+    error_config['noise']['count_per_year'] = 3 * error_multiplier      # 3 noise periods per year
     
     return error_config
 
 def print_error_frequencies(error_config):
     """
-    Print the error frequencies in the configuration.
+    Print the error counts per year in the configuration.
     
     Args:
         error_config: Error configuration dictionary
     """
-    print(f"Error frequencies by type:")
-    print(f"  Offset: {error_config['offset']['frequency']:.5f}")
-    #print(f"  Drift: {error_config['drift']['frequency']:.5f}")
-    #print(f"  Flatline: {error_config['flatline']['frequency']:.5f}")
-    print(f"  Spike: {error_config['spike']['frequency']:.5f}")
-    print(f"  Noise: {error_config['noise']['frequency']:.5f}")
+    print(f"Error counts per year by type:")
+    print(f"  Offset: {error_config['offset']['count_per_year']:.1f}")
+    print(f"  Spike: {error_config['spike']['count_per_year']:.1f}")
+    print(f"  Noise: {error_config['noise']['count_per_year']:.1f}")
 
 def inject_errors_into_dataset(dataset, error_generator, station_id, water_level_cols):
     """
