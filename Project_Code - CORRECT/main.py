@@ -256,6 +256,12 @@ def run_pipeline(
     
     # Calculate Z-scores
     if inject_synthetic_errors and val_data_with_errors_raw is not None:
+        # Debug prints for data alignment
+        print("\nData alignment check for z-score calculation:")
+        print(f"Length of val_data_with_errors_raw: {len(val_data_with_errors_raw)}")
+        print(f"Length of val_predictions_df: {len(val_predictions_df)}")
+        print(f"Index match check: {val_data_with_errors_raw.index.equals(val_predictions_df.index)}")
+        
         # Use data with synthetic errors
         z_scores, anomalies = calculate_z_scores(val_data_with_errors_raw['vst_raw'].values, val_predictions_df['vst_raw'].values)
     else:
