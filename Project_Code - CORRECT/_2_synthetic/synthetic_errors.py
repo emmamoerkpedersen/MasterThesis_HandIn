@@ -180,7 +180,7 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of missing data periods
         years_in_data = self._calculate_years_in_data(data.index)
-        n_missing_periods = int(count_per_year * years_in_data)
+        n_missing_periods = round(count_per_year * years_in_data)
         
         # If no periods to inject, return original data
         if n_missing_periods == 0:
@@ -257,7 +257,7 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of spikes
         years_in_data = self._calculate_years_in_data(data.index)
-        n_spikes = int(count_per_year * years_in_data)
+        n_spikes = round(count_per_year * years_in_data)
         
         # If no spikes to inject, return original data
         if n_spikes == 0:
@@ -352,7 +352,7 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of flatlines
         years_in_data = self._calculate_years_in_data(data.index)
-        n_flatlines = int(count_per_year * years_in_data)
+        n_flatlines = round(count_per_year * years_in_data)
         
         successful_injections = 0
         max_attempts = n_flatlines * 10
@@ -413,7 +413,7 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of drifts
         years_in_data = self._calculate_years_in_data(data.index)
-        n_drifts = max(1, int(count_per_year * years_in_data))
+        n_drifts = max(1, round(count_per_year * years_in_data))
         
         successful_injections = 0
         max_attempts = n_drifts * 10
@@ -512,7 +512,8 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of offsets
         years_in_data = self._calculate_years_in_data(data.index)
-        n_offsets = int(count_per_year * years_in_data)
+        # Use round() instead of int() to properly handle partial years
+        n_offsets = round(count_per_year * years_in_data)
         
         # If no offsets to inject, return original data
         if n_offsets == 0:
@@ -619,12 +620,18 @@ class SyntheticErrorGenerator:
         # Get noise parameters from config
         noise_config = self.config['noise']
         count_per_year = noise_config.get('count_per_year', 0)
+        
+        # If count_per_year is 0, don't inject any noise
+        if count_per_year == 0:
+            print("Noise injection disabled (count_per_year = 0)")
+            return modified_data
+            
         duration_range = noise_config['duration_range']  # hours
         intensity_range = noise_config['intensity_range']  # multiplier of normal noise level
         
         # Calculate years in data and total number of noise periods
         years_in_data = self._calculate_years_in_data(data.index)
-        n_noise_periods = int(count_per_year * years_in_data)
+        n_noise_periods = round(count_per_year * years_in_data)
         
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_noise_periods} noise periods...")
@@ -692,7 +699,7 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of shifts
         years_in_data = self._calculate_years_in_data(data.index)
-        n_shifts = max(1, int(count_per_year * years_in_data))
+        n_shifts = max(1, round(count_per_year * years_in_data))
         
         # Try to inject shifts
         successful_shifts = 0
