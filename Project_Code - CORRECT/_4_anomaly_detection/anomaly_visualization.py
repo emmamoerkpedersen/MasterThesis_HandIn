@@ -16,10 +16,12 @@ def plot_water_level_anomalies(
     output_dir=None,
     save_png=True,
     save_html=True,
-    show_plot=True
+    show_plot=True,
+    sequence_length=None
 ):
     """
     Creates a plot showing water level data, predictions, z-scores, and detected anomalies.
+    Ensures predictions/z_scores/anomalies are aligned with test_data, padding the first sequence_length values with NaN/False.
     
     Args:
         test_data (pd.DataFrame): DataFrame containing water level data with datetime index.
@@ -32,6 +34,7 @@ def plot_water_level_anomalies(
         save_png (bool): Whether to save plot as PNG.
         save_html (bool): Whether to save interactive plot as HTML.
         show_plot (bool): Whether to display the plot.
+        sequence_length (int or None): Length of the sequence to pad.
         
     Returns:
         tuple: Paths to saved PNG and HTML files (if applicable).
@@ -53,9 +56,28 @@ def plot_water_level_anomalies(
     else:
         actual_values = test_data
     
-    if not isinstance(predictions, pd.Series):
-        predictions = pd.Series(predictions, index=actual_values.index)
-    
+    n = len(actual_values)
+
+    # Infer sequence_length if not provided
+    if sequence_length is None:
+        # If predictions is shorter than actual_values, infer the offset
+        if len(predictions) < n:
+            sequence_length = n - len(predictions)
+        else:
+            sequence_length = 0
+
+    # Pad predictions, z_scores, anomalies to match test_data length
+    full_predictions = pd.Series(np.full(n, np.nan), index=actual_values.index)
+    full_z_scores = np.full(n, np.nan)
+    full_anomalies = np.zeros(n, dtype=bool)
+
+    # Place predictions/z_scores/anomalies after sequence_length
+    valid_len = min(n - sequence_length, len(predictions))
+    if valid_len > 0:
+        full_predictions.iloc[sequence_length:sequence_length+valid_len] = predictions[:valid_len]
+        full_z_scores[sequence_length:sequence_length+valid_len] = z_scores[:valid_len]
+        full_anomalies[sequence_length:sequence_length+valid_len] = anomalies[:valid_len]
+
     # Plot using matplotlib (for PNG)
     if save_png or show_plot:
         # Set up figure with two subplots
@@ -68,36 +90,13 @@ def plot_water_level_anomalies(
         ax1.plot(actual_values.index, actual_values.values, color='blue', linewidth=1, label='Original Water Levels')
         
         # Plot predictions
-        ax1.plot(predictions.index, predictions.values, color='green', linewidth=1, label='Mean Forecast')
+        ax1.plot(actual_values.index, full_predictions.values, color='green', linewidth=1, label='Mean Forecast')
         
-        # Mark anomalies on the top plot
-        if isinstance(anomalies, pd.Series):
-            anomaly_indices = anomalies[anomalies].index
-        else:
-            anomaly_indices = actual_values.index[anomalies]
-        
-        if len(anomaly_indices) > 0:
-            ax1.scatter(anomaly_indices, actual_values.loc[anomaly_indices], 
+        # Mark anomalies only where predictions exist
+        valid_anomaly_indices = actual_values.index[full_anomalies & ~np.isnan(full_predictions)]
+        if len(valid_anomaly_indices) > 0:
+            ax1.scatter(valid_anomaly_indices, actual_values.loc[valid_anomaly_indices], 
                        color='red', s=50, marker='o', label='Detected Anomalies')
-        
-        # Add forecasting confidence bands (±1σ and ±2σ)
-        # Calculate standard deviation of residuals for confidence bands
-        residuals = actual_values.values - predictions.values
-        std_dev = np.nanstd(residuals)
-        
-        ax1.fill_between(
-            predictions.index,
-            predictions.values - std_dev,
-            predictions.values + std_dev,
-            color='green', alpha=0.2, label='Forecast Confidence Band (±1σ)'
-        )
-        
-        ax1.fill_between(
-            predictions.index,
-            predictions.values - 2*std_dev,
-            predictions.values + 2*std_dev,
-            color='green', alpha=0.1, label='Forecast Confidence Band (±2σ)'
-        )
         
         # Format top plot
         ax1.set_title(title, fontsize=16)
@@ -109,7 +108,7 @@ def plot_water_level_anomalies(
         ax2 = axes[1]
         
         # Plot the z-scores
-        ax2.plot(actual_values.index, np.abs(z_scores), color='blue', linewidth=1, label='Absolute Z-Score')
+        ax2.plot(actual_values.index, np.abs(full_z_scores), color='blue', linewidth=1, label='Absolute Z-Score')
         
         # Add threshold line
         threshold = 5.0  # Default threshold value
@@ -170,76 +169,24 @@ def plot_water_level_anomalies(
         # Predictions
         fig.add_trace(
             go.Scatter(
-                x=predictions.index,
-                y=predictions.values,
-                name="Mean Forecast",
+                x=actual_values.index,
+                y=full_predictions.values,
+                name="Predictions",
                 line=dict(color='green', width=1)
             ),
             row=1, col=1
         )
         
-        # Add confidence bands
-        residuals = actual_values.values - predictions.values
-        std_dev = np.nanstd(residuals)
-        
-        fig.add_trace(
-            go.Scatter(
-                x=predictions.index,
-                y=predictions.values + std_dev,
-                name="Forecast Confidence Band (±1σ)",
-                line=dict(color='rgba(0, 128, 0, 0.2)', width=0),
-                showlegend=False
-            ),
-            row=1, col=1
-        )
-        
-        fig.add_trace(
-            go.Scatter(
-                x=predictions.index,
-                y=predictions.values - std_dev,
-                name="Forecast Confidence Band (±1σ)",
-                line=dict(color='rgba(0, 128, 0, 0.2)', width=0),
-                fill='tonexty',
-                fillcolor='rgba(0, 128, 0, 0.2)'
-            ),
-            row=1, col=1
-        )
-        
-        fig.add_trace(
-            go.Scatter(
-                x=predictions.index,
-                y=predictions.values + 2*std_dev,
-                name="Forecast Confidence Band (±2σ)",
-                line=dict(color='rgba(0, 128, 0, 0.1)', width=0),
-                showlegend=False
-            ),
-            row=1, col=1
-        )
-        
-        fig.add_trace(
-            go.Scatter(
-                x=predictions.index,
-                y=predictions.values - 2*std_dev,
-                name="Forecast Confidence Band (±2σ)",
-                line=dict(color='rgba(0, 128, 0, 0.1)', width=0),
-                fill='tonexty',
-                fillcolor='rgba(0, 128, 0, 0.1)'
-            ),
-            row=1, col=1
-        )
-        
-        # Add anomalies as scatter points
-        if np.any(anomalies):
-            anomaly_indices = np.where(anomalies)[0]
-            anomaly_count = len(anomaly_indices)
-            
+        # Add anomalies as scatter points only where predictions exist
+        valid_anomaly_indices = actual_values.index[full_anomalies & ~np.isnan(full_predictions)]
+        if len(valid_anomaly_indices) > 0:
             fig.add_trace(
                 go.Scatter(
-                    x=actual_values.index[anomaly_indices],
-                    y=actual_values.iloc[anomaly_indices],
+                    x=valid_anomaly_indices,
+                    y=actual_values.loc[valid_anomaly_indices],
                     mode='markers',
                     marker=dict(color='red', size=8, symbol='circle'),
-                    name=f"Detected Anomalies ({anomaly_count})"
+                    name=f"Detected Anomalies ({len(valid_anomaly_indices)})"
                 ),
                 row=1, col=1
             )
@@ -248,7 +195,7 @@ def plot_water_level_anomalies(
         fig.add_trace(
             go.Scatter(
                 x=actual_values.index,
-                y=np.abs(z_scores),
+                y=np.abs(full_z_scores),
                 name="Absolute Z-Score",
                 line=dict(color='blue', width=1)
             ),
