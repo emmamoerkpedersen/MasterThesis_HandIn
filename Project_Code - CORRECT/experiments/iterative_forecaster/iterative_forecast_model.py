@@ -32,10 +32,8 @@ class ForecastingLSTM(nn.Module):
         )
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
-        
         # Fully connected layer to map to output
         self.fc = nn.Linear(hidden_size, output_size)
-        
         # Add storage for previous predictions
         self.previous_preds = None
   
@@ -51,9 +49,7 @@ class ForecastingLSTM(nn.Module):
         Returns:
             predictions: Tensor of shape (batch_size, prediction_window)
         """
-        batch_size, seq_len, num_features = x.size()
-    
-        
+        _, seq_len, _ = x.size()
         # If we have previous predictions, incorporate them into input
         if prev_predictions is not None:
             # Create updated input using previous predictions

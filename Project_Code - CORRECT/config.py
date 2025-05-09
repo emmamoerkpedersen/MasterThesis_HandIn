@@ -119,16 +119,16 @@ LSTM_CONFIG = {
     'num_layers': 2,                       
     'dropout': 0.25,             
     'batch_size': 16,
-    'sequence_length': 100,
-    'prediction_window': 5,
-    'epochs': 1,
+    'sequence_length': 150,
+    'prediction_window': 10,
+    'epochs': 50,
     'patience': 5,            
 
     'warmup_length': 50,
     'learning_rate': 0.001,    
 
     'threshold': 15,
-    'window_size': 100,
+    'window_size': 150,
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
     'objective_function': 'smoothL1_loss',
