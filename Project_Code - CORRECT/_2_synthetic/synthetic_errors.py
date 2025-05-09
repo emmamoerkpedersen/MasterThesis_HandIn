@@ -61,7 +61,7 @@ class SyntheticErrorGenerator:
         
         from config import SYNTHETIC_ERROR_PARAMS
         self.config = config or SYNTHETIC_ERROR_PARAMS
-        self.error_periods: List[ErrorPeriod] = []
+        self.error_periods = []
         self.used_indices = set()  # Track all used indices
         self.use_context_aware = self.config.get('use_context_aware', False)  # New toggle
     
@@ -153,7 +153,92 @@ class SyntheticErrorGenerator:
         else:
             # Use base range from config
             return current_value * np.random.uniform(*base_range)
-    
+        
+    def inject_missing_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Inject missing data anomalies by replacing sections with NaN values.
+        
+        Args:
+            data: DataFrame with time series data
+            
+        Returns:
+            DataFrame with injected missing data sections
+        """
+        modified_data = data.copy()
+        
+        # Get missing data parameters from config
+        missing_config = self.config.get('missing_data', {})
+        count_per_year = missing_config.get('count_per_year', 0)
+        
+        # If count_per_year is 0, don't inject any missing data
+        if count_per_year == 0:
+            print("Missing data injection disabled (count_per_year = 0)")
+            return modified_data
+            
+        min_length = missing_config.get('min_length', 100)
+        max_length = missing_config.get('max_length', 500)
+        
+        # Calculate years in data and total number of missing data periods
+        years_in_data = self._calculate_years_in_data(data.index)
+        n_missing_periods = round(count_per_year * years_in_data)
+        
+        # If no periods to inject, return original data
+        if n_missing_periods == 0:
+            print("No missing data periods to inject")
+            return modified_data
+            
+        print(f"Data spans approximately {years_in_data:.1f} years")
+        print(f"Attempting to inject {n_missing_periods} missing data periods...")
+        
+        successful_injections = 0
+        max_attempts = n_missing_periods * 10
+        attempts = 0
+        
+        while successful_injections < n_missing_periods and attempts < max_attempts:
+            attempts += 1
+            
+            try:
+                # Randomly determine the length of the missing data segment
+                missing_length = np.random.randint(min_length, max_length + 1)
+                
+                # Select a random starting point, avoiding the very beginning and end
+                start_idx = np.random.randint(10, len(data) - missing_length - 10)
+                end_idx = start_idx + missing_length
+                
+                # Check if this period is available (not overlapping with other errors)
+                if not self._is_period_available(start_idx, end_idx):
+                    continue
+                
+                # Store original values
+                original_values = modified_data.iloc[start_idx:end_idx]['vst_raw'].copy().values
+                
+                # Replace values with NaN
+                modified_data.iloc[start_idx:end_idx, modified_data.columns.get_loc('vst_raw')] = np.nan
+                
+                # Record the error period
+                self.error_periods.append(
+                    ErrorPeriod(
+                        start_time=modified_data.index[start_idx],
+                        end_time=modified_data.index[end_idx - 1],
+                        error_type='missing_data',
+                        original_values=original_values,
+                        modified_values=np.full_like(original_values, np.nan),
+                        parameters={'missing_length': missing_length}
+                    )
+                )
+                
+                # Mark period as used
+                self._mark_period_used(start_idx, end_idx)
+                successful_injections += 1
+                print(f"Successfully injected missing data period {successful_injections}/{n_missing_periods} - {missing_length} points")
+                
+            except Exception as e:
+                print(f"Failed to inject missing data at index {start_idx}:{end_idx}")
+                print(f"Error: {str(e)}")
+                continue
+        
+        return modified_data
+
     def inject_spike_errors(self, data: pd.DataFrame) -> pd.DataFrame:
         """Inject spike errors into the time series data."""
         modified_data = data.copy()
@@ -161,12 +246,23 @@ class SyntheticErrorGenerator:
         # Get spike parameters from config
         spike_config = self.config['spike']
         count_per_year = spike_config.get('count_per_year', 0)
+        
+        # If count_per_year is 0, don't inject any spikes
+        if count_per_year == 0:
+            print("Spike injection disabled (count_per_year = 0)")
+            return modified_data
+            
         mag_range = spike_config['magnitude_range']
         negative_positiv_ratio = spike_config['negative_positiv_ratio']
         
         # Calculate years in data and total number of spikes
         years_in_data = self._calculate_years_in_data(data.index)
-        n_spikes = max(1, int(count_per_year * years_in_data))
+        n_spikes = round(count_per_year * years_in_data)
+        
+        # If no spikes to inject, return original data
+        if n_spikes == 0:
+            print("No spikes to inject")
+            return modified_data
         
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_spikes} spikes...")
@@ -256,7 +352,7 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of flatlines
         years_in_data = self._calculate_years_in_data(data.index)
-        n_flatlines = int(count_per_year * years_in_data)
+        n_flatlines = round(count_per_year * years_in_data)
         
         successful_injections = 0
         max_attempts = n_flatlines * 10
@@ -317,7 +413,7 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of drifts
         years_in_data = self._calculate_years_in_data(data.index)
-        n_drifts = max(1, int(count_per_year * years_in_data))
+        n_drifts = max(1, round(count_per_year * years_in_data))
         
         successful_injections = 0
         max_attempts = n_drifts * 10
@@ -402,6 +498,12 @@ class SyntheticErrorGenerator:
         # Get offset parameters from config
         offset_config = self.config['offset']
         count_per_year = offset_config.get('count_per_year', 0)
+        
+        # If count_per_year is 0, don't inject any offsets
+        if count_per_year == 0:
+            print("Offset injection disabled (count_per_year = 0)")
+            return modified_data, offset_periods
+            
         min_duration = offset_config['min_duration']
         max_duration_multiplier = offset_config['max_duration_multiplier']
         mag_range = offset_config['magnitude_range']
@@ -410,7 +512,13 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of offsets
         years_in_data = self._calculate_years_in_data(data.index)
-        n_offsets = max(1, int(count_per_year * years_in_data))
+        # Use round() instead of int() to properly handle partial years
+        n_offsets = round(count_per_year * years_in_data)
+        
+        # If no offsets to inject, return original data
+        if n_offsets == 0:
+            print("No offsets to inject")
+            return modified_data, offset_periods
         
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_offsets} offset periods...")
@@ -512,12 +620,18 @@ class SyntheticErrorGenerator:
         # Get noise parameters from config
         noise_config = self.config['noise']
         count_per_year = noise_config.get('count_per_year', 0)
+        
+        # If count_per_year is 0, don't inject any noise
+        if count_per_year == 0:
+            print("Noise injection disabled (count_per_year = 0)")
+            return modified_data
+            
         duration_range = noise_config['duration_range']  # hours
         intensity_range = noise_config['intensity_range']  # multiplier of normal noise level
         
         # Calculate years in data and total number of noise periods
         years_in_data = self._calculate_years_in_data(data.index)
-        n_noise_periods = int(count_per_year * years_in_data)
+        n_noise_periods = round(count_per_year * years_in_data)
         
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_noise_periods} noise periods...")
@@ -585,7 +699,7 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of shifts
         years_in_data = self._calculate_years_in_data(data.index)
-        n_shifts = max(1, int(count_per_year * years_in_data))
+        n_shifts = max(1, round(count_per_year * years_in_data))
         
         # Try to inject shifts
         successful_shifts = 0
@@ -643,7 +757,7 @@ class SyntheticErrorGenerator:
                 return data, pd.DataFrame(index=data.index)
             
             # Default error types ordered by typical duration
-            all_error_types = ['offset', 'drift', 'baseline_shift', 'flatline', 'spike', 'noise']
+            all_error_types = ['missing_data', 'offset', 'drift', 'baseline_shift', 'flatline', 'spike', 'noise']
             
             # Filter error types based on count_per_year > 0 in config
             active_error_types = [
@@ -651,6 +765,14 @@ class SyntheticErrorGenerator:
                 if et in (error_types or all_error_types) 
                 and self.config.get(et, {}).get('count_per_year', 0) > 0
             ]
+            
+            # If no active error types, return original data
+            if not active_error_types:
+                print("No active error types with count_per_year > 0")
+                ground_truth = pd.DataFrame(index=data.index)
+                ground_truth['error'] = False
+                ground_truth['error_type'] = None
+                return modified_data, ground_truth
             
             print(f"Active error types: {active_error_types}")  # Debug print
             
@@ -675,6 +797,8 @@ class SyntheticErrorGenerator:
                         modified_data, _ = self.inject_offset_errors(modified_data)
                     elif error_type == 'noise':
                         modified_data = self.inject_noise_errors(modified_data)
+                    elif error_type == 'missing_data':
+                        modified_data = self.inject_missing_data(modified_data)
                 except Exception as e:
                     print(f"Error injecting {error_type}: {str(e)}")
                     continue

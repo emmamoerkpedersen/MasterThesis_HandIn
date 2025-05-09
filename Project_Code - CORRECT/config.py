@@ -34,7 +34,7 @@ SYNTHETIC_ERROR_PARAMS = {
     'use_context_aware': False,
     
     'spike': {
-        'count_per_year': 2,  # Base count: 5 spikes per year
+        'count_per_year': 0,  # Base count: 5 spikes per year
         # Wider range to allow for more subtle spikes
         'magnitude_range': (0.1, 1.0),  # Changed from (0.4, 0.8)
         'negative_positiv_ratio': 0.5,
