@@ -304,7 +304,8 @@ def run_pipeline(
         output_dir=anomaly_viz_dir,
         save_png=True,
         save_html=True,
-        show_plot=False,  # Don't show plot directly to avoid blocking the pipeline
+        show_plot=False,
+        sequence_length=model_config['sequence_length']  # Don't show plot directly to avoid blocking the pipeline
     )
     
     print(f"Anomaly visualization saved to:")

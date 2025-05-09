@@ -121,7 +121,7 @@ LSTM_CONFIG = {
     'batch_size': 16,
     'sequence_length': 100,
     'prediction_window': 5,
-    'epochs': 15,
+    'epochs': 1,
     'patience': 5,            
 
     'warmup_length': 50,
@@ -132,16 +132,17 @@ LSTM_CONFIG = {
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
     'objective_function': 'smoothL1_loss',
-    'use_time_features': False,  
-    'use_cumulative_features': False, 
+    'use_time_features': True,  
+    'use_cumulative_features': True, 
     # Add lag features for better prediction
-    'use_lagged_features': False,
+    'use_lagged_features': True,
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
+        'vst_raw_feature',
         'rainfall',
         'temperature',
-        'vst_raw_feature'
+        
     ],
     'output_features': ['vst_raw'],
 
