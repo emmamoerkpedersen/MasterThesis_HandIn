@@ -89,12 +89,11 @@ def plot_water_level_anomalies(
         # Plot original water levels
         ax1.plot(actual_values.index, actual_values.values, color='blue', linewidth=1, label='Original Water Levels')
         
-        # Plot predictions starting from sequence_length
-        prediction_indices = actual_values.index[sequence_length:sequence_length+valid_len]
-        ax1.plot(prediction_indices, predictions[:valid_len], color='green', linewidth=1, label='Mean Forecast')
+        # Plot predictions
+        ax1.plot(actual_values.index, full_predictions.values, color='green', linewidth=1, label='Mean Forecast')
         
         # Mark anomalies only where predictions exist
-        valid_anomaly_indices = prediction_indices[full_anomalies[sequence_length:sequence_length+valid_len]]
+        valid_anomaly_indices = actual_values.index[full_anomalies & ~np.isnan(full_predictions)]
         if len(valid_anomaly_indices) > 0:
             ax1.scatter(valid_anomaly_indices, actual_values.loc[valid_anomaly_indices], 
                        color='red', s=50, marker='o', label='Detected Anomalies')
@@ -167,12 +166,11 @@ def plot_water_level_anomalies(
             row=1, col=1
         )
         
-        # Predictions starting from sequence_length
-        prediction_indices = actual_values.index[sequence_length:sequence_length+valid_len]
+        # Predictions
         fig.add_trace(
             go.Scatter(
-                x=prediction_indices,
-                y=predictions[:valid_len],
+                x=actual_values.index,
+                y=full_predictions.values,
                 name="Predictions",
                 line=dict(color='green', width=1)
             ),
@@ -180,7 +178,7 @@ def plot_water_level_anomalies(
         )
         
         # Add anomalies as scatter points only where predictions exist
-        valid_anomaly_indices = prediction_indices[full_anomalies[sequence_length:sequence_length+valid_len]]
+        valid_anomaly_indices = actual_values.index[full_anomalies & ~np.isnan(full_predictions)]
         if len(valid_anomaly_indices) > 0:
             fig.add_trace(
                 go.Scatter(
