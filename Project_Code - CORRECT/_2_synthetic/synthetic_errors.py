@@ -68,6 +68,9 @@ class SyntheticErrorGenerator:
     def _calculate_years_in_data(self, time_index):
         """
         Calculate approximately how many years of data are in the time index.
+        This is used to scale the total number of errors to inject based on
+        the configured count_per_year parameter. The errors are then distributed
+        randomly across the entire dataset, not per year.
         
         Args:
             time_index: pandas DatetimeIndex
@@ -155,7 +158,12 @@ class SyntheticErrorGenerator:
             return current_value * np.random.uniform(*base_range)
     
     def inject_spike_errors(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Inject spike errors into the time series data."""
+        """
+        Inject spike errors into the time series data.
+        
+        Calculates the total number of spikes based on data span (years) and configured 
+        count_per_year, then distributes them randomly throughout the entire dataset.
+        """
         modified_data = data.copy()
         
         # Get spike parameters from config
@@ -169,7 +177,7 @@ class SyntheticErrorGenerator:
         n_spikes = max(1, int(count_per_year * years_in_data))
         
         print(f"Data spans approximately {years_in_data:.1f} years")
-        print(f"Attempting to inject {n_spikes} spikes...")
+        print(f"Attempting to inject {n_spikes} spikes randomly across entire dataset...")
         
         # Calculate local statistics if context-aware is enabled
         local_stats = self._calculate_local_variation(data) if self.use_context_aware else (None, None)
@@ -182,7 +190,7 @@ class SyntheticErrorGenerator:
             attempts += 1
             
             try:
-                # Select injection point (avoid edges)
+                # Select injection point randomly from the entire dataset (avoid edges)
                 idx = np.random.randint(1, len(data) - 1)
                 
                 if not self._is_period_available(idx, idx + 1):
@@ -245,6 +253,9 @@ class SyntheticErrorGenerator:
         """
         Inject flatline errors into the time series data.
         Creates periods where the value stays exactly constant (horizontal line).
+        
+        Calculates the total number of flatlines based on data span (years) and configured
+        count_per_year, then distributes them randomly throughout the entire dataset.
         """
         modified_data = data.copy()
         flatline_periods = []
@@ -258,11 +269,14 @@ class SyntheticErrorGenerator:
         years_in_data = self._calculate_years_in_data(data.index)
         n_flatlines = int(count_per_year * years_in_data)
         
+        print(f"Attempting to inject {n_flatlines} flatlines randomly across entire dataset...")
+        
         successful_injections = 0
         max_attempts = n_flatlines * 10
         attempts = 0
         
         while successful_injections < n_flatlines and attempts < max_attempts:
+            # Select random index from entire dataset
             idx = np.random.randint(0, len(data) - duration_range[1])
             duration = np.random.randint(*duration_range)
             end_idx = min(idx + duration, len(modified_data))
@@ -304,6 +318,9 @@ class SyntheticErrorGenerator:
         """
         Inject gradual drift errors into the time series data.
         
+        Calculates the total number of drifts based on data span (years) and configured
+        count_per_year, then distributes them randomly throughout the entire dataset.
+        
         Args:
             data: DataFrame with time series data
             
@@ -319,12 +336,14 @@ class SyntheticErrorGenerator:
         years_in_data = self._calculate_years_in_data(data.index)
         n_drifts = max(1, int(count_per_year * years_in_data))
         
+        print(f"Attempting to inject {n_drifts} drifts randomly across entire dataset...")
+        
         successful_injections = 0
         max_attempts = n_drifts * 10
         attempts = 0
         
         while successful_injections < n_drifts and attempts < max_attempts:
-            # Randomly select an injection point
+            # Randomly select an injection point from entire dataset
             idx = np.random.randint(0, len(data) - drift_config['duration_range'][1])
             duration = np.random.randint(*drift_config['duration_range'])
             end_idx = min(idx + duration, len(modified_data))
@@ -388,6 +407,9 @@ class SyntheticErrorGenerator:
         """
         Inject sudden offset errors into the time series data.
         
+        Calculates the total number of offsets based on data span (years) and configured
+        count_per_year, then distributes them randomly throughout the entire dataset.
+        
         Args:
             data: DataFrame with time series data
             
@@ -413,7 +435,7 @@ class SyntheticErrorGenerator:
         n_offsets = max(1, int(count_per_year * years_in_data))
         
         print(f"Data spans approximately {years_in_data:.1f} years")
-        print(f"Attempting to inject {n_offsets} offset periods...")
+        print(f"Attempting to inject {n_offsets} offset periods randomly across entire dataset...")
         
         # Calculate maximum duration based on data length
         max_duration = min(
@@ -421,7 +443,7 @@ class SyntheticErrorGenerator:
             len(data) // 4  # Limit to 25% of data length
         )
         
-        # Randomly select injection points, ensuring they don't overlap
+        # Randomly select injection points from entire dataset
         possible_indices = np.arange(0, len(data) - min_duration)
         
         # Try to place offsets while respecting constraints
@@ -430,7 +452,7 @@ class SyntheticErrorGenerator:
         attempts = 0
         
         while successful_injections < n_offsets and attempts < max_attempts:
-            # Select a random index
+            # Select a random index from entire dataset
             idx = np.random.choice(possible_indices)
             attempts += 1
             
@@ -501,6 +523,10 @@ class SyntheticErrorGenerator:
     def inject_noise_errors(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Inject periods of excessive noise.
+        
+        Calculates the total number of noise periods based on data span (years) and configured
+        count_per_year, then distributes them randomly throughout the entire dataset.
+        
         Strategy:
         1. Select periods for increased noise
         2. Add random variations based on local statistics
@@ -520,7 +546,7 @@ class SyntheticErrorGenerator:
         n_noise_periods = int(count_per_year * years_in_data)
         
         print(f"Data spans approximately {years_in_data:.1f} years")
-        print(f"Attempting to inject {n_noise_periods} noise periods...")
+        print(f"Attempting to inject {n_noise_periods} noise periods randomly across entire dataset...")
         
         # Try to place noise periods while respecting constraints
         successful_injections = 0
@@ -528,7 +554,7 @@ class SyntheticErrorGenerator:
         attempts = 0
         
         while successful_injections < n_noise_periods and attempts < max_attempts:
-            # Select a random index
+            # Select a random index from entire dataset
             idx = np.random.randint(0, len(data) - duration_range[1])
             attempts += 1
             
@@ -576,6 +602,9 @@ class SyntheticErrorGenerator:
         Inject sudden baseline shift errors that permanently change the base level.
         Creates abrupt, permanent changes in the baseline level, similar to sensor recalibration
         or physical changes in measurement conditions.
+        
+        Calculates the total number of shifts based on data span (years) and configured
+        count_per_year, then distributes them randomly throughout the entire dataset.
         """
         modified_data = data.copy()
         
@@ -587,12 +616,15 @@ class SyntheticErrorGenerator:
         years_in_data = self._calculate_years_in_data(data.index)
         n_shifts = max(1, int(count_per_year * years_in_data))
         
+        print(f"Attempting to inject {n_shifts} baseline shifts randomly across entire dataset...")
+        
         # Try to inject shifts
         successful_shifts = 0
         attempts = 0
         max_attempts = n_shifts * 10
         
         while successful_shifts < n_shifts and attempts < max_attempts:
+            # Select random index from entire dataset
             idx = np.random.randint(0, len(data) - 1)
             
             if self._is_period_available(idx, idx + 1):
@@ -629,7 +661,17 @@ class SyntheticErrorGenerator:
         return modified_data
 
     def inject_all_errors(self, data: pd.DataFrame, error_types: List[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Inject all types of errors into the data."""
+        """
+        Inject all types of errors into the data.
+        
+        For each error type, this method:
+        1. Calculates the total number of errors based on years of data × count_per_year
+        2. Distributes all errors randomly across the entire dataset
+        3. Ensures errors don't overlap by tracking used periods
+        
+        This approach avoids creating regular patterns that a model might learn as normal,
+        while still scaling the number of errors proportionally to the dataset size.
+        """
         try:
             # Reset error periods and used indices at the START of each station/year
             self.error_periods = []
@@ -652,17 +694,15 @@ class SyntheticErrorGenerator:
                 and self.config.get(et, {}).get('count_per_year', 0) > 0
             ]
             
-            print(f"Active error types: {active_error_types}")  # Debug print
-            
-            # Create ground truth labels
-            ground_truth = pd.DataFrame(index=data.index)
-            ground_truth['error'] = False
-            ground_truth['error_type'] = None
+            # Calculate years in data once
+            years_in_data = self._calculate_years_in_data(data.index)
+            print(f"Data spans approximately {years_in_data:.1f} years")
+            print(f"Active error types: {active_error_types}")
             
             # Inject only active error types
             for error_type in active_error_types:
                 try:
-                    print(f"Injecting {error_type} errors...")  # Debug print
+                    print(f"Injecting {error_type} errors...")
                     if error_type == 'spike':
                         modified_data = self.inject_spike_errors(modified_data)
                     elif error_type == 'flatline':
@@ -680,12 +720,16 @@ class SyntheticErrorGenerator:
                     continue
             
             # Update ground truth with error periods
+            ground_truth = pd.DataFrame(index=data.index)
+            ground_truth['error'] = False
+            ground_truth['error_type'] = None
+            
             for period in self.error_periods:
                 mask = (ground_truth.index >= period.start_time) & (ground_truth.index <= period.end_time)
                 ground_truth.loc[mask, 'error'] = True
                 ground_truth.loc[mask, 'error_type'] = period.error_type
             
-            print(f"Successfully injected {len(self.error_periods)} errors")  # Debug print
+            print(f"Successfully injected {len(self.error_periods)} errors randomly across entire dataset")
             return modified_data, ground_truth
         
         except Exception as e:
