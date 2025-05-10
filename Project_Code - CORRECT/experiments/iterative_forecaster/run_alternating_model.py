@@ -24,11 +24,6 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Run alternating LSTM model for water level forecasting')
     parser.add_argument('--station_id', type=str, default='21006846', help='Station ID to process')
-    parser.add_argument('--epochs', type=int, default=20, help='Number of epochs to train')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
-    parser.add_argument('--hidden_size', type=int, default=32, help='Hidden size for LSTM')
-    parser.add_argument('--num_layers', type=int, default=1, help='Number of LSTM layers (1 recommended for simplicity)')
-    parser.add_argument('--dropout', type=float, default=0.25, help='Dropout rate')
     parser.add_argument('--error_multiplier', type=float, default=None, 
                       help='Error multiplier for synthetic errors. If not provided, no errors are injected.')
     parser.add_argument('--quick_mode', action='store_true', help='Enable quick mode with reduced data (3 years training, 1 year validation)')
@@ -41,11 +36,6 @@ def run_alternating_model(args):
     # Update configuration with command line arguments
     config = ALTERNATING_CONFIG.copy()
     config.update({
-        'hidden_size': args.hidden_size,
-        'num_layers': args.num_layers,
-        'dropout': args.dropout,
-        'epochs': args.epochs,
-        'batch_size': args.batch_size,
         'quick_mode': args.quick_mode,
     })
     
