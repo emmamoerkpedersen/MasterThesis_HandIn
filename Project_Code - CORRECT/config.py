@@ -34,7 +34,7 @@ SYNTHETIC_ERROR_PARAMS = {
     'use_context_aware': False,
     
     'spike': {
-        'count_per_year': 2,  # Base count: 5 spikes per year
+        'count_per_year': 0,  # Base count: 5 spikes per year
         # Wider range to allow for more subtle spikes
         'magnitude_range': (0.1, 1.0),  # Changed from (0.4, 0.8)
         'negative_positiv_ratio': 0.5,
@@ -119,29 +119,30 @@ LSTM_CONFIG = {
     'num_layers': 2,                       
     'dropout': 0.25,             
     'batch_size': 16,
-    'sequence_length': 100,
-    'prediction_window': 5,
-    'epochs': 15,
+    'sequence_length': 150,
+    'prediction_window': 10,
+    'epochs': 50,
     'patience': 5,            
 
     'warmup_length': 50,
     'learning_rate': 0.001,    
 
     'threshold': 15,
-    'window_size': 100,
+    'window_size': 150,
 
     # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
     'objective_function': 'smoothL1_loss',
-    'use_time_features': False,  
-    'use_cumulative_features': False, 
+    'use_time_features': True,  
+    'use_cumulative_features': True, 
     # Add lag features for better prediction
-    'use_lagged_features': False,
+    'use_lagged_features': True,
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
+        'vst_raw_feature',
         'rainfall',
         'temperature',
-        'vst_raw_feature'
+        
     ],
     'output_features': ['vst_raw'],
 

@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import traceback
+import copy
 
 def configure_error_params(base_error_config, error_multiplier):
     """
@@ -18,13 +19,14 @@ def configure_error_params(base_error_config, error_multiplier):
     Returns:
         Modified error configuration with adjusted counts
     """
-    # Create a copy of the base configuration
-    error_config = base_error_config.copy()
+    # Create a deep copy of the base configuration
+    error_config = copy.deepcopy(base_error_config)
     
-    # Set error counts based on the error_multiplier parameter
-    error_config['offset']['count_per_year'] = 2 * error_multiplier     # 2 offsets per year
-    error_config['spike']['count_per_year'] = 5 * error_multiplier      # 5 spikes per year
-    error_config['noise']['count_per_year'] = 3 * error_multiplier      # 3 noise periods per year
+    # Apply multiplier to existing count_per_year values
+    for error_type in error_config:
+        if isinstance(error_config[error_type], dict) and 'count_per_year' in error_config[error_type]:
+            # Apply multiplier to the existing value, not overriding with hardcoded values
+            error_config[error_type]['count_per_year'] *= error_multiplier
     
     return error_config
 
@@ -36,9 +38,9 @@ def print_error_frequencies(error_config):
         error_config: Error configuration dictionary
     """
     print(f"Error counts per year by type:")
-    print(f"  Offset: {error_config['offset']['count_per_year']:.1f}")
-    print(f"  Spike: {error_config['spike']['count_per_year']:.1f}")
-    print(f"  Noise: {error_config['noise']['count_per_year']:.1f}")
+    for error_type, settings in error_config.items():
+        if isinstance(settings, dict) and 'count_per_year' in settings:
+            print(f"  {error_type.capitalize()}: {settings['count_per_year']:.1f}")
 
 def inject_errors_into_dataset(dataset, error_generator, station_id, water_level_cols):
     """
