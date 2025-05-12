@@ -60,7 +60,7 @@ class AlternatingTrainer:
         print(f"Using features: {self.feature_cols}")
         
         # Will be set after loading and feature engineering
-        self.all_feature_cols = self.feature_cols.copy()
+        self.feature_cols = self.feature_cols.copy()
         
         # Initialize model (will be properly initialized after feature engineering)
         self.model = None
@@ -79,8 +79,8 @@ class AlternatingTrainer:
         Returns:
             tuple: (x_tensor, y_tensor) containing input features and targets
         """
-        # Print feature columns for debugging
-        print(f"\nPreparing sequences with features: {list(df.columns)}")
+        print(f"\nPreparing sequences:")
+        print(f"Input DataFrame shape: {df.shape}")
         
         # Extract features and target as DataFrames - ONLY use features explicitly listed in config
         if hasattr(self, 'all_feature_cols'):
@@ -97,13 +97,13 @@ class AlternatingTrainer:
                             break
             
             features_df = df[filtered_features]
-            print(f"Using {len(filtered_features)} features from config: {filtered_features}")
+            print(f"Features DataFrame shape: {features_df.shape}")
         else:
-            # If all_feature_cols not available, use self.feature_cols (should be rare)
             features_df = df[self.feature_cols]
-            print(f"Using {len(self.feature_cols)} features: {list(self.feature_cols)}")
+            print(f"Features DataFrame shape: {features_df.shape}")
         
         target_df = df[self.config['output_features']]
+        print(f"Target DataFrame shape: {target_df.shape}")
         
         # Apply scaling
         if is_training:
@@ -123,12 +123,14 @@ class AlternatingTrainer:
             
             print(f"Fitted scalers on {np.sum(valid_mask)} valid target points")
             print(f"Target scaling - mean: {target_scaler.mean_[0]:.2f}, scale: {target_scaler.scale_[0]:.2f}")
+            print(f"Scaled features shape: {x_scaled.shape}")
         else:
             # Use previously fitted scalers
             if not hasattr(self, 'feature_scaler') or not hasattr(self, 'target_scaler'):
                 raise ValueError("Scalers not fitted. Call with is_training=True first.")
             
             x_scaled = self.feature_scaler.transform(features_df)
+            print(f"Scaled features shape: {x_scaled.shape}")
         
         # Scale the target
         y_values = target_df.values.flatten()
@@ -154,6 +156,9 @@ class AlternatingTrainer:
         y_tensor = torch.FloatTensor(y_scaled).unsqueeze(0).unsqueeze(2)  # Add batch and feature dimensions
         
         print(f"Prepared tensors - x_shape: {x_tensor.shape}, y_shape: {y_tensor.shape}")
+        print(f"Final tensor shapes:")
+        print(f"x_tensor: {x_tensor.shape}")
+        print(f"y_tensor: {y_tensor.shape}")
         
         return x_tensor, y_tensor
     
@@ -174,12 +179,14 @@ class AlternatingTrainer:
         """
         print("\nPreparing training and validation data...")
         
-        # Use our custom prepare_sequences method
         x_train, y_train = self.prepare_sequences(train_df, is_training=True)
         x_val, y_val = self.prepare_sequences(val_df, is_training=False)
         
-        print(f"Training data shape: {x_train.shape}")
-        print(f"Validation data shape: {x_val.shape}")
+        print(f"\nTraining data shapes:")
+        print(f"x_train: {x_train.shape}")
+        print(f"y_train: {y_train.shape}")
+        print(f"x_val: {x_val.shape}")
+        print(f"y_val: {y_val.shape}")
         
         # If in quick mode, automatically reduce epochs by half (minimum 5)
         if self.config.get('quick_mode', False) and epochs > 10:
@@ -210,17 +217,17 @@ class AlternatingTrainer:
         total_samples = x_train.shape[1]
         num_batches = (total_samples + batch_size - 1) // batch_size
         
-        print(f"\nStarting training with {num_batches} batches per epoch")
-        print(f"Total samples: {total_samples}, Batch size: {batch_size}")
+        print(f"\nTraining configuration:")
+        print(f"Total samples: {total_samples}")
+        print(f"Batch size: {batch_size}")
+        print(f"Number of batches per epoch: {num_batches}")
         
-        # Training loop with better progress tracking
         epoch_pbar = tqdm(range(epochs), desc="Training Progress", position=0)
         for epoch in epoch_pbar:
             self.model.train()
             total_train_loss = 0
             batch_losses = []
             
-            # Create batch-level progress bar
             train_bar = tqdm(
                 range(num_batches), 
                 desc=f"Epoch {epoch+1}/{epochs}", 
@@ -242,7 +249,7 @@ class AlternatingTrainer:
                 x_batch = x_train[:, batch_start:batch_end, :]
                 y_batch = y_train[:, batch_start:batch_end, :]
                 
-                # Zero gradients
+          
                 self.optimizer.zero_grad()
                 
                 # Forward pass with alternating pattern
@@ -255,13 +262,20 @@ class AlternatingTrainer:
                     alternating_weeks=True
                 )
                 
-                # Detach hidden states to prevent gradient computation through sequences
                 hidden_states = [h.detach() for h in hidden_states]
                 cell_states = [c.detach() for c in cell_states]
                 
                 # Calculate loss
                 # Create mask for valid targets (non-NaN values)
                 mask = ~torch.isnan(y_batch)
+                
+                # Add warm-up mask - don't calculate loss for warmup period
+                warmup_length = self.config.get('warmup_length', 0)
+                if warmup_length > 0:
+                    warmup_mask = torch.ones_like(mask, dtype=torch.bool)
+                    warmup_mask[:, :warmup_length, :] = False
+                    # Combine warm-up mask with NaN mask
+                    mask = mask & warmup_mask
                 
                 if mask.any():
                     # Calculate loss on valid targets only
@@ -305,7 +319,8 @@ class AlternatingTrainer:
                     use_predictions=False  # Use original data for validation
                 )
                 
-                # Calculate validation loss
+         
+                
                 mask = ~torch.isnan(y_val)
                 if mask.any():
                     val_loss = self.criterion(val_outputs[mask], y_val[mask]).item()

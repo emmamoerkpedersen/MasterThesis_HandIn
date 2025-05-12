@@ -223,6 +223,7 @@ def run_alternating_model(args):
             predictions=val_pred_df['vst_raw'],
             z_scores=z_scores,
             anomalies=anomalies,
+            threshold=config['threshold'],
             title=plot_title,
             output_dir=anomaly_viz_dir,
             save_png=True,

@@ -105,10 +105,10 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     )
 
     # Get sequence length from model config, default to 50 if not specified
-    sequence_length = model_config.get('sequence_length', 50) if model_config else 50
+    sequence_length = 1
 
     if model_config and model_config.get('model_type') == 'iterative':
-        prediction_window = model_config.get('prediction_window', 10)
+        prediction_window = 1
         
         # Place predictions at their correct future positions
         if len(predictions_values) > 0:

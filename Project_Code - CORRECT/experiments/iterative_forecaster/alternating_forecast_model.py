@@ -126,23 +126,12 @@ class AlternatingForecastModel(nn.Module):
                 pred_input = x[:, t, :].clone()
                 pred_input[:, 0] = outputs[:, t-1, 0]
                 current_input = torch.cat([pred_input, binary_flag], dim=1)
-                
-                # Print when we switch to using predictions
-                if t - last_switch >= self.week_steps:
-                    print(f"\nSwitching to predictions at t={t}")
-                    print(f"Original value: {x[:, t, 0].item():.4f}")
-                    print(f"Using prediction: {outputs[:, t-1, 0].item():.4f}")
-                    last_switch = t
+           
             else:
                 n_used_original += 1
                 binary_flag = torch.zeros(batch_size, 1, device=device)
                 current_input = torch.cat([x[:, t, :], binary_flag], dim=1)
-                
-                # Print when we switch to using original data
-                if t - last_switch >= self.week_steps:
-                    print(f"\nSwitching to original data at t={t}")
-                    print(f"Using original value: {x[:, t, 0].item():.4f}")
-                    last_switch = t
+      
             
             # Process through LSTM cells
             for i in range(self.num_layers):

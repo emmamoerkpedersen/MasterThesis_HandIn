@@ -12,12 +12,14 @@ def plot_water_level_anomalies(
     predictions,
     z_scores,
     anomalies,
+    threshold,
     title="Water Level Forecasting with Anomalies",
     output_dir=None,
     save_png=True,
     save_html=True,
     show_plot=True,
-    sequence_length=None
+    sequence_length=None,
+
 ):
     """
     Creates a plot showing water level data, predictions, z-scores, and detected anomalies.
@@ -111,7 +113,6 @@ def plot_water_level_anomalies(
         ax2.plot(actual_values.index, np.abs(full_z_scores), color='blue', linewidth=1, label='Absolute Z-Score')
         
         # Add threshold line
-        threshold = 5.0  # Default threshold value
         ax2.axhline(y=threshold, color='red', linestyle='--', label=f'Threshold ({threshold})')
         
         # Format bottom plot
@@ -203,7 +204,6 @@ def plot_water_level_anomalies(
         )
         
         # Add threshold line
-        threshold = 5.0  # Default threshold value
         fig.add_trace(
             go.Scatter(
                 x=[actual_values.index[0], actual_values.index[-1]],
