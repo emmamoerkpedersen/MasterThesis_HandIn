@@ -184,7 +184,7 @@ class AlternatingTrainer:
         # If in quick mode, automatically reduce epochs by half (minimum 5)
         if self.config.get('quick_mode', False) and epochs > 10:
             original_epochs = epochs
-            epochs = max(5, epochs // 2)
+            epochs = max(5, epochs // 3)
             print(f"\n*** QUICK MODE: Reducing epochs from {original_epochs} to {epochs} ***")
         
         # If no batch_size provided, train on chunks rather than full data
@@ -230,7 +230,7 @@ class AlternatingTrainer:
             )
             
             # State resets between epochs
-            hidden_states, cell_states = None, None
+            hidden_state, cell_state = None, None
             
             for batch_idx in train_bar:
                 # Extract batch
@@ -247,17 +247,17 @@ class AlternatingTrainer:
                 
                 # Forward pass with alternating pattern
                 # Use predictions from previous timesteps in alternating weeks
-                outputs, hidden_states, cell_states = self.model(
+                outputs, hidden_state, cell_state = self.model(
                     x_batch, 
-                    hidden_states, 
-                    cell_states,
+                    hidden_state, 
+                    cell_state,
                     use_predictions=True,
                     alternating_weeks=True
                 )
                 
                 # Detach hidden states to prevent gradient computation through sequences
-                hidden_states = [h.detach() for h in hidden_states]
-                cell_states = [c.detach() for c in cell_states]
+                hidden_state = hidden_state.detach()
+                cell_state = cell_state.detach()
                 
                 # Calculate loss
                 # Create mask for valid targets (non-NaN values)
@@ -294,14 +294,14 @@ class AlternatingTrainer:
             self.model.eval()
             with torch.no_grad():
                 # Reset states
-                hidden_states, cell_states = None, None
+                hidden_state, cell_state = None, None
                 
                 print(f"\nValidating epoch {epoch+1}...")
                 # Get predictions
                 val_outputs, _, _ = self.model(
                     x_val, 
-                    hidden_states, 
-                    cell_states,
+                    hidden_state, 
+                    cell_state,
                     use_predictions=False  # Use original data for validation
                 )
                 
@@ -369,13 +369,13 @@ class AlternatingTrainer:
         
         with torch.no_grad():
             # Initialize hidden and cell states
-            hidden_states, cell_states = self.model.init_hidden(x_test.shape[0], self.device)
+            hidden_state, cell_state = self.model.init_hidden(x_test.shape[0], self.device)
             
             # Generate predictions
             outputs, _, _ = self.model(
                 x_test, 
-                hidden_states, 
-                cell_states,
+                hidden_state, 
+                cell_state,
                 use_predictions=use_predictions
             )
             
@@ -530,7 +530,6 @@ class AlternatingTrainer:
             input_size=filtered_features_count,
             hidden_size=self.config['hidden_size'],
             output_size=1,  # Always predict 1 time step ahead for water level
-            num_layers=self.config['num_layers'],
             dropout=self.config['dropout'],
             config=self.config  # Pass config to the model
         ).to(self.device)

@@ -6,7 +6,6 @@ Configuration for the Alternating Forecast Model.
 ALTERNATING_CONFIG = {
     # Model architecture
     'hidden_size': 64,         # Increased from 32 to 64
-    'num_layers': 2,           # Back to 2 layers for more capacity
     'dropout': 0.25,
     
     # Training parameters
