@@ -18,31 +18,21 @@ class AlternatingForecastModel(nn.Module):
     - Alternates between 1 week of original data and 1 week of prediction data
     - Includes binary flag indicating if input is original (0) or predicted (1)
     - Handles additional engineered features (time features, cumulative features)
-    - Can be configured for single or multiple LSTM cells
     """
-    def __init__(self, input_size, hidden_size, output_size=1, num_layers=2, dropout=0.25, config=None):
+    def __init__(self, input_size, hidden_size, output_size=1, dropout=0.25, config=None):
         super(AlternatingForecastModel, self).__init__()
         self.model_name = 'AlternatingForecastModel'
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
-        self.num_layers = num_layers
         
         print(f"\nModel initialization:")
         print(f"Input size: {input_size}")
         print(f"Hidden size: {hidden_size}")
         print(f"Output size: {output_size}")
-        print(f"Number of layers: {num_layers}")
         
-        # LSTMCell layers for explicit state control
-        self.lstm_cells = nn.ModuleList()
-        
-        # First layer takes input + binary flag
-        self.lstm_cells.append(nn.LSTMCell(input_size + 1, hidden_size))  # +1 for binary flag
-        
-        # Additional layers (if num_layers > 1)
-        for i in range(1, num_layers):
-            self.lstm_cells.append(nn.LSTMCell(hidden_size, hidden_size))
+        # Single LSTM cell that takes input + binary flag
+        self.lstm_cell = nn.LSTMCell(input_size + 1, hidden_size)  # +1 for binary flag
         
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
@@ -56,45 +46,43 @@ class AlternatingForecastModel(nn.Module):
             self.week_steps = config['week_steps']
         else:
             self.week_steps = 672
+            
+        # Debug mode flag
+        self.debug_mode = False
     
-    def forward(self, x, hidden_states=None, cell_states=None, use_predictions=False, 
+    def forward(self, x, hidden_state=None, cell_state=None, use_predictions=False, 
                 weekly_mask=None, alternating_weeks=True):
         """
         Forward pass with explicit control over hidden states and alternating input strategy.
         
         Args:
             x: Input tensor of shape (batch_size, seq_len, input_features)
-            hidden_states: List of hidden states for each layer, or None to initialize
-            cell_states: List of cell states for each layer, or None to initialize
+            hidden_state: Hidden state for LSTM cell, or None to initialize
+            cell_state: Cell state for LSTM cell, or None to initialize
             use_predictions: Whether to use the model's own predictions as input
             weekly_mask: Optional binary mask indicating which time steps should use 
-                          original data (1) vs predictions (0)
+                        original data (0) vs predictions (1)
             alternating_weeks: Whether to use 1-week alternating pattern for training
         
         Returns:
             outputs: Tensor of shape (batch_size, seq_len, output_size)
-            hidden_states: Updated hidden states for each layer
-            cell_states: Updated cell states for each layer
+            hidden_state: Updated hidden state
+            cell_state: Updated cell state
         """
         batch_size, seq_len, feature_dim = x.size()
         device = x.device
         
         # Initialize hidden and cell states if not provided
-        if hidden_states is None or cell_states is None:
-            hidden_states = []
-            cell_states = []
-            for i in range(self.num_layers):
-                hidden_states.append(torch.zeros(batch_size, self.hidden_size, device=device))
-                cell_states.append(torch.zeros(batch_size, self.hidden_size, device=device))
-            
+        if hidden_state is None or cell_state is None:
+            hidden_state = torch.zeros(batch_size, self.hidden_size, device=device)
+            cell_state = torch.zeros(batch_size, self.hidden_size, device=device)
+        
         # Storage for outputs
         outputs = torch.zeros(batch_size, seq_len, self.output_size, device=device)
-    
         
         # Initialize the alternating week pattern if needed
         if alternating_weeks and weekly_mask is None:
-            # Create forcing mask for alternating weeks pattern
-            # As per professor's suggestion:
+            # Create weekly mask for alternating pattern
             # 0 for weeks where we use original observations (first week)
             # 1 for weeks where we use model predictions (second week)
             weekly_mask = torch.ones(seq_len, device=device)  # Default to using predictions
@@ -103,8 +91,7 @@ class AlternatingForecastModel(nn.Module):
             for i in range(0, seq_len, self.week_steps * 2):
                 if i + self.week_steps <= seq_len:
                     weekly_mask[i:i+self.week_steps] = 0
-            
-           
+                    
         elif weekly_mask is None:
             # Default to using original data if no pattern specified
             weekly_mask = torch.zeros(seq_len, device=device)  # All zeros = all observations
@@ -124,7 +111,7 @@ class AlternatingForecastModel(nn.Module):
                 n_used_prediction += 1
                 binary_flag = torch.ones(batch_size, 1, device=device)
                 pred_input = x[:, t, :].clone()
-                pred_input[:, 0] = outputs[:, t-1, 0]
+                pred_input[:, 0] = outputs[:, t-1, 0]  # Water level is always first feature
                 current_input = torch.cat([pred_input, binary_flag], dim=1)
            
             else:
@@ -133,37 +120,33 @@ class AlternatingForecastModel(nn.Module):
                 current_input = torch.cat([x[:, t, :], binary_flag], dim=1)
       
             
-            # Process through LSTM cells
-            for i in range(self.num_layers):
-                if i == 0:
-                    hidden_states[i], cell_states[i] = self.lstm_cells[i](
-                        current_input, (hidden_states[i], cell_states[i])
-                    )
-                else:
-                    layer_input = self.dropout(hidden_states[i-1])
-                    hidden_states[i], cell_states[i] = self.lstm_cells[i](
-                        layer_input, (hidden_states[i], cell_states[i])
-                    )
-                
-                if t == 0 and i == 0:  # Print shapes only for first timestep and layer
-                    print(f"Layer {i} output: {hidden_states[i].shape}")
+            # Process through LSTM cell
+            hidden_state, cell_state = self.lstm_cell(current_input, (hidden_state, cell_state))
             
-            final_hidden = self.dropout(hidden_states[-1])
+            # Apply dropout to hidden state
+            final_hidden = self.dropout(hidden_state)
+            
+            # Generate prediction for current timestep
             outputs[:, t, :] = self.output_layer(final_hidden)
-            test  = 1
-
-        print(f"\nFinal usage statistics:")
-        print(f"Total timesteps: {seq_len}")
-        print(f"Used original data: {n_used_original} ({n_used_original/seq_len*100:.1f}%)")
-        print(f"Used predictions: {n_used_prediction} ({n_used_prediction/seq_len*100:.1f}%)")
+            
+            # Print shapes for first timestep (only in debug mode)
+            if self.debug_mode and t == 0:
+                print(f"\nTensor shapes:")
+                print(f"Input: {current_input.shape}")
+                print(f"Hidden state: {hidden_state.shape}")
+                print(f"Output: {outputs[:, t, :].shape}")
         
-        return outputs, hidden_states, cell_states
+        # Print final statistics (only in debug mode)
+        if self.debug_mode:
+            print(f"\nFinal usage statistics:")
+            print(f"Total timesteps: {seq_len}")
+            print(f"Used original data: {n_used_original} ({n_used_original/seq_len*100:.1f}%)")
+            print(f"Used predictions: {n_used_prediction} ({n_used_prediction/seq_len*100:.1f}%)")
+        
+        return outputs, hidden_state, cell_state
     
     def init_hidden(self, batch_size, device):
-        """Initialize hidden states and cell states."""
-        hidden_states = []
-        cell_states = []
-        for i in range(self.num_layers):
-            hidden_states.append(torch.zeros(batch_size, self.hidden_size, device=device))
-            cell_states.append(torch.zeros(batch_size, self.hidden_size, device=device))
-        return hidden_states, cell_states 
+        """Initialize hidden state and cell state."""
+        hidden_state = torch.zeros(batch_size, self.hidden_size, device=device)
+        cell_state = torch.zeros(batch_size, self.hidden_size, device=device)
+        return hidden_state, cell_state 
