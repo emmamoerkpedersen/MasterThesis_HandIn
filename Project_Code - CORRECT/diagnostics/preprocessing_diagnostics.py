@@ -62,76 +62,160 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
         'figure.titlesize': 18
     })
     
+    # Define consistent colors for better visualization
+    COLORS = {
+        'vst_original': '#1f77b4',      # Blue for original water level
+        'vst_processed': '#2ca02c',     # Green for processed water level
+        'temp_original': '#d62728',     # Red for original temperature
+        'temp_processed': '#ff7f0e',    # Orange for processed temperature
+        'rain_original': '#1f77b4',     # Blue for original rainfall
+        'rain_processed': '#2ca02c',    # Green for processed rainfall
+        'outliers': '#d62728',          # Red for outliers
+        'bounds': '#ff7f0e',            # Orange for bounds
+        'training': '#E8F5E9',          # Light green for training
+        'validation': '#FFF3E0',        # Light orange for validation
+        'testing': '#E3F2FD',           # Light blue for testing
+        'frost': '#BBDEFB'              # Light blue for frost periods
+    }
+    
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
     
     # Create a DataFrame to store statistics for all stations
     stats_data = []
     
-    # Set start date to January 1, 2010
-    start_date = pd.to_datetime('2010-01-01')
+    # Set start date to January 1, 2010 - make it timezone-aware
+    start_date = pd.to_datetime('2010-01-01').tz_localize('UTC')
+    
+    # Define split dates - make them timezone-aware
+    train_end = pd.to_datetime('2022-01-01').tz_localize('UTC')
+    val_end = pd.to_datetime('2024-01-01').tz_localize('UTC')
+    
+    # Try to load frost periods if not provided
+    if frost_periods is None or len(frost_periods) == 0:
+        try:
+            import pickle
+            frost_path = Path(__file__).parent.parent / "data_utils" / "Sample data" / "frost_periods.pkl"
+            if frost_path.exists():
+                with open(frost_path, 'rb') as f:
+                    frost_periods = pickle.load(f)
+                print(f"Loaded {len(frost_periods)} frost periods from {frost_path}")
+            else:
+                print(f"No frost periods file found at {frost_path}")
+                frost_periods = []
+        except Exception as e:
+            print(f"Error loading frost periods: {e}")
+            frost_periods = []
     
     for station_name in original_data.keys():
         if (original_data[station_name]['vst_raw'] is not None and 
             preprocessed_data[station_name]['vst_raw'] is not None):
             
-            # Create figure with GridSpec
-            fig = plt.figure(figsize=(15, 12))
-            gs = GridSpec(2, 1, figure=fig, height_ratios=[1, 1], hspace=0.1)
+            # Create figure with GridSpec - now with 3 rows for water level, temperature, and rainfall
+            fig = plt.figure(figsize=(15, 18))
+            gs = GridSpec(3, 1, figure=fig, height_ratios=[1, 1, 1], hspace=0.1)
             
-            # Get the original and processed data
-            orig = original_data[station_name]['vst_raw'].copy()  # Make a copy to avoid modifying original
-            proc = preprocessed_data[station_name]['vst_raw'].copy()
+            # Get the original and processed data for all variables
+            orig_vst = original_data[station_name]['vst_raw'].copy()
+            proc_vst = preprocessed_data[station_name]['vst_raw'].copy()
+            orig_temp = original_data[station_name]['temperature'].copy() if 'temperature' in original_data[station_name] else None
+            proc_temp = preprocessed_data[station_name]['temperature'].copy() if 'temperature' in preprocessed_data[station_name] else None
+            orig_rain = original_data[station_name]['rainfall'].copy() if 'rainfall' in original_data[station_name] else None
+            proc_rain = preprocessed_data[station_name]['rainfall'].copy() if 'rainfall' in preprocessed_data[station_name] else None
             
-            # Get the value column name from the original data
-            orig_value_col = [col for col in orig.columns if col != 'Date'][0]
+            # Get the value column names
+            vst_col = [col for col in orig_vst.columns if col != 'Date'][0]
+            temp_col = [col for col in orig_temp.columns if col != 'Date'][0] if orig_temp is not None else None
+            rain_col = [col for col in orig_rain.columns if col != 'Date'][0] if orig_rain is not None else None
             
-            # Ensure both DataFrames have datetime index
-            if not isinstance(orig.index, pd.DatetimeIndex):
-                orig.index = pd.to_datetime(orig.index)
-            if not isinstance(proc.index, pd.DatetimeIndex):
-                proc.index = pd.to_datetime(proc.index)
+            # For processed data, check if column names have been standardized
+            if 'vst_raw' in proc_vst.columns:
+                proc_vst_col = 'vst_raw'
+            else:
+                proc_vst_col = [col for col in proc_vst.columns if col != 'Date'][0]
+            
+            # Function to ensure datetime index is timezone-aware
+            def ensure_tz_aware(df):
+                if df is not None:
+                    if not isinstance(df.index, pd.DatetimeIndex):
+                        df.index = pd.to_datetime(df.index)
+                    if df.index.tz is None:
+                        df.index = df.index.tz_localize('UTC')
+                    elif df.index.tz.zone != 'UTC':
+                        df.index = df.index.tz_convert('UTC')
+                return df
+            
+            # Ensure all DataFrames have timezone-aware datetime index
+            orig_vst = ensure_tz_aware(orig_vst)
+            proc_vst = ensure_tz_aware(proc_vst)
+            orig_temp = ensure_tz_aware(orig_temp)
+            proc_temp = ensure_tz_aware(proc_temp)
+            orig_rain = ensure_tz_aware(orig_rain)
+            proc_rain = ensure_tz_aware(proc_rain)
             
             # Filter data to start from 2010
-            orig = orig[orig.index >= start_date]
-            proc = proc[proc.index >= start_date]
+            orig_vst = orig_vst[orig_vst.index >= start_date]
+            proc_vst = proc_vst[proc_vst.index >= start_date]
+            if orig_temp is not None:
+                orig_temp = orig_temp[orig_temp.index >= start_date]
+            if proc_temp is not None:
+                proc_temp = proc_temp[proc_temp.index >= start_date]
+            if orig_rain is not None:
+                orig_rain = orig_rain[orig_rain.index >= start_date]
+            if proc_rain is not None:
+                proc_rain = proc_rain[proc_rain.index >= start_date]
             
-            # PERFORMANCE OPTIMIZATION: Downsample data if too large (more than 10,000 points)
-            if len(orig) > 10000:
-                # Use efficient resampling instead of random sampling
-                orig_plot = orig.resample('6H').mean().dropna()
+            # PERFORMANCE OPTIMIZATION: Downsample data if too large
+            if len(orig_vst) > 10000:
+                orig_vst_plot = orig_vst.resample('6H').mean().dropna()
+                proc_vst_plot = proc_vst.resample('6H').mean().dropna()
             else:
-                orig_plot = orig
+                orig_vst_plot = orig_vst
+                proc_vst_plot = proc_vst
                 
-            if len(proc) > 10000:
-                # Use efficient resampling for processed data
-                proc_plot = proc.resample('6H').mean().dropna()
+            if orig_temp is not None and len(orig_temp) > 10000:
+                orig_temp_plot = orig_temp.resample('6H').mean().dropna()
+                proc_temp_plot = proc_temp.resample('6H').mean().dropna()
             else:
-                proc_plot = proc
+                orig_temp_plot = orig_temp
+                proc_temp_plot = proc_temp
+                
+            if orig_rain is not None and len(orig_rain) > 10000:
+                orig_rain_plot = orig_rain.resample('6H').sum().dropna()
+                proc_rain_plot = proc_rain.resample('6H').sum().dropna()
+            else:
+                orig_rain_plot = orig_rain
+                proc_rain_plot = proc_rain
             
             # Calculate IQR bounds using the original data (use full dataset for calculations)
-            Q1 = orig[orig_value_col].quantile(0.25)
-            Q3 = orig[orig_value_col].quantile(0.75)
+            Q1 = orig_vst[vst_col].quantile(0.25)
+            Q3 = orig_vst[vst_col].quantile(0.75)
             IQR = Q3 - Q1
             lower_bound = Q1 - 1.5 * IQR
             upper_bound = Q3 + 4 * IQR
             
             # Calculate removed points mask for outliers (only points outside IQR bounds)
-            outlier_mask = (orig[orig_value_col] < lower_bound) | (orig[orig_value_col] > upper_bound)
+            outlier_mask = (orig_vst[vst_col] < lower_bound) | (orig_vst[vst_col] > upper_bound)
             outlier_count = outlier_mask.sum()
             
             # Calculate freezing period points if available
             freezing_points = 0
-            freezing_mask = pd.Series(False, index=orig.index)
+            freezing_mask = pd.Series(False, index=orig_vst.index)
             
             if frost_periods:
                 for start, end in frost_periods:
-                    period_mask = (orig.index >= start) & (orig.index <= end)
+                    # Ensure start and end are timezone-aware
+                    if hasattr(start, 'tzinfo') and start.tzinfo is None:
+                        start = pd.to_datetime(start).tz_localize('UTC')
+                    if hasattr(end, 'tzinfo') and end.tzinfo is None:
+                        end = pd.to_datetime(end).tz_localize('UTC')
+                    
+                    period_mask = (orig_vst.index >= start) & (orig_vst.index <= end)
                     freezing_mask = freezing_mask | period_mask
                 freezing_points = freezing_mask.sum()
             
             # Calculate total points removed (actual difference between orig and proc)
-            total_points_removed = len(orig) - len(proc)
+            total_points_removed = len(orig_vst) - len(proc_vst)
             
             # Calculate flatline points (not accounted for by outliers or freezing)
             flatline_count = total_points_removed - outlier_count - freezing_points
@@ -139,9 +223,9 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             # Store statistics for this station
             stats_data.append({
                 'Station': station_name,
-                'Total Points': len(orig),
+                'Total Points': len(orig_vst),
                 'Points Removed': total_points_removed,
-                'Removal %': (total_points_removed/len(orig))*100,
+                'Removal %': (total_points_removed/len(orig_vst))*100,
                 'Outliers': outlier_count,
                 'Freezing': freezing_points,
                 'Flatlines': flatline_count,
@@ -150,92 +234,155 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                 'IQR': IQR
             })
             
-            # Top subplot: Original data with IQR bounds and removed points
+            # Function to add split backgrounds to subplot (without adding to legend)
+            def add_split_backgrounds(ax):
+                # Add colored backgrounds for train/val/test splits without adding to legend
+                # Make sure all timestamps are timezone-aware with UTC
+                end_date = pd.to_datetime('2025-01-01').tz_localize('UTC')
+                ax.axvspan(start_date, train_end, color=COLORS['training'], alpha=0.3, label='_nolegend_')
+                ax.axvspan(train_end, val_end, color=COLORS['validation'], alpha=0.3, label='_nolegend_')
+                ax.axvspan(val_end, end_date, color=COLORS['testing'], alpha=0.3, label='_nolegend_')
+                
+                # Add frost periods if available
+                if frost_periods:
+                    for start, end in frost_periods:
+                        # Ensure start and end are timezone-aware
+                        if hasattr(start, 'tzinfo') and start.tzinfo is None:
+                            start = pd.to_datetime(start).tz_localize('UTC')
+                        if hasattr(end, 'tzinfo') and end.tzinfo is None:
+                            end = pd.to_datetime(end).tz_localize('UTC')
+                            
+                        if start >= start_date:  # Only show frost periods after 2010
+                            ax.axvspan(start, end, color=COLORS['frost'], alpha=0.5, 
+                                     label='_nolegend_', zorder=1, hatch='///')
+            
+            # Top subplot: Water Level
             ax1 = fig.add_subplot(gs[0])
+            add_split_backgrounds(ax1)
             
-            # Plot the original data
-            ax1.plot(orig_plot.index, orig_plot[orig_value_col], color='#1f77b4', alpha=0.8, 
-                    linewidth=0.8, label='Original Data', zorder=2)
+            # Plot the original and preprocessed water level data
+            ax1.plot(orig_vst_plot.index, orig_vst_plot[vst_col], color=COLORS['vst_original'], alpha=0.8, 
+                    linewidth=0.8, label='Original VST', zorder=2)
+            ax1.plot(proc_vst_plot.index, proc_vst_plot[proc_vst_col], color=COLORS['vst_processed'], alpha=0.8,
+                    linewidth=0.8, label='Preprocessed VST', zorder=2)
             
-            # Add IQR bounds with improved styling
-            ax1.axhline(y=lower_bound, color='#ff7f0e', linestyle='--', alpha=0.6,
+            # Add IQR bounds
+            ax1.axhline(y=lower_bound, color=COLORS['bounds'], linestyle='--', alpha=0.6,
                        linewidth=0.8, label='IQR Bounds', zorder=1)
-            ax1.axhline(y=upper_bound, color='#ff7f0e', linestyle='--', alpha=0.6,
+            ax1.axhline(y=upper_bound, color=COLORS['bounds'], linestyle='--', alpha=0.6,
                        linewidth=0.8, zorder=1)
             
-            # Add frost periods if available
-            if frost_periods:
-                for start, end in frost_periods:
-                    if start >= start_date:  # Only show frost periods after 2010
-                        ax1.axvspan(start, end, color='#E3F2FD', alpha=0.5, 
-                                  label='Frost Period' if start == frost_periods[0][0] else "", zorder=1)
-            
-            # Find actual outliers (points removed during preprocessing)
-            # We do this by comparing original data with preprocessed data
-            # To get the missing points:
-            outlier_points = orig[outlier_mask].copy()
-            
-            print(f"Found {len(outlier_points)} outlier points for station {station_name}")
-            print(f"Outlier value range: {outlier_points[orig_value_col].min()} to {outlier_points[orig_value_col].max()}")
-            
-            # PERFORMANCE OPTIMIZATION: Only plot a sample of outlier points if there are too many
+            # Find and plot outliers
+            outlier_points = orig_vst[outlier_mask].copy()
             if len(outlier_points) > 0:
                 if len(outlier_points) > 1000:
-                    # Sample to get at most 1000 outlier points
                     outlier_sample = outlier_points.sample(n=min(1000, len(outlier_points)), random_state=42)
-                    ax1.scatter(outlier_sample.index, outlier_sample[orig_value_col],
-                              color='#d62728', s=25, alpha=0.7, label='Removed Points (Sample)', zorder=3)
-                    print(f"Plotting {len(outlier_sample)} sample outlier points")
+                    ax1.scatter(outlier_sample.index, outlier_sample[vst_col],
+                              color=COLORS['outliers'], s=25, alpha=0.7, label='Removed Points (Sample)', zorder=3)
                 else:
-                    # Plot all outliers
-                    ax1.scatter(outlier_points.index, outlier_points[orig_value_col],
-                              color='#d62728', s=25, alpha=0.7, label='Removed Points', zorder=3)
+                    ax1.scatter(outlier_points.index, outlier_points[vst_col],
+                              color=COLORS['outliers'], s=25, alpha=0.7, label='Removed Points', zorder=3)
             
-            #ax1.set_title('Original Data with Quality Control Bounds', fontweight='bold', pad=15)
             ax1.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
-            
-            # Clean styling similar to create_water_level_plot_png
+            ax1.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
             ax1.spines['top'].set_visible(False)
             ax1.spines['right'].set_visible(False)
             ax1.grid(False)
-            ax1.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
             
-            # Bottom subplot: Preprocessed data only
+            # Middle subplot: Temperature
             ax2 = fig.add_subplot(gs[1])
-            ax2.plot(proc_plot.index, proc_plot['vst_raw'], color='#2ca02c', alpha=0.8, 
-                    linewidth=0.8, label='Preprocessed Data', zorder=2)
+            add_split_backgrounds(ax2)
             
-            #ax2.set_title('Preprocessed Data (2010 onwards)', fontweight='bold', pad=15)
-            ax2.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
-            ax2.set_xlabel('Date', fontweight='bold', labelpad=10)
+            if orig_temp is not None and proc_temp is not None:
+                # Get the temperature column names - be more flexible
+                orig_temp_col = temp_col  # Already determined earlier
+                
+                # For processed data, the column might be renamed to 'temperature'
+                if temp_col in proc_temp.columns:
+                    proc_temp_col = temp_col
+                elif 'temperature' in proc_temp.columns:
+                    proc_temp_col = 'temperature'
+                else:
+                    # Try to find any column that might contain temperature data
+                    proc_temp_col = proc_temp.columns[0]
+                
+                ax2.plot(orig_temp_plot.index, orig_temp_plot[orig_temp_col], color=COLORS['temp_original'], alpha=0.8,
+                        linewidth=0.8, label='Original Temperature', zorder=2)
+                ax2.plot(proc_temp_plot.index, proc_temp_plot[proc_temp_col], color=COLORS['temp_processed'], alpha=0.8,
+                        linewidth=0.8, label='Preprocessed Temperature', zorder=2)
+                
+                # Add freezing threshold line at 0°C
+                ax2.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=0.8, label='Freezing Point (0°C)', zorder=1)
+                
+                ax2.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
+                ax2.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
+            else:
+                ax2.text(0.5, 0.5, 'No temperature data available',
+                        horizontalalignment='center', verticalalignment='center',
+                        transform=ax2.transAxes, fontsize=14)
             
-            # Clean styling similar to create_water_level_plot_png
             ax2.spines['top'].set_visible(False)
             ax2.spines['right'].set_visible(False)
             ax2.grid(False)
-            ax2.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
             
-            # Set consistent x-axis limits
+            # Bottom subplot: Rainfall
+            ax3 = fig.add_subplot(gs[2])
+            add_split_backgrounds(ax3)
+            
+            if orig_rain is not None and proc_rain is not None:
+                # Get the rainfall column names - be more flexible
+                orig_rain_col = rain_col  # Already determined earlier
+                
+                # For processed data, the column might be renamed to 'rainfall'
+                if rain_col in proc_rain.columns:
+                    proc_rain_col = rain_col
+                elif 'rainfall' in proc_rain.columns:
+                    proc_rain_col = 'rainfall'
+                else:
+                    # Try to find any column that might contain rainfall data
+                    proc_rain_col = proc_rain.columns[0]
+                
+                # Plot rainfall as bars
+                bar_width = 1  # Width of bars in days
+                ax3.bar(orig_rain_plot.index, orig_rain_plot[orig_rain_col], width=bar_width,
+                       color=COLORS['rain_original'], alpha=0.5, label='Original Rainfall', zorder=2)
+                ax3.bar(proc_rain_plot.index, proc_rain_plot[proc_rain_col], width=bar_width,
+                       color=COLORS['rain_processed'], alpha=0.5, label='Preprocessed Rainfall', zorder=2)
+                ax3.set_ylabel('Rainfall (mm)', fontweight='bold', labelpad=10)
+                ax3.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
+            else:
+                ax3.text(0.5, 0.5, 'No rainfall data available',
+                        horizontalalignment='center', verticalalignment='center',
+                        transform=ax3.transAxes, fontsize=14)
+            
+            ax3.spines['top'].set_visible(False)
+            ax3.spines['right'].set_visible(False)
+            ax3.grid(False)
+            ax3.set_xlabel('Date', fontweight='bold', labelpad=10)
+            
+            # Set consistent x-axis limits and format for all subplots
             x_min = start_date
-            x_max = pd.to_datetime('2022-01-01')  # Set a consistent end date or use data max
-            for ax in [ax1, ax2]:
+            x_max = pd.to_datetime('2025-01-01').tz_localize('UTC')  # Use timezone-aware date
+            for ax in [ax1, ax2, ax3]:
                 ax.set_xlim(x_min, x_max)
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
                 ax.xaxis.set_major_locator(mdates.YearLocator(1))
                 ax.tick_params(axis='x', rotation=45)
             
-            # Set consistent y-axis range for the preprocessed data plot
-            ax2.set_ylim(0, max(proc_plot['vst_raw'].max() * 1.1, upper_bound * 1.1))
-            
-            # Add main title
-            #fig.suptitle(f'Data Preprocessing - Station {station_name}', 
-            #            fontweight='bold', y=0.95)
+            # Add a single legend for the data splits at the bottom of the figure
+            split_legend_elements = [
+                plt.Rectangle((0, 0), 1, 1, facecolor=COLORS['training'], alpha=0.3, label='Training'),
+                plt.Rectangle((0, 0), 1, 1, facecolor=COLORS['validation'], alpha=0.3, label='Validation'),
+                plt.Rectangle((0, 0), 1, 1, facecolor=COLORS['testing'], alpha=0.3, label='Test'),
+                plt.Rectangle((0, 0), 1, 1, facecolor=COLORS['frost'], alpha=0.5, label='Frost Period', hatch='///')
+            ]
+            fig.legend(handles=split_legend_elements, loc='lower center', ncol=4, frameon=True, 
+                      framealpha=0.9, edgecolor='#cccccc', bbox_to_anchor=(0.5, 0.01))
             
             # Format the figure for nice display
-            fig.autofmt_xdate()
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0.03, 1, 1])  # Adjust bottom to make room for the split legend
             
-            # PERFORMANCE OPTIMIZATION: Use a lower DPI for faster rendering, but still good quality
+            # Save the figure
             plt.savefig(diagnostic_dir / f"{station_name}_preprocessing.png", 
                        dpi=200, bbox_inches='tight', facecolor='white')
             plt.close()
@@ -299,82 +446,6 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             f.write(f"  • IQR: {row['IQR']:.1f}\n")
             f.write("\n" + "="*30 + "\n\n")
 
-def generate_preprocessing_report(preprocessed_data: dict, output_dir: Path, original_data: dict = None):
-    """Generate a report summarizing the preprocessing results."""
-    report_dir = output_dir / "diagnostics" / "preprocessing"
-    report_dir.mkdir(parents=True, exist_ok=True)
-    
-    with open(report_dir / "preprocessing_report.txt", "w") as f:
-        f.write("Preprocessing Diagnostics Report\n")
-        f.write("==============================\n\n")
-        
-        for station_name, station_data in preprocessed_data.items():
-            f.write(f"\nStation: {station_name}\n")
-            f.write("-" * (len(station_name) + 9) + "\n")
-            
-            # VST_RAW details with IQR statistics
-            if station_data['vst_raw'] is not None:
-                vst = station_data['vst_raw']
-                
-                f.write("\nVST_RAW Data:\n")
-                f.write(f"  - Measurements: {len(vst)}\n")
-                f.write(f"  - Time range: {pd.to_datetime(vst.index.min())} to {pd.to_datetime(vst.index.max())}\n")
-                f.write(f"  - Value range: {vst['vst_raw'].min():.2f} to {vst['vst_raw'].max():.2f}\n")
-                
-                # Only include IQR statistics if original_data is provided
-                if original_data is not None and station_name in original_data and original_data[station_name]['vst_raw'] is not None:
-                    orig_vst = original_data[station_name]['vst_raw']
-                    
-                    # Calculate IQR statistics
-                    Q1 = orig_vst['vst_raw'].quantile(0.25)
-                    Q3 = orig_vst['vst_raw'].quantile(0.75)
-                    IQR = Q3 - Q1
-                    lower_bound = Q1 - 1.5 * IQR
-                    upper_bound = Q3 + 4 * IQR
-                    
-                    f.write("\nIQR Statistics:\n")
-                    f.write(f"  - Q1: {Q1:.2f}\n")
-                    f.write(f"  - Q3: {Q3:.2f}\n")
-                    f.write(f"  - IQR: {IQR:.2f}\n")
-                    f.write(f"  - Lower bound: {lower_bound:.2f}\n")
-                    f.write(f"  - Upper bound: {upper_bound:.2f}\n")
-                    
-                    points_below = len(orig_vst[orig_vst['vst_raw'] < lower_bound])
-                    points_above = len(orig_vst[orig_vst['vst_raw'] > upper_bound])
-                    f.write("\nPoints removed by bounds:\n")
-                    f.write(f"  - Below lower bound: {points_below}\n")
-                    f.write(f"  - Above upper bound: {points_above}\n")
-                    f.write(f"  - Total points removed: {points_below + points_above}\n")
-            
-            # VINGE details
-            if station_data['vinge'] is not None:
-                vinge = station_data['vinge']
-                vinge_dates = pd.to_datetime(vinge.index)
-                f.write("\nVINGE Measurements:\n")
-                f.write(f"  - Number of measurements: {len(vinge)}\n")
-                f.write(f"  - Average measurements per year: {len(vinge)/len(vinge_dates.year.unique()):.1f}\n")
-                f.write(f"  - Years covered: {vinge_dates.year.min()} to {vinge_dates.year.max()}\n")
-            
-            # Rainfall details
-            if station_data['rainfall'] is not None:
-                rain = station_data['rainfall']
-                f.write("\nRainfall Data:\n")
-                f.write(f"  - Measurements: {len(rain)}\n")
-                f.write(f"  - Time period: {rain.index.min().strftime('%Y-%m-%d')} to {rain.index.max().strftime('%Y-%m-%d')}\n")
-                f.write(f"  - Total rainfall: {rain['precipitation'].sum():.1f} mm\n")
-                f.write(f"  - Years covered: {rain.index.year.min()} to {rain.index.year.max()}\n")
-            
-            # Temperature details
-            if station_data['temperature'] is not None:
-                temp = station_data['temperature']
-                f.write("\nTemperature Data:\n")
-                f.write(f"  - Measurements: {len(temp)}\n")
-                f.write(f"  - Time period: {temp.index.min().strftime('%Y-%m-%d')} to {temp.index.max().strftime('%Y-%m-%d')}\n")
-                f.write(f"  - Years covered: {temp.index.year.min()} to {temp.index.year.max()}\n")
-                f.write(f"  - Range: {temp['temperature'].min():.1f}°C to {temp['temperature'].max():.1f}°C\n")
-            
-            f.write("\n" + "="*50 + "\n")
-
 def plot_station_data_overview(original_data: dict, preprocessed_data: dict, output_dir: Path):
     """Create visualization of temperature, rainfall, and VST data showing full available date ranges."""
     set_plot_style()
@@ -394,8 +465,27 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
         'figure.titlesize': 18
     })
     
-    # Define start date for precipitation data
-    precip_start_date = pd.to_datetime('2010-01-01')
+    # Define consistent colors for better visualization
+    COLORS = {
+        'vst_original': '#1f77b4',      # Blue for water level
+        'temp_original': '#d62728',     # Red for temperature
+        'rain_original': '#1f77b4',     # Blue for rainfall
+        'vinge': '#d62728',             # Red for VINGE measurements
+    }
+    
+    # Define start date for precipitation data - make it timezone-aware
+    precip_start_date = pd.to_datetime('2010-01-01').tz_localize('UTC')
+    
+    # Function to ensure datetime index is timezone-aware
+    def ensure_tz_aware(df):
+        if df is not None:
+            if not isinstance(df.index, pd.DatetimeIndex):
+                df.index = pd.to_datetime(df.index)
+            if df.index.tz is None:
+                df.index = df.index.tz_localize('UTC')
+            elif df.index.tz.zone != 'UTC':
+                df.index = df.index.tz_convert('UTC')
+        return df
     
     for station_name in original_data.keys():
         if original_data[station_name]['vst_raw'] is not None:
@@ -414,8 +504,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             ax1 = fig.add_subplot(gs[0])
             if orig_data['temperature'] is not None:
                 temp_data = orig_data['temperature'].copy()
-                if not isinstance(temp_data.index, pd.DatetimeIndex):
-                    temp_data.set_index('Date', inplace=True)
+                temp_data = ensure_tz_aware(temp_data)
                 
                 # Get temperature column name
                 temp_col = [col for col in temp_data.columns if col != 'Date'][0]
@@ -429,7 +518,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 max_dates['temperature'] = temp_data.index.max()
                 
                 ax1.plot(temp_data.index, temp_data[temp_col],
-                        color='#d62728', alpha=0.8, linewidth=0.8, label='Temperature')
+                        color=COLORS['temp_original'], alpha=0.8, linewidth=0.8, label='Temperature')
                 
                 ax1.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
                 ax1.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
@@ -453,17 +542,10 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             ax2 = fig.add_subplot(gs[1])
             if orig_data['rainfall'] is not None:
                 rain_data = orig_data['rainfall'].copy()
-                if not isinstance(rain_data.index, pd.DatetimeIndex):
-                    rain_data.set_index('Date', inplace=True)
+                rain_data = ensure_tz_aware(rain_data)
                 
-                # Handle timezone issues - ensure both are timezone-naive or timezone-aware
-                if rain_data.index.tz is not None:
-                    # Make precip_start_date timezone-aware to match the DataFrame
-                    precip_start_date_adj = precip_start_date.tz_localize(rain_data.index.tz)
-                    rain_data_filtered = rain_data[rain_data.index >= precip_start_date_adj]
-                else:
-                    # Both are timezone-naive
-                    rain_data_filtered = rain_data[rain_data.index >= precip_start_date]
+                # Filter by start date - now both are timezone-aware
+                rain_data_filtered = rain_data[rain_data.index >= precip_start_date]
                 
                 # Get rainfall column name
                 rain_col = [col for col in rain_data.columns if col != 'Date'][0]
@@ -481,7 +563,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                     
                     # Plot rainfall as bars
                     ax2.bar(rain_data_plot.index, rain_data_plot[rain_col],
-                           color='#1f77b4', alpha=0.7, width=1, label='Rainfall')
+                           color=COLORS['rain_original'], alpha=0.7, width=1, label='Rainfall')
                     
                     ax2.set_ylabel('Precipitation (mm)', fontweight='bold', labelpad=10)
                     ax2.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
@@ -509,17 +591,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             ax3 = fig.add_subplot(gs[2])
             if orig_data.get('vinge') is not None:
                 vinge_data = orig_data['vinge'].copy()
-                
-                # Just use the VINGE data as is, without any filtering or processing
-                if not isinstance(vinge_data.index, pd.DatetimeIndex):
-                    if 'Date' in vinge_data.columns:
-                        vinge_data.set_index('Date', inplace=True)
-                    else:
-                        # Try to convert the index to datetime
-                        try:
-                            vinge_data.index = pd.to_datetime(vinge_data.index)
-                        except:
-                            print(f"Warning: Could not convert VINGE index to datetime for station {station_name}.")
+                vinge_data = ensure_tz_aware(vinge_data)
                 
                 # Identify the column with VINGE data
                 if 'W.L [cm]' in vinge_data.columns:
@@ -539,7 +611,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                         print(f"Warning: No suitable column found in VINGE data for station {station_name}.")
                         vinge_col = None
                 
-                if vinge_col is not None and isinstance(vinge_data.index, pd.DatetimeIndex):
+                if vinge_col is not None:
                     # Remove NaN values
                     vinge_data = vinge_data.dropna(subset=['water_level_mm'])
                     
@@ -550,7 +622,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                         
                         # Plot as scatter (don't connect points)
                         ax3.scatter(vinge_data.index, vinge_data['water_level_mm'],
-                                color='#d62728', alpha=0.8, s=20, 
+                                color=COLORS['vinge'], alpha=0.8, s=20, 
                                 label='Vinge', zorder=5)
                         
                         ax3.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
@@ -585,8 +657,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
             ax4 = fig.add_subplot(gs[3])
             if orig_data['vst_raw'] is not None:
                 vst_data = orig_data['vst_raw'].copy()
-                if not isinstance(vst_data.index, pd.DatetimeIndex):
-                    vst_data.set_index('Date', inplace=True)
+                vst_data = ensure_tz_aware(vst_data)
                 
                 # Get the VST column name
                 vst_col = [col for col in vst_data.columns if col != 'Date'][0]
@@ -600,7 +671,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 max_dates['vst_raw'] = vst_data.index.max()
                 
                 ax4.plot(vst_data.index, vst_data[vst_col],
-                        color='#1f77b4', alpha=0.8, linewidth=0.8, label='VST Raw')
+                        color=COLORS['vst_original'], alpha=0.8, linewidth=0.8, label='VST Raw')
                 
                 ax4.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
                 ax4.set_xlabel('Date', fontweight='bold', labelpad=10)
@@ -680,8 +751,28 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
         'figure.titlesize': 18
     })
     
+    # Define consistent colors for better visualization
+    COLORS = {
+        'vst_raw': '#1f77b4',         # Blue for VST Raw
+        'vst_edt': '#2ca02c',         # Green for VST EDT
+        'vinge': '#d62728',           # Red for VINGE measurements
+        'difference': '#1f77b4',      # Blue for difference
+        'threshold': '#d62728',       # Red for threshold
+    }
+    
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Function to ensure datetime index is timezone-aware
+    def ensure_tz_aware(df):
+        if df is not None:
+            if not isinstance(df.index, pd.DatetimeIndex):
+                df.index = pd.to_datetime(df.index)
+            if df.index.tz is None:
+                df.index = df.index.tz_localize('UTC')
+            elif df.index.tz.zone != 'UTC':
+                df.index = df.index.tz_convert('UTC')
+        return df
     
     for station_name, station_data in preprocessed_data.items():
         if (station_name in original_data and
@@ -703,42 +794,27 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             vst_edt = station_data['vst_edt'].copy()
             vinge_data = original_data[station_name]['vinge'].copy()  # Use original VINGE data
             
+            # Apply timezone handling
+            vst_raw = ensure_tz_aware(vst_raw)
+            vst_edt = ensure_tz_aware(vst_edt)
+            vinge_data = ensure_tz_aware(vinge_data)
+            
             # Print information about the VINGE data
             print(f"VINGE data shape before processing: {vinge_data.shape}")
             print(f"VINGE data columns:", vinge_data.columns)
             print(f"First few rows of VINGE data:\n{vinge_data.head()}")
             
-            # Convert indices to DatetimeIndex if needed
-            if not isinstance(vst_raw.index, pd.DatetimeIndex):
-                vst_raw.set_index('Date', inplace=True)
-            if not isinstance(vst_edt.index, pd.DatetimeIndex):
-                vst_edt.set_index('Date', inplace=True)
-            if not isinstance(vinge_data.index, pd.DatetimeIndex):
-                if 'Date' in vinge_data.columns:
-                    vinge_data.set_index('Date', inplace=True)
-                else:
-                    try:
-                        vinge_data.index = pd.to_datetime(vinge_data.index)
-                    except:
-                        print(f"Warning: Could not convert VINGE index to datetime for station {station_name}.")
-            
             # Focus on 2022-01-01 to 2024-01-01
-            start_date = pd.to_datetime('2022-01-01')
-            end_date = pd.to_datetime('2024-01-01')
+            start_date = pd.to_datetime('2022-01-01').tz_localize('UTC')
+            end_date = pd.to_datetime('2024-01-01').tz_localize('UTC')
             
             print(f"Date range: {start_date} to {end_date}")
             
             # Filter data for specified date range
             vst_raw_filtered = vst_raw[(vst_raw.index >= start_date) & (vst_raw.index <= end_date)]
             vst_edt_filtered = vst_edt[(vst_edt.index >= start_date) & (vst_edt.index <= end_date)]
+            vinge_filtered = vinge_data[(vinge_data.index >= start_date) & (vinge_data.index <= end_date)]
             
-            # Filter VINGE data if it has a datetime index
-            if isinstance(vinge_data.index, pd.DatetimeIndex):
-                vinge_filtered = vinge_data[(vinge_data.index >= start_date) & (vinge_data.index <= end_date)]
-            else:
-                print("Warning: VINGE data index is not a DatetimeIndex. Cannot filter by date.")
-                vinge_filtered = vinge_data.copy()  # Use as is
-                
             # Remove NaN values from VINGE data
             vinge_filtered = vinge_filtered.dropna()
             
@@ -798,17 +874,17 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             
             # Plot raw VST data
             ax1.plot(vst_raw_plot.index, vst_raw_plot[vst_raw_col],
-                    color='#1f77b4', alpha=0.8, linewidth=0.8, 
+                    color=COLORS['vst_raw'], alpha=0.8, linewidth=0.8, 
                     label='VST Raw')
             
             # Plot EDT corrected data
             ax1.plot(vst_edt_plot.index, vst_edt_plot[vst_edt_col],
-                    color='#2ca02c', alpha=0.8, linewidth=0.8, 
+                    color=COLORS['vst_edt'], alpha=0.8, linewidth=0.8, 
                     label='VST EDT')
             
             # Plot VINGE measurements with larger markers and higher zorder
             ax1.scatter(vinge_filtered.index, vinge_filtered['water_level_mm'],
-                       color='#d62728', alpha=0.8, s=20, 
+                       color=COLORS['vinge'], alpha=0.8, s=20, 
                        label='Vinge', zorder=5)
             
             print(f"Number of VINGE points plotted: {len(vinge_filtered)}")
@@ -826,6 +902,13 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
                 # Find closest VST reading within 12 hours
                 window_start = date - pd.Timedelta(hours=12)
                 window_end = date + pd.Timedelta(hours=12)
+                
+                # Make sure window dates have the same timezone as the data
+                if window_start.tz is None:
+                    window_start = window_start.tz_localize('UTC')
+                if window_end.tz is None:
+                    window_end = window_end.tz_localize('UTC')
+                    
                 closest_vst = vst_raw_filtered.loc[(vst_raw_filtered.index >= window_start) & 
                                         (vst_raw_filtered.index <= window_end)]
                 
@@ -845,16 +928,16 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             
             # Plot differences
             if differences:  # Only plot if we have valid differences
-                ax2.scatter(vinge_dates, differences, color='#1f77b4', alpha=0.8, s=40,
+                ax2.scatter(vinge_dates, differences, color=COLORS['difference'], alpha=0.8, s=40,
                            label='VINGE - VST_RAW difference')
             
             # Add horizontal line at 0 for reference
             ax2.axhline(y=0, color='black', linestyle='-', alpha=0.5)
             
             # Add threshold lines at ±20mm
-            ax2.axhline(y=20, color='#d62728', linestyle='--', alpha=0.8,
+            ax2.axhline(y=20, color=COLORS['threshold'], linestyle='--', alpha=0.8,
                        label='Correction Threshold (±20mm)')
-            ax2.axhline(y=-20, color='#d62728', linestyle='--', alpha=0.8)
+            ax2.axhline(y=-20, color=COLORS['threshold'], linestyle='--', alpha=0.8)
             
             # Style the plots
             #ax1.set_title('Water Level Measurements Comparison', fontweight='bold', pad=15)
