@@ -60,7 +60,7 @@ def detect_frost_periods(temperature_data):
             # Temperature is above 0, check if we were tracking a frost period
             if current_period_start is not None:
                 # Check against single threshold
-                if frost_sum < -35:
+                if frost_sum < -15:
                     # Add 24 hours to the end of the frost period
                     extended_end = current_period_end + pd.Timedelta(hours=24)
                     # Convert times to timezone-naive if they're not already
@@ -98,21 +98,19 @@ def detect_spikes(vst_data):
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 4 * IQR
     
-    # Count spikes before removal
-    n_spikes = len(vst_data) - len(
-        vst_data[
-            (vst_data['vst_raw'] >= lower_bound) & 
-            (vst_data['vst_raw'] <= upper_bound)
-        ]
-    )
-    
-    # Remove spikes
-    filtered_data = vst_data[
-        (vst_data['vst_raw'] >= lower_bound) & 
-        (vst_data['vst_raw'] <= upper_bound)
-    ]
+    # Create a mask for valid (non-NaN) values within bounds
+    is_spike = (vst_data['vst_raw'] < lower_bound) | (vst_data['vst_raw'] > upper_bound)
+    is_not_spike_or_nan = ~is_spike | vst_data['vst_raw'].isna()
+
+    # Count spikes (excluding NaNs)
+    n_spikes = is_spike.sum()
+
+    # Filter data (preserving NaNs)
+    filtered_data = vst_data[is_not_spike_or_nan]
     
     return filtered_data, n_spikes, (lower_bound, upper_bound)
+
+
 
 def detect_flatlines(vst_data, window=30):
     """
@@ -189,14 +187,6 @@ def align_data(data):
 
             # Reindex to match the common 15-minute intervals
             df = df.reindex(common_index)  # Default fill value is NaN
-            
-            # Fill missing values using forward fill then backward fill
-            # This ensures continuous data without gaps
-            df = df.ffill().bfill()
-
-            # Fill rainfall data with -1
-            if subkey == 'rainfall':
-                df = df.fillna(-1)
 
             aligned_data[key][subkey] = df
 
@@ -265,38 +255,28 @@ def preprocess_data():
     
     # Rename columns before processing
     All_station_data = rename_columns(All_station_data)
-    
-    # Ensure all timestamps are timezone-naive before alignment
-    for station_name, station_data in All_station_data.items():
-        for key, data in station_data.items():
-            if data is not None and not data.empty:
-                # Convert to timezone-naive if needed
-                if data.index.tz is not None:
-                    data.index = data.index.tz_localize(None)
-    
+
     # Align data to common time index
     All_station_data = align_data(All_station_data)
     
     # Process each station's data
     for station_name, station_data in All_station_data.items():
-        # Process all datasets in the station_data dictionary
-        for key, data in station_data.items():
-            if data is not None:
-                # Convert index to datetime if it's not already
-                if not isinstance(data.index, pd.DatetimeIndex):
-                    data.index = pd.to_datetime(data.index)
-                
-                # Ensure data is timezone aware (UTC)
-                if data.index.tz is None:
-                    data.index = data.index.tz_localize('UTC')
-                
-                # Make data timezone-naive for further processing
-                station_data[key].index = station_data[key].index.tz_localize(None)
-        
         # Detect and remove spikes
         station_data['vst_raw'], n_spikes, (lower_bound, upper_bound) = detect_spikes(station_data['vst_raw'])
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
+        
+        # Detect freezing periods
+        temp_data = station_data['temperature']
+        frost_periods = detect_frost_periods(temp_data)
+        # Count points before frost period removal
+        points_before = len(station_data['vst_raw'])
+        #Remove VST data during frost periods
+        for start, end in frost_periods:
+            station_data['vst_raw'] = station_data['vst_raw'][
+                ~((station_data['vst_raw'].index >= start) & 
+                    (station_data['vst_raw'].index <= end))
+            ]
         
         # Create vst_raw_feature as a separate feature
         # This will be used as an input feature, independent of the target vst_raw
@@ -305,40 +285,31 @@ def preprocess_data():
         # Fill any remaining NaN values with -1 for the feature
         station_data['vst_raw_feature'] = station_data['vst_raw_feature'].fillna(-1)
         
-        # # Detect freezing periods
-        # temp_data = station_data['temperature']
-        # frost_periods = detect_frost_periods(temp_data)
-        # # Count points before frost period removal
-        # points_before = len(station_data['vst_raw'])
-        # #Remove VST data during frost periods
-        # for start, end in frost_periods:
-        #     station_data['vst_raw'] = station_data['vst_raw'][
-        #         ~((station_data['vst_raw'].index >= start) & 
-        #             (station_data['vst_raw'].index <= end))
-        #     ]
+
         # Count points removed during frost periods
-        #points_removed_frost = points_before - len(station_data['vst_raw'])
-        
+        points_removed_frost = points_before - len(station_data['vst_raw'])
+          # Resample temperature data if it exists
+        if station_data['temperature'] is not None:
+            station_data['temperature'] = station_data['temperature'].resample('15min').ffill().bfill()  # Hold mean temperature constant but divide by 4
+          
+        # Resample rainfall data 
+        if station_data['rainfall'] is not None:
+            station_data['rainfall'] = station_data['rainfall'].fillna(-1)
+
+
 
         print(f"\nProcessed {station_name}:")
         print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
         print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
-        print(f"  - Total data points removed: {len(All_station_data_original[station_name]['vst_raw']) - len(station_data['vst_raw'])}")
-        # print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
+        print(f"  - Total data points removed: {n_spikes + n_flatlines +points_removed_frost}")
+        print(f"Percentage of data points removed: {(n_spikes + n_flatlines +points_removed_frost) / len(All_station_data_original[station_name]['vst_raw']) * 100:.2f}%")
 
+        print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
-        
-        # Resample temperature data if it exists
-        if station_data['temperature'] is not None:
-            station_data['temperature'] = station_data['temperature'].resample('15min').ffill().bfill()  # Hold mean temperature constant but divide by 4
-            print(f"  - Resampled temperature data to 15-minute intervals with ffill and bfill")
 
-        # Resample rainfall data 
-        if station_data['rainfall'] is not None:
-            station_data['rainfall'] = station_data['rainfall'].fillna(-1)
-            print(f"  - Filled rainfall data with -1")
+      
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
