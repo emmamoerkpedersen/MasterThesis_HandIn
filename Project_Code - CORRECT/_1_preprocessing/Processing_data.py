@@ -84,10 +84,13 @@ def remove_spikes(vst_data):
         vst_data (pd.DataFrame): DataFrame containing VST measurements
         
     Returns:
-        tuple: (filtered_data, n_spikes, bounds)
+        tuple: (filtered_data, n_spikes, bounds, avg_spike_intensity, avg_spike_duration, neg_pos_spike_ratio)
             - filtered_data: DataFrame with spikes removed
             - n_spikes: number of spikes removed
             - bounds: tuple of (lower_bound, upper_bound)
+            - avg_spike_intensity: average intensity of spikes removed
+            - avg_spike_duration: average duration of spikes removed
+            - neg_pos_spike_ratio: ratio of negative to positive spikes
     """
     # Calculate IQR
     Q1 = vst_data['vst_raw'].quantile(0.25)
@@ -101,15 +104,26 @@ def remove_spikes(vst_data):
     # Create a mask for valid (non-NaN) values within bounds
     is_spike = (vst_data['vst_raw'] < lower_bound) | (vst_data['vst_raw'] > upper_bound)
     is_not_spike_or_nan = ~is_spike | vst_data['vst_raw'].isna()
-
+    
+    # Calculate average intensity of spikes using absolute values
+    avg_spike_intensity = vst_data['vst_raw'][is_spike].abs().mean()
+    
+    # Calculate average duration of spikes
+    spike_durations = vst_data['vst_raw'][is_spike].groupby((~is_spike).cumsum()).size()
+    avg_spike_duration = spike_durations.mean() if not spike_durations.empty else 0
+    
+    # Calculate ratio of negative to positive spikes
+    negative_spikes = vst_data['vst_raw'][is_spike & (vst_data['vst_raw'] < 0)].count()
+    positive_spikes = vst_data['vst_raw'][is_spike & (vst_data['vst_raw'] > 0)].count()
+    neg_pos_spike_ratio = negative_spikes / positive_spikes if positive_spikes > 0 else float('inf')
+    
     # Count spikes (excluding NaNs)
     n_spikes = is_spike.sum()
-
+    
     # Filter data (preserving NaNs)
     filtered_data = vst_data[is_not_spike_or_nan]
     
-    return filtered_data, n_spikes, (lower_bound, upper_bound)
-
+    return filtered_data, n_spikes, (lower_bound, upper_bound), avg_spike_intensity, avg_spike_duration, neg_pos_spike_ratio
 
 
 def remove_flatlines(vst_data, threshold=30):
@@ -125,30 +139,36 @@ def remove_flatlines(vst_data, threshold=30):
         tuple:
             - pd.DataFrame: DataFrame with flatline sequences removed (except first value).
             - int: Number of flatline points removed.
+            - float: Average duration of flatline segments removed.
     """
     vst_series = vst_data['vst_raw']
-
+    
     # Identify where values change
     value_change = vst_series != vst_series.shift()
     group_id = value_change.cumsum()
-
+    
     # Group by sequences of repeated values
     groups = vst_series.groupby(group_id)
-
+    
     # Build a mask: keep all rows initially
     keep_mask = pd.Series(True, index=vst_data.index)
     n_flatline = 0
-
+    flatline_durations = []
+    
     for _, group in groups:
         if len(group) >= threshold:
             # Mark all but the first value for removal
             indices_to_remove = group.index[1:]
             keep_mask[indices_to_remove] = False
             n_flatline += len(indices_to_remove)
-
+            flatline_durations.append(len(group))
+    
     filtered_data = vst_data[keep_mask]
-
-    return filtered_data, n_flatline
+    
+    # Calculate average duration of flatline segments
+    avg_flatline_duration = sum(flatline_durations) / len(flatline_durations) if flatline_durations else 0
+    
+    return filtered_data, n_flatline, avg_flatline_duration
 
 
 def align_data(data):
@@ -236,9 +256,9 @@ def preprocess_data():
     # Process each station's data
     for station_name, station_data in All_station_data.items():
         # Detect and remove spikes
-        station_data['vst_raw'], n_spikes, (lower_bound, upper_bound) = remove_spikes(station_data['vst_raw'])
+        station_data['vst_raw'], n_spikes, (lower_bound, upper_bound), avg_spike_intensity, avg_spike_duration, neg_pos_spike_ratio = remove_spikes(station_data['vst_raw'])
         # Detect and remove flatlines
-        station_data['vst_raw'], n_flatlines = remove_flatlines(station_data['vst_raw'])
+        station_data['vst_raw'], n_flatlines, avg_flatline_duration = remove_flatlines(station_data['vst_raw'])
         
         # Detect freezing periods
         temp_data = station_data['temperature']
@@ -282,7 +302,11 @@ def preprocess_data():
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
-      
+        print(f"  - Average flatline duration: {avg_flatline_duration:.2f} points")
+        print(f"  - Average spike intensity: {avg_spike_intensity:.2f}")    
+        print(f"  - Average spike duration: {avg_spike_duration:.2f} points")    
+        print(f"  - Negative to positive spike ratio: {neg_pos_spike_ratio:.2f}")    
+        
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
