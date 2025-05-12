@@ -21,7 +21,9 @@ def run_preprocessing_diagnostics(project_root, output_path, station_id):
         from diagnostics.preprocessing_diagnostics import (
             plot_preprocessing_comparison, 
             plot_station_data_overview, 
-            plot_vst_vinge_comparison
+            plot_vst_vinge_comparison,
+            create_detailed_plot,
+            get_time_windows
         )
         
         print("Generating preprocessing diagnostics...")
@@ -42,6 +44,46 @@ def run_preprocessing_diagnostics(project_root, output_path, station_id):
             plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), [])
             plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
             plot_vst_vinge_comparison(preprocessed_data, Path(output_path), original_data)
+            
+            # Generate detailed analysis plot
+            print("Generating detailed error analysis plot...")
+            station_data = original_data[station_id]
+            
+            # Prepare data in the format expected by create_detailed_plot
+            plot_data = {
+                'vst_raw': pd.DataFrame({
+                    'Date': station_data['vst_raw'].index,
+                    'Value': station_data['vst_raw'].iloc[:, 0]  # First column after Date
+                }),
+                'vinge': None
+            }
+            
+            # Add VINGE data if available
+            if 'vinge' in station_data and station_data['vinge'] is not None:
+                vinge_df = station_data['vinge'].copy()
+                if 'W.L [cm]' not in vinge_df.columns:
+                    # Try to find a suitable column for VINGE data
+                    value_cols = [col for col in vinge_df.columns if col != 'Date']
+                    if value_cols:
+                        vinge_df['W.L [cm]'] = vinge_df[value_cols[0]]
+                
+                plot_data['vinge'] = pd.DataFrame({
+                    'Date': vinge_df.index,
+                    'W.L [cm]': vinge_df['W.L [cm]']
+                })
+            
+            # Get time windows and create the detailed plot
+            time_windows = get_time_windows()
+            detailed_plot_path = create_detailed_plot(
+                data=plot_data,
+                time_windows=time_windows,
+                folder=station_id,
+                output_dir=output_path
+            )
+            
+            if detailed_plot_path:
+                print(f"Detailed analysis plot saved to: {detailed_plot_path}")
+            
             return True
         else:
             print(f"Warning: No data found for station {station_id}")
