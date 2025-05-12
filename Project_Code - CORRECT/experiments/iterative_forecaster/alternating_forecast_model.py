@@ -46,9 +46,7 @@ class AlternatingForecastModel(nn.Module):
             self.week_steps = config['week_steps']
         else:
             self.week_steps = 672
-            
-        # Debug mode flag
-        self.debug_mode = False
+
     
     def forward(self, x, hidden_state=None, cell_state=None, use_predictions=False, 
                 weekly_mask=None, alternating_weeks=True):
@@ -128,21 +126,8 @@ class AlternatingForecastModel(nn.Module):
             
             # Generate prediction for current timestep
             outputs[:, t, :] = self.output_layer(final_hidden)
-            
-            # Print shapes for first timestep (only in debug mode)
-            if self.debug_mode and t == 0:
-                print(f"\nTensor shapes:")
-                print(f"Input: {current_input.shape}")
-                print(f"Hidden state: {hidden_state.shape}")
-                print(f"Output: {outputs[:, t, :].shape}")
         
-        # Print final statistics (only in debug mode)
-        if self.debug_mode:
-            print(f"\nFinal usage statistics:")
-            print(f"Total timesteps: {seq_len}")
-            print(f"Used original data: {n_used_original} ({n_used_original/seq_len*100:.1f}%)")
-            print(f"Used predictions: {n_used_prediction} ({n_used_prediction/seq_len*100:.1f}%)")
-        
+    
         return outputs, hidden_state, cell_state
     
     def init_hidden(self, batch_size, device):
