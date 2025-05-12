@@ -6,23 +6,26 @@ Configuration for the Alternating Forecast Model.
 ALTERNATING_CONFIG = {
     # Model architecture
     'hidden_size': 64,         # Increased from 32 to 64
-    'num_layers': 2,           # Back to 2 layers for more capacity
+    'num_layers': 1,           # Back to 2 layers for more capacity
     'dropout': 0.25,
     
     # Training parameters
-    'batch_size': 64,          # Increased batch size
-    'epochs': 5,              # More epochs for better convergence
+    'batch_size': (20*672)+672,          # Batch size should always be at least 2 weeks, to allow for the periods
+    'epochs': 20,              # More epochs for better convergence
     'patience': 8,
     'learning_rate': 0.001,
     
     # Quick mode for faster training with reduced data
-    'quick_mode': True,       # When True, uses only 3 years training, 1 year validation
-    
+    'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
+  
     # Forecasting parameters
     'week_steps': 672,         # Number of time steps in a week (15-min intervals: 4*24*7 = 672)
     
+    # Warmup period
+    'warmup_length': 672,
+    
     # Anomaly detection parameters
-    'threshold': 4.0,          # Threshold for detecting anomalies
+    'threshold': 13.0,          # Threshold for detecting anomalies
     'window_size': 100,        # Window size for MAD calculation
     
     # Loss function
@@ -40,8 +43,8 @@ ALTERNATING_CONFIG = {
     'feature_stations': [],
     
     # Feature engineering settings
-    'use_time_features': True,        # Enable time features (day of week, month, etc.)
-    'use_cumulative_features': True,  # Enable cumulative features (e.g., cumulative rainfall)
+    'use_time_features': False,        # Enable time features (day of week, month, etc.)
+    'use_cumulative_features': False,  # Enable cumulative features (e.g., cumulative rainfall)
     'use_lagged_features': False,     # Don't use lagged features
     
     # Do not include additional stations
