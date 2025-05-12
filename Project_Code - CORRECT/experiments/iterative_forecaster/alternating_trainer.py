@@ -181,7 +181,7 @@ class AlternatingTrainer:
         print(f"Training data shape: {x_train.shape}")
         print(f"Validation data shape: {x_val.shape}")
         
-        # If in quick mode, automatically reduce epochs by half (minimum 5)
+        # If in quick mode, automatically reduce epochs
         if self.config.get('quick_mode', False) and epochs > 10:
             original_epochs = epochs
             epochs = max(5, epochs // 3)
@@ -217,6 +217,9 @@ class AlternatingTrainer:
         epoch_pbar = tqdm(range(epochs), desc="Training Progress", position=0)
         for epoch in epoch_pbar:
             self.model.train()
+            # Only enable debug mode for first batch of first epoch
+            self.model.debug_mode = (epoch == 0 and batch_size == total_samples)
+            
             total_train_loss = 0
             batch_losses = []
             
@@ -246,7 +249,6 @@ class AlternatingTrainer:
                 self.optimizer.zero_grad()
                 
                 # Forward pass with alternating pattern
-                # Use predictions from previous timesteps in alternating weeks
                 outputs, hidden_state, cell_state = self.model(
                     x_batch, 
                     hidden_state, 
@@ -292,6 +294,9 @@ class AlternatingTrainer:
             
             # Validation phase
             self.model.eval()
+            # Enable debug mode for validation only in first epoch
+            self.model.debug_mode = (epoch == 0)
+            
             with torch.no_grad():
                 # Reset states
                 hidden_state, cell_state = None, None
