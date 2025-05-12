@@ -26,10 +26,21 @@ class AlternatingForecastModel(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
         
-        print(f"Initializing model with input_size={input_size}, adding 1 for binary flag = {input_size+1}")
+        print(f"\nModel initialization:")
+        print(f"Input size: {input_size}")
+        print(f"Hidden size: {hidden_size}")
+        print(f"Output size: {output_size}")
+        print(f"Number of layers: {num_layers}")
         
-        # Single LSTM cell that takes input + binary flag
-        self.lstm_cell = nn.LSTMCell(input_size + 1, hidden_size)  # +1 for binary flag
+        # LSTMCell layers for explicit state control
+        self.lstm_cells = nn.ModuleList()
+        
+        # First layer takes input + binary flag
+        self.lstm_cells.append(nn.LSTMCell(input_size + 1, hidden_size))  # +1 for binary flag
+        
+        # Additional layers (if num_layers > 1)
+        for i in range(1, num_layers):
+            self.lstm_cells.append(nn.LSTMCell(hidden_size, hidden_size))
         
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
@@ -37,15 +48,15 @@ class AlternatingForecastModel(nn.Module):
         # Output layer (always predicts 1 time step)
         self.output_layer = nn.Linear(hidden_size, output_size)
         
-        # Define the number of time steps in 1 week (168 hours)
+        # Define the number of time steps in 1 week (168 hours = 672 time steps)
         # Use config value if provided
         if config and 'week_steps' in config:
             self.week_steps = config['week_steps']
         else:
             self.week_steps = 672
     
-    def forward(self, x, hidden_state=None, cell_state=None, use_predictions=False, 
-                forcing_mask=None, alternating_weeks=True):
+    def forward(self, x, hidden_states=None, cell_states=None, use_predictions=False, 
+                weekly_mask=None, alternating_weeks=True):
         """
         Forward pass with explicit control over hidden states and alternating input strategy.
         
@@ -54,7 +65,7 @@ class AlternatingForecastModel(nn.Module):
             hidden_state: Hidden state for LSTM cell, or None to initialize
             cell_state: Cell state for LSTM cell, or None to initialize
             use_predictions: Whether to use the model's own predictions as input
-            forcing_mask: Optional binary mask indicating which time steps should use 
+            weekly_mask: Optional binary mask indicating which time steps should use 
                           original data (1) vs predictions (0)
             alternating_weeks: Whether to use 1-week alternating pattern for training
         
@@ -66,69 +77,98 @@ class AlternatingForecastModel(nn.Module):
         batch_size, seq_len, feature_dim = x.size()
         device = x.device
         
-        # The water level feature is always the first feature
-        water_level_idx = 0
-        
         # Initialize hidden and cell states if not provided
         if hidden_state is None or cell_state is None:
             hidden_state = torch.zeros(batch_size, self.hidden_size, device=device)
             cell_state = torch.zeros(batch_size, self.hidden_size, device=device)
         
+        if hidden_states is None or cell_states is None:
+            hidden_states = []
+            cell_states = []
+            for i in range(self.num_layers):
+                hidden_states.append(torch.zeros(batch_size, self.hidden_size, device=device))
+                cell_states.append(torch.zeros(batch_size, self.hidden_size, device=device))
+            
         # Storage for outputs
         outputs = torch.zeros(batch_size, seq_len, self.output_size, device=device)
+    
         
         # Initialize the alternating week pattern if needed
-        if alternating_weeks and forcing_mask is None:
+        if alternating_weeks and weekly_mask is None:
             # Create forcing mask for alternating weeks pattern
             # As per professor's suggestion:
-            # - 0 for weeks where we use original observations (first week)
-            # - 1 for weeks where we use model predictions (second week)
-            forcing_mask = torch.ones(seq_len, device=device)  # Default to using predictions
+            # 0 for weeks where we use original observations (first week)
+            # 1 for weeks where we use model predictions (second week)
+            weekly_mask = torch.ones(seq_len, device=device)  # Default to using predictions
             
             # Set first week and every other week to use observations (0)
             for i in range(0, seq_len, self.week_steps * 2):
                 if i + self.week_steps <= seq_len:
-                    forcing_mask[i:i+self.week_steps] = 0
-        elif forcing_mask is None:
+                    weekly_mask[i:i+self.week_steps] = 0
+            
+           
+        elif weekly_mask is None:
             # Default to using original data if no pattern specified
-            forcing_mask = torch.zeros(seq_len, device=device)  # All zeros = all observations
+            weekly_mask = torch.zeros(seq_len, device=device)  # All zeros = all observations
         
         # Loop through sequence
         current_input = x[:, 0, :]
         
+        # Track statistics for debugging
+        n_used_original = 0
+        n_used_prediction = 0
+        last_switch = 0
+        
         for t in range(seq_len):
-            # Determine if we use original observations or predicted data for this step
-            # If forcing_mask[t] == 0, use original observations
-            # If forcing_mask[t] == 1, use predictions (if available)
-            use_original = (forcing_mask[t].item() == 0) or t == 0 or not use_predictions
+            use_original = (weekly_mask[t].item() == 0) or t == 0 or not use_predictions
             
             if not use_original and t > 0:
-                # Use previous prediction as input
-                # Create binary flag (1 for predicted input)
-                binary_flag = torch.ones(batch_size, 1, device=device)  # 1 = using prediction
-                
-                # Replace target feature with previous prediction
+                n_used_prediction += 1
+                binary_flag = torch.ones(batch_size, 1, device=device)
                 pred_input = x[:, t, :].clone()
-                pred_input[:, water_level_idx] = outputs[:, t-1, 0]  # Use last prediction for water level
-                
-                # Add binary flag
+                pred_input[:, 0] = outputs[:, t-1, 0]
                 current_input = torch.cat([pred_input, binary_flag], dim=1)
-            else:
-                # Use original data
-                # Create binary flag (0 for original input)
-                binary_flag = torch.zeros(batch_size, 1, device=device)  # 0 = using observation
                 
-                # Use original input with flag
+                # Print when we switch to using predictions
+                if t - last_switch >= self.week_steps:
+                    print(f"\nSwitching to predictions at t={t}")
+                    print(f"Original value: {x[:, t, 0].item():.4f}")
+                    print(f"Using prediction: {outputs[:, t-1, 0].item():.4f}")
+                    last_switch = t
+            else:
+                n_used_original += 1
+                binary_flag = torch.zeros(batch_size, 1, device=device)
                 current_input = torch.cat([x[:, t, :], binary_flag], dim=1)
+                
+                # Print when we switch to using original data
+                if t - last_switch >= self.week_steps:
+                    print(f"\nSwitching to original data at t={t}")
+                    print(f"Using original value: {x[:, t, 0].item():.4f}")
+                    last_switch = t
             
-            # Process through LSTM cell
-            hidden_state, cell_state = self.lstm_cell(current_input, (hidden_state, cell_state))
+            # Process through LSTM cells
+            for i in range(self.num_layers):
+                if i == 0:
+                    hidden_states[i], cell_states[i] = self.lstm_cells[i](
+                        current_input, (hidden_states[i], cell_states[i])
+                    )
+                else:
+                    layer_input = self.dropout(hidden_states[i-1])
+                    hidden_states[i], cell_states[i] = self.lstm_cells[i](
+                        layer_input, (hidden_states[i], cell_states[i])
+                    )
+                
+                if t == 0 and i == 0:  # Print shapes only for first timestep and layer
+                    print(f"Layer {i} output: {hidden_states[i].shape}")
             
-            # Apply dropout to hidden state
-            final_hidden = self.dropout(hidden_state)
-            
-            # Generate prediction for current timestep
+            final_hidden = self.dropout(hidden_states[-1])
             outputs[:, t, :] = self.output_layer(final_hidden)
+            test  = 1
+
+        print(f"\nFinal usage statistics:")
+        print(f"Total timesteps: {seq_len}")
+        print(f"Used original data: {n_used_original} ({n_used_original/seq_len*100:.1f}%)")
+        print(f"Used predictions: {n_used_prediction} ({n_used_prediction/seq_len*100:.1f}%)")
         
         return outputs, hidden_state, cell_state
     
