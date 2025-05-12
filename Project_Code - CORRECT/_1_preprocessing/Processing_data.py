@@ -205,45 +205,6 @@ def align_data(data):
 
     return aligned_data
 
-def distribute_hourly_rainfall(rainfall_df):
-    """
-    Distribute hourly cumulated rainfall values across previous 15-minute intervals.
-    
-    Args:
-        rainfall_df: Pandas DataFrame with hourly rainfall data
-    Returns:
-        Pandas DataFrame with 15-minute distributed rainfall data
-    """
-    # Get the rainfall column name (should be 'rainfall')
-    rainfall_col = rainfall_df.columns[0]
-    
-    # Convert to series for easier handling
-    rainfall_series = rainfall_df[rainfall_col]
-    
-    # Resample to 15-minute intervals
-    resampled = rainfall_series.resample('15min').asfreq()
-    
-    # For each non-NaN hourly value
-    for timestamp in rainfall_series.dropna().index:
-        hourly_value = rainfall_series.loc[timestamp]
-        
-        # Get the previous hour's timestamps (4 fifteen-minute intervals)
-        prev_timestamps = pd.date_range(end=timestamp, periods=4, freq='15min')
-        
-        # Distribute the hourly value equally (divide by 4)
-        distributed_value = hourly_value / 4
-        
-        # Assign the distributed value to each 15-minute interval
-        for prev_ts in prev_timestamps:
-            resampled.loc[prev_ts] = distributed_value
-    
-    # Fill remaining NaN with -1
-    resampled = resampled.fillna(-1)
-    
-    # Convert back to DataFrame with the same column name
-    return pd.DataFrame(resampled, columns=[rainfall_col])
-
-
 def preprocess_data():
     """
     Preprocess the data and save to pickle files.
