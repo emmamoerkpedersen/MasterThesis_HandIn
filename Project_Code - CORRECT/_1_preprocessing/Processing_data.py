@@ -76,7 +76,7 @@ def detect_frost_periods(temperature_data):
     
     return frost_periods
 
-def detect_spikes(vst_data):
+def remove_spikes(vst_data):
     """
     Detect and remove spikes in VST data using IQR method.
     
@@ -112,31 +112,44 @@ def detect_spikes(vst_data):
 
 
 
-def detect_flatlines(vst_data, window=30):
+def remove_flatlines(vst_data, threshold=30):
     """
-    Detect and remove flatlines in VST data.
-    
+    Detect and remove flatline sequences longer than the threshold, 
+    keeping only the first value in each sequence.
+
     Args:
-        vst_data (pd.DataFrame): DataFrame containing VST measurements
-        window (int): Number of consecutive identical values to consider as flatline
-        
+        vst_data (pd.DataFrame): DataFrame with a 'vst_raw' column.
+        threshold (int): Minimum number of consecutive equal values to consider a flatline.
+
     Returns:
-        tuple: (filtered_data, n_flatlines)
-            - filtered_data: DataFrame with flatlines removed
-            - n_flatlines: number of flatline points removed
+        tuple:
+            - pd.DataFrame: DataFrame with flatline sequences removed (except first value).
+            - int: Number of flatline points removed.
     """
-    # Detect flatlines (identical consecutive values)
-    rolling_count = vst_data['vst_raw'].rolling(window=window).apply(
-        lambda x: len(x.unique()) == 1
-    ).fillna(False).astype(bool)
-    
-    # Keep non-flatline points
-    filtered_data = vst_data[~rolling_count]
-    
-    # Count removed flatline points
-    n_flatlines = rolling_count.sum()
-    
-    return filtered_data, n_flatlines
+    vst_series = vst_data['vst_raw']
+
+    # Identify where values change
+    value_change = vst_series != vst_series.shift()
+    group_id = value_change.cumsum()
+
+    # Group by sequences of repeated values
+    groups = vst_series.groupby(group_id)
+
+    # Build a mask: keep all rows initially
+    keep_mask = pd.Series(True, index=vst_data.index)
+    n_flatline = 0
+
+    for _, group in groups:
+        if len(group) >= threshold:
+            # Mark all but the first value for removal
+            indices_to_remove = group.index[1:]
+            keep_mask[indices_to_remove] = False
+            n_flatline += len(indices_to_remove)
+
+    filtered_data = vst_data[keep_mask]
+
+    return filtered_data, n_flatline
+
 
 def align_data(data):
     aligned_data = {}
@@ -192,45 +205,6 @@ def align_data(data):
 
     return aligned_data
 
-def distribute_hourly_rainfall(rainfall_df):
-    """
-    Distribute hourly cumulated rainfall values across previous 15-minute intervals.
-    
-    Args:
-        rainfall_df: Pandas DataFrame with hourly rainfall data
-    Returns:
-        Pandas DataFrame with 15-minute distributed rainfall data
-    """
-    # Get the rainfall column name (should be 'rainfall')
-    rainfall_col = rainfall_df.columns[0]
-    
-    # Convert to series for easier handling
-    rainfall_series = rainfall_df[rainfall_col]
-    
-    # Resample to 15-minute intervals
-    resampled = rainfall_series.resample('15min').asfreq()
-    
-    # For each non-NaN hourly value
-    for timestamp in rainfall_series.dropna().index:
-        hourly_value = rainfall_series.loc[timestamp]
-        
-        # Get the previous hour's timestamps (4 fifteen-minute intervals)
-        prev_timestamps = pd.date_range(end=timestamp, periods=4, freq='15min')
-        
-        # Distribute the hourly value equally (divide by 4)
-        distributed_value = hourly_value / 4
-        
-        # Assign the distributed value to each 15-minute interval
-        for prev_ts in prev_timestamps:
-            resampled.loc[prev_ts] = distributed_value
-    
-    # Fill remaining NaN with -1
-    resampled = resampled.fillna(-1)
-    
-    # Convert back to DataFrame with the same column name
-    return pd.DataFrame(resampled, columns=[rainfall_col])
-
-
 def preprocess_data():
     """
     Preprocess the data and save to pickle files.
@@ -262,9 +236,9 @@ def preprocess_data():
     # Process each station's data
     for station_name, station_data in All_station_data.items():
         # Detect and remove spikes
-        station_data['vst_raw'], n_spikes, (lower_bound, upper_bound) = detect_spikes(station_data['vst_raw'])
+        station_data['vst_raw'], n_spikes, (lower_bound, upper_bound) = remove_spikes(station_data['vst_raw'])
         # Detect and remove flatlines
-        station_data['vst_raw'], n_flatlines = detect_flatlines(station_data['vst_raw'])
+        station_data['vst_raw'], n_flatlines = remove_flatlines(station_data['vst_raw'])
         
         # Detect freezing periods
         temp_data = station_data['temperature']
@@ -308,7 +282,6 @@ def preprocess_data():
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
-
       
 
     # Save the preprocessed data
@@ -322,7 +295,7 @@ if __name__ == "__main__":
     station_id = '21006846'
     
     # Create figure with secondary y-axis
-    fig = make_subplots(rows=3, cols=1,
+    fig = make_subplots(rows=4, cols=1,
                         subplot_titles=('Original VST Raw Data', 'Processed VST Raw Data with Frost Periods', 'Rainfall'),
                         vertical_spacing=0.1)
 
@@ -347,12 +320,6 @@ if __name__ == "__main__":
         row=2, col=1
     )
 
-      # Debug: Print rainfall data info
-    print("Rainfall data info:")
-    print(processed_data[station_id]['rainfall'].info())
-    print("\nFirst few rows of rainfall data:")
-    print(processed_data[station_id]['rainfall'].head())
-
     fig.add_trace(
         go.Scatter(
             x=processed_data[station_id]['rainfall'].index,
@@ -362,6 +329,17 @@ if __name__ == "__main__":
         ), 
         row=3, col=1
     )
+
+    fig.add_trace(
+        go.Scatter(
+            x=processed_data[station_id]['temperature'].index,
+            y=processed_data[station_id]['temperature']['temperature'],
+            name='Temperature',
+            line=dict(color='purple')
+        ), 
+        row=4, col=1
+    )
+
 
     # Update layout
     fig.update_layout(
