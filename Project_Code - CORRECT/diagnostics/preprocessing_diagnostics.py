@@ -60,14 +60,14 @@ def set_plot_style():
     plt.rcParams['figure.autolayout'] = False
     plt.rcParams['figure.constrained_layout.use'] = False
     
-    # Set font sizes
-    plt.rcParams['font.size'] = 12
-    plt.rcParams['axes.titlesize'] = 14
-    plt.rcParams['axes.labelsize'] = 12
-    plt.rcParams['xtick.labelsize'] = 10
-    plt.rcParams['ytick.labelsize'] = 10
-    plt.rcParams['legend.fontsize'] = 10
-    plt.rcParams['figure.titlesize'] = 16
+    # Set font sizes (increased by 30%)
+    plt.rcParams['font.size'] = 16  # was 12
+    plt.rcParams['axes.titlesize'] = 18  # was 14
+    plt.rcParams['axes.labelsize'] = 16  # was 12
+    plt.rcParams['xtick.labelsize'] = 13  # was 10
+    plt.rcParams['ytick.labelsize'] = 13  # was 10
+    plt.rcParams['legend.fontsize'] = 13  # was 10
+    plt.rcParams['figure.titlesize'] = 21  # was 16
     
     # Set colors
     plt.rcParams['axes.prop_cycle'] = plt.cycler(color=[
@@ -96,29 +96,28 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
     plt.rcParams.update({
         'font.family': 'serif',
         'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 12,
-        'axes.titlesize': 16,
-        'axes.labelsize': 14,
-        'xtick.labelsize': 12,
-        'ytick.labelsize': 12,
-        'legend.fontsize': 12,
-        'figure.titlesize': 18
+        'font.size': 16,  # was 12
+        'axes.titlesize': 21,  # was 16
+        'axes.labelsize': 18,  # was 14
+        'xtick.labelsize': 16,  # was 12
+        'ytick.labelsize': 16,  # was 12
+        'legend.fontsize': 16,  # was 12
+        'figure.titlesize': 23  # was 18
     })
     
-    # Define consistent colors for better visualization
+    # Define consistent colors for better visualization with more visible background colors
     COLORS = {
-        'vst_original': '#1f77b4',      # Blue for original water level
-        'vst_processed': '#2ca02c',     # Green for processed water level
-        'temp_original': '#d62728',     # Red for original temperature
-        'temp_processed': '#ff7f0e',    # Orange for processed temperature
-        'rain_original': '#1f77b4',     # Blue for original rainfall
-        'rain_processed': '#2ca02c',    # Green for processed rainfall
-        'outliers': '#d62728',          # Red for outliers
-        'bounds': '#ff7f0e',            # Orange for bounds
-        'training': '#E8F5E9',          # Light green for training
-        'validation': '#FFF3E0',        # Light orange for validation
-        'testing': '#E3F2FD',           # Light blue for testing
-        'frost': '#BBDEFB'              # Light blue for frost periods
+        'vst_original': '#1f77b4',   # Blue for original water level
+        'vst_processed': '#2ca02c',  # Green for processed water level
+        'temperature': '#d62728',    # Red for temperature
+        'rainfall': '#1f77b4',       # Blue for rainfall
+        'vinge': '#d62728',          # Red for VINGE measurements
+        'outliers': '#d62728',       # Red for outliers
+        'bounds': '#ff7f0e',         # Orange for bounds
+        'training': '#C8E6C9',       # Darker light green for training (was #E8F5E9)
+        'validation': '#FFE0B2',     # Darker light orange for validation (was #FFF3E0)
+        'testing': '#BBDEFB',        # Darker light blue for testing (was #E3F2FD)
+        'frost': '#90CAF9'           # Darker light blue for frost periods (was #BBDEFB)
     }
     
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
@@ -156,20 +155,16 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Create figure with GridSpec - now with 3 rows for water level, temperature, and rainfall
             fig = plt.figure(figsize=(15, 18))
-            gs = GridSpec(3, 1, figure=fig, height_ratios=[1, 1, 1], hspace=0.1)
+            gs = GridSpec(3, 1, figure=fig, height_ratios=[2, 1, 1], hspace=0.1)
             
             # Get the original and processed data for all variables
             orig_vst = original_data[station_name]['vst_raw'].copy()
             proc_vst = preprocessed_data[station_name]['vst_raw'].copy()
-            orig_temp = original_data[station_name]['temperature'].copy() if 'temperature' in original_data[station_name] else None
             proc_temp = preprocessed_data[station_name]['temperature'].copy() if 'temperature' in preprocessed_data[station_name] else None
-            orig_rain = original_data[station_name]['rainfall'].copy() if 'rainfall' in original_data[station_name] else None
             proc_rain = preprocessed_data[station_name]['rainfall'].copy() if 'rainfall' in preprocessed_data[station_name] else None
             
             # Get the value column names
             vst_col = [col for col in orig_vst.columns if col != 'Date'][0]
-            temp_col = [col for col in orig_temp.columns if col != 'Date'][0] if orig_temp is not None else None
-            rain_col = [col for col in orig_rain.columns if col != 'Date'][0] if orig_rain is not None else None
             
             # For processed data, check if column names have been standardized
             if 'vst_raw' in proc_vst.columns:
@@ -184,50 +179,47 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                         df.index = pd.to_datetime(df.index)
                     if df.index.tz is None:
                         df.index = df.index.tz_localize('UTC')
-                    elif df.index.tz.zone != 'UTC':
+                    elif hasattr(df.index.tz, 'zone') and df.index.tz.zone != 'UTC':
+                        df.index = df.index.tz_convert('UTC')
+                    elif str(df.index.tz) != 'UTC':
+                        # Handle datetime.timezone objects without zone attribute
                         df.index = df.index.tz_convert('UTC')
                 return df
             
             # Ensure all DataFrames have timezone-aware datetime index
             orig_vst = ensure_tz_aware(orig_vst)
             proc_vst = ensure_tz_aware(proc_vst)
-            orig_temp = ensure_tz_aware(orig_temp)
             proc_temp = ensure_tz_aware(proc_temp)
-            orig_rain = ensure_tz_aware(orig_rain)
             proc_rain = ensure_tz_aware(proc_rain)
             
             # Filter data to start from 2010
             orig_vst = orig_vst[orig_vst.index >= start_date]
             proc_vst = proc_vst[proc_vst.index >= start_date]
-            if orig_temp is not None:
-                orig_temp = orig_temp[orig_temp.index >= start_date]
             if proc_temp is not None:
                 proc_temp = proc_temp[proc_temp.index >= start_date]
-            if orig_rain is not None:
-                orig_rain = orig_rain[orig_rain.index >= start_date]
             if proc_rain is not None:
                 proc_rain = proc_rain[proc_rain.index >= start_date]
+                # Replace negative values with 0 for rainfall (they're likely fill values)
+                if 'rainfall' in proc_rain.columns:
+                    proc_rain['rainfall'] = proc_rain['rainfall'].clip(lower=0)
+                else:
+                    rain_col = [col for col in proc_rain.columns if col != 'Date'][0]
+                    proc_rain[rain_col] = proc_rain[rain_col].clip(lower=0)
             
             # PERFORMANCE OPTIMIZATION: Downsample data if too large
             if len(orig_vst) > 10000:
                 orig_vst_plot = orig_vst.resample('6H').mean().dropna()
-                proc_vst_plot = proc_vst.resample('6H').mean().dropna()
             else:
                 orig_vst_plot = orig_vst
-                proc_vst_plot = proc_vst
                 
-            if orig_temp is not None and len(orig_temp) > 10000:
-                orig_temp_plot = orig_temp.resample('6H').mean().dropna()
+            if proc_temp is not None and len(proc_temp) > 10000:
                 proc_temp_plot = proc_temp.resample('6H').mean().dropna()
             else:
-                orig_temp_plot = orig_temp
                 proc_temp_plot = proc_temp
                 
-            if orig_rain is not None and len(orig_rain) > 10000:
-                orig_rain_plot = orig_rain.resample('6H').sum().dropna()
+            if proc_rain is not None and len(proc_rain) > 10000:
                 proc_rain_plot = proc_rain.resample('6H').sum().dropna()
             else:
-                orig_rain_plot = orig_rain
                 proc_rain_plot = proc_rain
             
             # Calculate IQR bounds using the original data (use full dataset for calculations)
@@ -277,37 +269,12 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                 'IQR': IQR
             })
             
-            # Function to add split backgrounds to subplot (without adding to legend)
-            def add_split_backgrounds(ax):
-                # Add colored backgrounds for train/val/test splits without adding to legend
-                # Make sure all timestamps are timezone-aware with UTC
-                end_date = pd.to_datetime('2025-01-01').tz_localize('UTC')
-                ax.axvspan(start_date, train_end, color=COLORS['training'], alpha=0.3, label='_nolegend_')
-                ax.axvspan(train_end, val_end, color=COLORS['validation'], alpha=0.3, label='_nolegend_')
-                ax.axvspan(val_end, end_date, color=COLORS['testing'], alpha=0.3, label='_nolegend_')
-                
-                # Add frost periods if available
-                if frost_periods:
-                    for start, end in frost_periods:
-                        # Ensure start and end are timezone-aware
-                        if hasattr(start, 'tzinfo') and start.tzinfo is None:
-                            start = pd.to_datetime(start).tz_localize('UTC')
-                        if hasattr(end, 'tzinfo') and end.tzinfo is None:
-                            end = pd.to_datetime(end).tz_localize('UTC')
-                            
-                        if start >= start_date:  # Only show frost periods after 2010
-                            ax.axvspan(start, end, color=COLORS['frost'], alpha=0.5, 
-                                     label='_nolegend_', zorder=1, hatch='///')
-            
-            # Top subplot: Water Level
+            # Top subplot: Water Level Comparison
             ax1 = fig.add_subplot(gs[0])
-            add_split_backgrounds(ax1)
             
-            # Plot the original and preprocessed water level data
+            # Plot the original VST data
             ax1.plot(orig_vst_plot.index, orig_vst_plot[vst_col], color=COLORS['vst_original'], alpha=0.8, 
                     linewidth=0.8, label='Original VST', zorder=2)
-            ax1.plot(proc_vst_plot.index, proc_vst_plot[proc_vst_col], color=COLORS['vst_processed'], alpha=0.8,
-                    linewidth=0.8, label='Preprocessed VST', zorder=2)
             
             # Add IQR bounds
             ax1.axhline(y=lower_bound, color=COLORS['bounds'], linestyle='--', alpha=0.6,
@@ -326,6 +293,25 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                     ax1.scatter(outlier_points.index, outlier_points[vst_col],
                               color=COLORS['outliers'], s=25, alpha=0.7, label='Removed Points', zorder=3)
             
+            # Add frost periods if available
+            if frost_periods:
+                frost_added_to_legend = False
+                for start, end in frost_periods:
+                    # Ensure start and end are timezone-aware
+                    if hasattr(start, 'tzinfo') and start.tzinfo is None:
+                        start = pd.to_datetime(start).tz_localize('UTC')
+                    if hasattr(end, 'tzinfo') and end.tzinfo is None:
+                        end = pd.to_datetime(end).tz_localize('UTC')
+                        
+                    if start >= start_date:  # Only show frost periods after start date
+                        if not frost_added_to_legend:
+                            ax1.axvspan(start, end, color=COLORS['frost'], alpha=0.5, 
+                                     label='Frost Period', zorder=1, hatch='///')
+                            frost_added_to_legend = True
+                        else:
+                            ax1.axvspan(start, end, color=COLORS['frost'], alpha=0.5, 
+                                     label='_nolegend_', zorder=1, hatch='///')
+            
             ax1.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
             ax1.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
             ax1.spines['top'].set_visible(False)
@@ -334,25 +320,17 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Middle subplot: Temperature
             ax2 = fig.add_subplot(gs[1])
-            add_split_backgrounds(ax2)
             
-            if orig_temp is not None and proc_temp is not None:
-                # Get the temperature column names - be more flexible
-                orig_temp_col = temp_col  # Already determined earlier
-                
+            if proc_temp is not None:
                 # For processed data, the column might be renamed to 'temperature'
-                if temp_col in proc_temp.columns:
-                    proc_temp_col = temp_col
-                elif 'temperature' in proc_temp.columns:
+                if 'temperature' in proc_temp.columns:
                     proc_temp_col = 'temperature'
                 else:
                     # Try to find any column that might contain temperature data
                     proc_temp_col = proc_temp.columns[0]
                 
-                ax2.plot(orig_temp_plot.index, orig_temp_plot[orig_temp_col], color=COLORS['temp_original'], alpha=0.8,
-                        linewidth=0.8, label='Original Temperature', zorder=2)
-                ax2.plot(proc_temp_plot.index, proc_temp_plot[proc_temp_col], color=COLORS['temp_processed'], alpha=0.8,
-                        linewidth=0.8, label='Preprocessed Temperature', zorder=2)
+                ax2.plot(proc_temp_plot.index, proc_temp_plot[proc_temp_col], color=COLORS['temperature'], alpha=0.8,
+                        linewidth=0.8, label='Temperature', zorder=2)
                 
                 # Add freezing threshold line at 0°C
                 ax2.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=0.8, label='Freezing Point (0°C)', zorder=1)
@@ -370,16 +348,10 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Bottom subplot: Rainfall
             ax3 = fig.add_subplot(gs[2])
-            add_split_backgrounds(ax3)
             
-            if orig_rain is not None and proc_rain is not None:
-                # Get the rainfall column names - be more flexible
-                orig_rain_col = rain_col  # Already determined earlier
-                
+            if proc_rain is not None:
                 # For processed data, the column might be renamed to 'rainfall'
-                if rain_col in proc_rain.columns:
-                    proc_rain_col = rain_col
-                elif 'rainfall' in proc_rain.columns:
+                if 'rainfall' in proc_rain.columns:
                     proc_rain_col = 'rainfall'
                 else:
                     # Try to find any column that might contain rainfall data
@@ -387,10 +359,8 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                 
                 # Plot rainfall as bars
                 bar_width = 1  # Width of bars in days
-                ax3.bar(orig_rain_plot.index, orig_rain_plot[orig_rain_col], width=bar_width,
-                       color=COLORS['rain_original'], alpha=0.5, label='Original Rainfall', zorder=2)
                 ax3.bar(proc_rain_plot.index, proc_rain_plot[proc_rain_col], width=bar_width,
-                       color=COLORS['rain_processed'], alpha=0.5, label='Preprocessed Rainfall', zorder=2)
+                       color=COLORS['rainfall'], alpha=0.5, label='Rainfall', zorder=2)
                 ax3.set_ylabel('Rainfall (mm)', fontweight='bold', labelpad=10)
                 ax3.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
             else:
@@ -412,82 +382,178 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                 ax.xaxis.set_major_locator(mdates.YearLocator(1))
                 ax.tick_params(axis='x', rotation=45)
             
-            # Add a single legend for the data splits at the bottom of the figure
-            split_legend_elements = [
-                plt.Rectangle((0, 0), 1, 1, facecolor=COLORS['training'], alpha=0.3, label='Training'),
-                plt.Rectangle((0, 0), 1, 1, facecolor=COLORS['validation'], alpha=0.3, label='Validation'),
-                plt.Rectangle((0, 0), 1, 1, facecolor=COLORS['testing'], alpha=0.3, label='Test'),
-                plt.Rectangle((0, 0), 1, 1, facecolor=COLORS['frost'], alpha=0.5, label='Frost Period', hatch='///')
-            ]
-            fig.legend(handles=split_legend_elements, loc='lower center', ncol=4, frameon=True, 
-                      framealpha=0.9, edgecolor='#cccccc', bbox_to_anchor=(0.5, 0.01))
-            
             # Format the figure for nice display
-            plt.tight_layout(rect=[0, 0.03, 1, 1])  # Adjust bottom to make room for the split legend
+            plt.tight_layout()
             
             # Save the figure
             plt.savefig(diagnostic_dir / f"{station_name}_preprocessing.png", 
                        dpi=200, bbox_inches='tight', facecolor='white')
             plt.close()
+            
+            # Create a separate plot for the data splits
+            plot_data_splits(preprocessed_data[station_name], station_name, diagnostic_dir, 
+                            start_date, train_end, val_end)
     
     # Create and save statistics table
     stats_df = pd.DataFrame(stats_data)
-    stats_df.to_csv(diagnostic_dir / "preprocessing_statistics.csv", index=False)
+    if not stats_df.empty:
+        stats_df.to_csv(diagnostic_dir / "preprocessing_statistics.csv", index=False)
+        
+        # Create LaTeX table
+        with open(diagnostic_dir / "preprocessing_statistics.tex", "w") as f:
+            # Write LaTeX table header
+            f.write("\\begin{table}[htbp]\n")
+            f.write("\\centering\n")
+            f.write("\\caption{Preprocessing Statistics Summary for Stream Water Level Data}\n")
+            f.write("\\label{tab:preprocessing-stats}\n")
+            f.write("\\begin{tabular}{lrrrrrr}\n")
+            f.write("\\toprule\n")
+            f.write("Station & Total Points & Points Removed & Removal (\\%) & Outliers & Freezing & Flatlines \\\\\n")
+            f.write("\\midrule\n")
+            
+            # Write data rows
+            for _, row in stats_df.iterrows():
+                station = row['Station'].replace("_", "\\_")  # Escape underscores for LaTeX
+                f.write(f"{station} & ")
+                f.write(f"{row['Total Points']:,.0f} & ")
+                f.write(f"{row['Points Removed']:,.0f} & ")
+                f.write(f"{row['Removal %']:.1f} & ")
+                f.write(f"{row['Outliers']:,.0f} & ")
+                f.write(f"{row['Freezing']:,.0f} & ")
+                f.write(f"{row['Flatlines']:,.0f} \\\\\n")
+            
+            # Write table footer
+            f.write("\\bottomrule\n")
+            f.write("\\end{tabular}\n")
+            f.write("\\begin{tablenotes}\n")
+            f.write("\\small\n")
+            f.write("\\item Note: Points Removed represents the total number of data points excluded during preprocessing. ")
+            f.write("Outliers are identified using IQR method (1.5×IQR below Q1 or 4×IQR above Q3). ")
+            f.write("Freezing points are removed during periods of sub-zero temperatures. ")
+            f.write("Flatlines represent sequences of 30 or more identical consecutive values.\n")
+            f.write("\\end{tablenotes}\n")
+            f.write("\\end{table}\n")
+        
+        # Create a more readable text version
+        with open(diagnostic_dir / "preprocessing_statistics.txt", "w") as f:
+            f.write("Preprocessing Statistics Summary\n")
+            f.write("==============================\n\n")
+            
+            for _, row in stats_df.iterrows():
+                f.write(f"Station: {row['Station']}\n")
+                f.write("-" * (len(row['Station']) + 9) + "\n")
+                f.write(f"Total Points: {row['Total Points']:,}\n")
+                f.write(f"Points Removed: {row['Points Removed']:,} ({row['Removal %']:.1f}%)\n")
+                f.write("Breakdown:\n")
+                f.write(f"  • Outliers: {row['Outliers']:,}\n")
+                f.write(f"  • Freezing: {row['Freezing']:,}\n")
+                f.write(f"  • Flatlines: {row['Flatlines']:,}\n")
+                f.write("\nIQR Statistics:\n")
+                f.write(f"  • Q1: {row['Q1']:.1f}\n")
+                f.write(f"  • Q3: {row['Q3']:.1f}\n")
+                f.write(f"  • IQR: {row['IQR']:.1f}\n")
+                f.write("\n" + "="*30 + "\n\n")
+
+def plot_data_splits(station_data, station_name, output_dir, start_date, train_end, val_end, frost_periods=None):
+    """Create plot showing data splits (training/validation/testing) and frost periods."""
+    # Set publication-quality styling
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 16,  # was 12
+        'axes.titlesize': 21,  # was 16
+        'axes.labelsize': 18,  # was 14
+        'xtick.labelsize': 16,  # was 12
+        'ytick.labelsize': 16,  # was 12
+        'legend.fontsize': 16,  # was 12
+        'figure.titlesize': 23  # was 18
+    })
     
-    # Create LaTeX table
-    with open(diagnostic_dir / "preprocessing_statistics.tex", "w") as f:
-        # Write LaTeX table header
-        f.write("\\begin{table}[htbp]\n")
-        f.write("\\centering\n")
-        f.write("\\caption{Preprocessing Statistics Summary for Stream Water Level Data}\n")
-        f.write("\\label{tab:preprocessing-stats}\n")
-        f.write("\\begin{tabular}{lrrrrrr}\n")
-        f.write("\\toprule\n")
-        f.write("Station & Total Points & Points Removed & Removal (\\%) & Outliers & Freezing & Flatlines \\\\\n")
-        f.write("\\midrule\n")
-        
-        # Write data rows
-        for _, row in stats_df.iterrows():
-            station = row['Station'].replace("_", "\\_")  # Escape underscores for LaTeX
-            f.write(f"{station} & ")
-            f.write(f"{row['Total Points']:,.0f} & ")
-            f.write(f"{row['Points Removed']:,.0f} & ")
-            f.write(f"{row['Removal %']:.1f} & ")
-            f.write(f"{row['Outliers']:,.0f} & ")
-            f.write(f"{row['Freezing']:,.0f} & ")
-            f.write(f"{row['Flatlines']:,.0f} \\\\\n")
-        
-        # Write table footer
-        f.write("\\bottomrule\n")
-        f.write("\\end{tabular}\n")
-        f.write("\\begin{tablenotes}\n")
-        f.write("\\small\n")
-        f.write("\\item Note: Points Removed represents the total number of data points excluded during preprocessing. ")
-        f.write("Outliers are identified using IQR method (1.5×IQR below Q1 or 4×IQR above Q3). ")
-        f.write("Freezing points are removed during periods of sub-zero temperatures. ")
-        f.write("Flatlines represent sequences of 20 or more identical consecutive values.\n")
-        f.write("\\end{tablenotes}\n")
-        f.write("\\end{table}\n")
+    # Create figure
+    fig, ax = plt.subplots(figsize=(15, 8))
     
-    # Create a more readable text version
-    with open(diagnostic_dir / "preprocessing_statistics.txt", "w") as f:
-        f.write("Preprocessing Statistics Summary\n")
-        f.write("==============================\n\n")
-        
-        for _, row in stats_df.iterrows():
-            f.write(f"Station: {row['Station']}\n")
-            f.write("-" * (len(row['Station']) + 9) + "\n")
-            f.write(f"Total Points: {row['Total Points']:,}\n")
-            f.write(f"Points Removed: {row['Points Removed']:,} ({row['Removal %']:.1f}%)\n")
-            f.write("Breakdown:\n")
-            f.write(f"  • Outliers: {row['Outliers']:,}\n")
-            f.write(f"  • Freezing: {row['Freezing']:,}\n")
-            f.write(f"  • Flatlines: {row['Flatlines']:,}\n")
-            f.write("\nIQR Statistics:\n")
-            f.write(f"  • Q1: {row['Q1']:.1f}\n")
-            f.write(f"  • Q3: {row['Q3']:.1f}\n")
-            f.write(f"  • IQR: {row['IQR']:.1f}\n")
-            f.write("\n" + "="*30 + "\n\n")
+    # Get the VST data
+    vst_data = station_data['vst_raw'].copy()
+    
+    # Function to ensure datetime index is timezone-aware
+    def ensure_tz_aware(df):
+        if df is not None:
+            if not isinstance(df.index, pd.DatetimeIndex):
+                df.index = pd.to_datetime(df.index)
+            if df.index.tz is None:
+                df.index = df.index.tz_localize('UTC')
+            elif hasattr(df.index.tz, 'zone') and df.index.tz.zone != 'UTC':
+                df.index = df.index.tz_convert('UTC')
+            elif str(df.index.tz) != 'UTC':
+                # Handle datetime.timezone objects without zone attribute
+                df.index = df.index.tz_convert('UTC')
+        return df
+    
+    # Ensure DataFrame has timezone-aware datetime index
+    vst_data = ensure_tz_aware(vst_data)
+    
+    # Filter data to start from specified date
+    vst_data = vst_data[vst_data.index >= start_date]
+    
+    # PERFORMANCE OPTIMIZATION: Downsample data if too large
+    if len(vst_data) > 10000:
+        vst_plot = vst_data.resample('6H').mean().dropna()
+    else:
+        vst_plot = vst_data
+    
+    # Get the VST column name
+    if 'vst_raw' in vst_plot.columns:
+        vst_col = 'vst_raw'
+    else:
+        vst_col = [col for col in vst_plot.columns if col != 'Date'][0]
+    
+    # Plot the data
+    ax.plot(vst_plot.index, vst_plot[vst_col], color='black', linewidth=1, label='Water Level')
+    
+    # Add background colors for different periods with increased alpha for better visibility
+    end_date = pd.to_datetime('2025-01-01').tz_localize('UTC')
+    ax.axvspan(start_date, train_end, color='#C8E6C9', alpha=0.4, label='Training')  # Darker green with higher alpha
+    ax.axvspan(train_end, val_end, color='#FFE0B2', alpha=0.4, label='Validation')   # Darker orange with higher alpha
+    ax.axvspan(val_end, end_date, color='#BBDEFB', alpha=0.4, label='Testing')  # Darker blue with higher alpha
+    
+    # Add frost periods if available
+    if frost_periods:
+        for period in frost_periods:
+            ax.axvspan(period[0], period[1], color='#90CAF9', alpha=0.3)  # Darker frost blue with higher alpha
+    
+    # Customize the plot
+    ax.set_title(f'Data Splits Overview - Station {station_name}', pad=20, fontweight='bold')
+    ax.set_xlabel('Date', fontweight='bold', labelpad=10)
+    ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+    
+    # Format x-axis
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    # Add legend with larger font
+    ax.legend(loc='upper right', frameon=True, facecolor='white', edgecolor='#cccccc', fontsize=16)
+    
+    # Remove top and right spines for cleaner look
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # Set x-axis limits
+    ax.set_xlim(start_date, end_date)
+    
+    # Improve y-axis scaling with buffer
+    y_min, y_max = vst_plot[vst_col].min(), vst_plot[vst_col].max()
+    y_buffer = (y_max - y_min) * 0.1  # Add 10% buffer
+    ax.set_ylim(y_min - y_buffer, y_max + y_buffer)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save the plot
+    output_path = output_dir / f"data_splits_{station_name}.png"
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return output_path
 
 def plot_station_data_overview(original_data: dict, preprocessed_data: dict, output_dir: Path):
     """Create visualization of temperature, rainfall, and VST data showing full available date ranges."""
@@ -499,13 +565,13 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
     plt.rcParams.update({
         'font.family': 'serif',
         'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 12,
-        'axes.titlesize': 16,
-        'axes.labelsize': 14,
-        'xtick.labelsize': 12,
-        'ytick.labelsize': 12,
-        'legend.fontsize': 12,
-        'figure.titlesize': 18
+        'font.size': 16,  # was 12
+        'axes.titlesize': 21,  # was 16
+        'axes.labelsize': 18,  # was 14
+        'xtick.labelsize': 16,  # was 12
+        'ytick.labelsize': 16,  # was 12
+        'legend.fontsize': 16,  # was 12
+        'figure.titlesize': 23  # was 18
     })
     
     # Define consistent colors for better visualization
@@ -526,7 +592,10 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 df.index = pd.to_datetime(df.index)
             if df.index.tz is None:
                 df.index = df.index.tz_localize('UTC')
-            elif df.index.tz.zone != 'UTC':
+            elif hasattr(df.index.tz, 'zone') and df.index.tz.zone != 'UTC':
+                df.index = df.index.tz_convert('UTC')
+            elif str(df.index.tz) != 'UTC':
+                # Handle datetime.timezone objects without zone attribute
                 df.index = df.index.tz_convert('UTC')
         return df
     
@@ -592,6 +661,9 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 
                 # Get rainfall column name
                 rain_col = [col for col in rain_data.columns if col != 'Date'][0]
+                
+                # Replace negative values with 0 for rainfall (they're likely fill values)
+                rain_data_filtered[rain_col] = rain_data_filtered[rain_col].clip(lower=0)
                 
                 # PERFORMANCE OPTIMIZATION: For rainfall, resample to daily sum for better visualization
                 if len(rain_data_filtered) > 1000:
@@ -785,13 +857,13 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
     plt.rcParams.update({
         'font.family': 'serif',
         'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 12,
-        'axes.titlesize': 16,
-        'axes.labelsize': 14,
-        'xtick.labelsize': 12,
-        'ytick.labelsize': 12,
-        'legend.fontsize': 12,
-        'figure.titlesize': 18
+        'font.size': 16,  # was 12
+        'axes.titlesize': 21,  # was 16
+        'axes.labelsize': 18,  # was 14
+        'xtick.labelsize': 16,  # was 12
+        'ytick.labelsize': 16,  # was 12
+        'legend.fontsize': 16,  # was 12
+        'figure.titlesize': 23  # was 18
     })
     
     # Define consistent colors for better visualization
@@ -813,7 +885,10 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
                 df.index = pd.to_datetime(df.index)
             if df.index.tz is None:
                 df.index = df.index.tz_localize('UTC')
-            elif df.index.tz.zone != 'UTC':
+            elif hasattr(df.index.tz, 'zone') and df.index.tz.zone != 'UTC':
+                df.index = df.index.tz_convert('UTC')
+            elif str(df.index.tz) != 'UTC':
+                # Handle datetime.timezone objects without zone attribute
                 df.index = df.index.tz_convert('UTC')
         return df
     
@@ -1042,7 +1117,7 @@ def create_detailed_plot(data, time_windows, folder, output_dir=None):
     # Create figure with subplots - 2 rows, 6 columns for bottom row
     fig = plt.figure(figsize=(24, 12))
     gs = fig.add_gridspec(2, 6, height_ratios=[2, 1], hspace=0.3, wspace=0.3)
-
+    
     # Define colors using a gradient from red through orange and green to dark blues
     colors = ['#FF0000', '#FF8000', '#00B000', '#00A0FF', '#0040FF', '#000080']
 

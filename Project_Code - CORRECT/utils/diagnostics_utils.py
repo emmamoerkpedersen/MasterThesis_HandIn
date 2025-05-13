@@ -34,6 +34,18 @@ def run_preprocessing_diagnostics(project_root, output_path, station_id):
         original_data = pd.read_pickle(project_root / "data_utils" / "Sample data" / "original_data.pkl")
         preprocessed_data = pd.read_pickle(project_root / "data_utils" / "Sample data" / "preprocessed_data.pkl")
         
+        # Try to load frost periods
+        frost_periods = []
+        frost_path = project_root / "data_utils" / "Sample data" / "frost_periods.pkl"
+        if frost_path.exists():
+            try:
+                frost_periods = pd.read_pickle(frost_path)
+                print(f"Loaded {len(frost_periods)} frost periods from {frost_path}")
+            except Exception as e:
+                print(f"Error loading frost periods: {e}")
+        else:
+            print(f"No frost periods file found at {frost_path}")
+        
         # Filter for just our station
         original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
         preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
@@ -41,7 +53,7 @@ def run_preprocessing_diagnostics(project_root, output_path, station_id):
         # Generate preprocessing plots
         if original_data and preprocessed_data:
             print("Generating preprocessing plots...")
-            plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), [])
+            plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), frost_periods)
             plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
             plot_vst_vinge_comparison(preprocessed_data, Path(output_path), original_data)
             
