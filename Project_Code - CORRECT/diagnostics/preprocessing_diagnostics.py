@@ -417,9 +417,11 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                     proc_rain_col = proc_rain.columns[0]
                 
                 # Plot rainfall as bars with semi-transparent color
-                bar_width = 2
+                bar_width = 4
+                #resample to 6H
+                proc_rain_plot = proc_rain_plot.resample('6H').sum().dropna()
                 ax3.bar(proc_rain_plot.index, proc_rain_plot[proc_rain_col], width=bar_width,
-                       color='#1f77b4', alpha=0.85, label='Rainfall', zorder=2, edgecolor='black', linewidth=0.2)
+                       color='#1f77b4', alpha=0.85, label='Rainfall', zorder=2, linewidth=0.2)
                 
                 ax3.set_ylabel('Rainfall (mm)', fontsize=24, fontweight='bold', labelpad=30)
             else:
@@ -750,7 +752,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                     
                     # Plot rainfall as bars with alpha for better appearance
                     ax2.bar(rain_data_plot.index, rain_data_plot[rain_col],
-                           color='#1f77b4', alpha=0.85, width=2, label='Rainfall', edgecolor='black', linewidth=0.2)
+                           color='#1f77b4', alpha=0.85, width=2, label='Rainfall', linewidth=0.2)
                     
                     ax2.set_ylabel('Precipitation (mm)', fontsize=18, fontweight='bold', labelpad=30)
                     ax2.legend(loc='upper right', frameon=True, framealpha=0.9, edgecolor='#cccccc')

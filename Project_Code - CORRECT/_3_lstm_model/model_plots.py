@@ -1051,13 +1051,13 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
     plt.rcParams.update({
         'font.family': 'serif',
         'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 14,
-        'axes.titlesize': 16,
-        'axes.labelsize': 14,
-        'xtick.labelsize': 12,
-        'ytick.labelsize': 12,
-        'legend.fontsize': 11,
-        'figure.titlesize': 18,
+        'font.size': 24,
+        'axes.titlesize': 24,
+        'axes.labelsize': 24,
+        'xtick.labelsize': 24,
+        'ytick.labelsize': 24,
+        'legend.fontsize': 20,
+        'figure.titlesize': 24,
         'figure.dpi': 300,
         'savefig.dpi': 300,
         'savefig.bbox': 'tight',
@@ -1068,13 +1068,13 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
     n_plots = len(all_plot_groups)
     
     # Adjust height based on number of plots
-    fig_height = min(4 * n_plots, 16)  # Cap height at 16 inches
+    fig_height = min(4 * n_plots, 24)  # Cap height at 16 inches
     
     # Create figure with subplots (one per group)
     fig, axes = plt.subplots(
         n_plots, 
         1, 
-        figsize=(12, fig_height), 
+        figsize=(14, fig_height), 
         dpi=300,
         gridspec_kw={'height_ratios': [1] * n_plots}
     )
@@ -1182,7 +1182,7 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
                 ax.plot(
                     data.index, 
                     data[feature], 
-                    label=f'Water Level ({station_label})',
+                    label=f'{station_label}',
                     color=line_color,
                     linewidth=0.8 if station_label != 'Main Station' else 1.2,  # Make main station slightly thicker
                     alpha=0.9,
@@ -1215,11 +1215,11 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
             for feature_type, feats in feature_groups.items():
                 # Create friendly label based on feature type
                 if feature_type == '30day':
-                    label = "30-Day Cumulative Rainfall"
+                    label = "30-Day Cum. Rainfall"
                 elif feature_type == '180day':
-                    label = "180-Day Cumulative Rainfall"
+                    label = "180-Day Cum. Rainfall"
                 elif feature_type == '365day':
-                    label = "365-Day Cumulative Rainfall"
+                    label = "365-Day Cum. Rainfall"
                 elif feature_type == 'rainfall':
                     label = "Rainfall"
                 else:
