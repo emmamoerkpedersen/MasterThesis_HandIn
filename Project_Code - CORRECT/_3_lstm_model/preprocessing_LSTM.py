@@ -64,7 +64,10 @@ class DataPreprocessor:
         """
         data_dir = project_root / "data_utils" / "Sample data"
         data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
-
+        # Print the structure of the data
+        print(data.keys())
+        print(data[station_id].keys())
+        
         # Check if station_id exists in the data dictionary, if not return empty dict
         station_data = data.get(station_id)
         if not station_data:
@@ -123,9 +126,9 @@ class DataPreprocessor:
         data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
         data.loc[:, 'vst_raw_feature'] = data['vst_raw_feature'].fillna(-1)
         #data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
-        #data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
-        #data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
+        data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
         
         #Aggregate temperature to 30 days

@@ -34,7 +34,7 @@ SYNTHETIC_ERROR_PARAMS = {
     'use_context_aware': False,
     
     'spike': {
-        'count_per_year': 0,  # Base count: 5 spikes per year
+        'count_per_year': 1,  # Base count: 5 spikes per year
         # Wider range to allow for more subtle spikes
         'magnitude_range': (0.1, 1.0),  # Changed from (0.4, 0.8)
         'negative_positiv_ratio': 0.5,
@@ -87,7 +87,7 @@ SYNTHETIC_ERROR_PARAMS = {
     },
     
     'noise': {
-        'count_per_year': 0,  # Base count: 3 noise periods per year
+        'count_per_year': 1,  # Base count: 3 noise periods per year
         'duration_range': (24, 168),
         'intensity_range': (4, 10)  # Changed from (2, 4)
     },
@@ -135,7 +135,7 @@ LSTM_CONFIG = {
     'use_time_features': True,  
     'use_cumulative_features': True, 
     # Add lag features for better prediction
-    'use_lagged_features': True,
+    'use_lagged_features': False,
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
@@ -149,11 +149,11 @@ LSTM_CONFIG = {
     'feature_stations': [
         {
             'station_id': '21006845',
-            'features': ['rainfall']
+            'features': ['vst_raw', 'rainfall']
         },
         {
             'station_id': '21006847',
-            'features': ['rainfall']
+            'features': ['vst_raw', 'rainfall']
         }
     ]
 }

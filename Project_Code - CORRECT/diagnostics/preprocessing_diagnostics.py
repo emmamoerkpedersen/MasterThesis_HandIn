@@ -12,112 +12,172 @@ from matplotlib.patches import ConnectionPatch
 from matplotlib.ticker import MaxNLocator
 
 def get_time_windows():
-    """Define time windows for anomaly analysis."""
-    return [
-        {
-            "title": "Data gaps",
-            "start_date": pd.to_datetime('1994-01-01'),
-            "end_date": pd.to_datetime('1995-01-01'),
-            "y_range": None
-        },
-        {
-            "title": "Linear Interpolation segment",
-            "start_date": pd.to_datetime('1998-01-01'),
-            "end_date": pd.to_datetime('2002-03-01'),
-            "y_range": None
-        },
-        {
-            "title": "Offset error",
-            "start_date": pd.to_datetime('2007-03-19'),
-            "end_date": pd.to_datetime('2007-03-30'),
-            "y_range": (-7810, -7770)
-        },
-        {
-            "title": "Spike error",
-            "start_date": pd.to_datetime('2011-01-01'),
-            "end_date": pd.to_datetime('2011-05-01'),
-            "y_range": None
-        },
-        {
-            "title": "Long offset error",
-            "start_date": pd.to_datetime('2016-08-16'),
-            "end_date": pd.to_datetime('2016-09-02'),
-            "y_range": (22, 26)
-        },
-        {
-            "title": "Spike fluctuations & flatline",
-            "start_date": pd.to_datetime('2016-12-11'),
-            "end_date": pd.to_datetime('2016-12-23'),
-            "y_range": None
-        }
-    ]
+    """Define time windows for anomaly analysis.
+    
+    Returns:
+        dict: Dictionary of time windows organized by station.
+        Each station has a list of dictionaries containing time window information.
+    """
+    return {
+        '21006846': [  # Main station
+            {
+                "title": "Data gaps",
+                "start_date": pd.to_datetime('2006-01-01'),
+                "end_date": pd.to_datetime('2006-11-01'),
+                "y_range": None
+            },
+            {
+                "title": "Offset error",
+                "start_date": pd.to_datetime('1998-01-01'),
+                "end_date": pd.to_datetime('2002-03-01'),
+                "y_range": None
+            },
+            {
+                "title": "Spike",
+                "start_date": pd.to_datetime('2008-09-05'),
+                "end_date": pd.to_datetime('2008-09-10'),
+                "y_range": (-7810, -7770)
+            },
+            {
+                "title": "Baseline shift",
+                "start_date": pd.to_datetime('2011-01-01'),
+                "end_date": pd.to_datetime('2011-05-01'),
+                "y_range": None
+            },
+            {
+                "title": "Noise",
+                "start_date": pd.to_datetime('2016-08-16'),
+                "end_date": pd.to_datetime('2016-09-02'),
+                "y_range": (22, 26)
+            },
+            {
+                "title": "Flatline",
+                "start_date": pd.to_datetime('2016-12-11'),
+                "end_date": pd.to_datetime('2016-12-23'),
+                "y_range": None
+            }
+        ],
+        '21006847': [  # Second station
+            {
+                "title": "Unclassified error",
+                "start_date": pd.to_datetime('2009-04-10'),
+                "end_date": pd.to_datetime('2009-06-20'),
+                "y_range": None
+            },
+            {
+                "title": "Unclassified error",
+                "start_date": pd.to_datetime('2011-05-05'),
+                "end_date": pd.to_datetime('2011-05-12'),
+                "y_range": None
+            },
+            {
+                "title": "Baseline shift",
+                "start_date": pd.to_datetime('2017-01-01'),
+                "end_date": pd.to_datetime('2017-06-30'),
+                "y_range": None
+            },
+            {
+                "title": "Data gap",
+                "start_date": pd.to_datetime('2007-07-07'),
+                "end_date": pd.to_datetime('2007-07-28'),
+                "y_range": None
+            }
+        ],
+        '21006845': [  # Third station
+            {
+                "title": "Baseline shift",
+                "start_date": pd.to_datetime('2011-01-16'),
+                "end_date": pd.to_datetime('2011-01-27'),
+                "y_range": None
+            }
+        ]
+    }
 
 def set_plot_style():
-    """Set a consistent, professional plot style for all visualizations."""
+    """Set a consistent, professional plot style for all visualizations suitable for a thesis."""
     plt.style.use('seaborn-v0_8-whitegrid')
     
     # Set the layout engine explicitly to avoid warnings
     plt.rcParams['figure.autolayout'] = False
     plt.rcParams['figure.constrained_layout.use'] = False
     
-    # Set font sizes (increased by 30%)
-    plt.rcParams['font.size'] = 16  # was 12
-    plt.rcParams['axes.titlesize'] = 18  # was 14
-    plt.rcParams['axes.labelsize'] = 16  # was 12
-    plt.rcParams['xtick.labelsize'] = 13  # was 10
-    plt.rcParams['ytick.labelsize'] = 13  # was 10
-    plt.rcParams['legend.fontsize'] = 13  # was 10
-    plt.rcParams['figure.titlesize'] = 21  # was 16
+    # Set font family and sizes (increased for thesis)
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 20,
+        'axes.titlesize': 1,  # No titles
+        'axes.labelsize': 22,
+        'xtick.labelsize': 18,
+        'ytick.labelsize': 18,
+        'legend.fontsize': 20,
+        'figure.titlesize': 1
+    })
     
-    # Set colors
-    plt.rcParams['axes.prop_cycle'] = plt.cycler(color=[
-        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
-    ])
+    # Define consistent colors for the thesis
+    thesis_colors = [
+        '#1f77b4',  # Blue
+        '#2ca02c',  # Green
+        '#d62728',  # Red
+        '#ff7f0e',  # Orange
+        '#9467bd',  # Purple
+        '#8c564b',  # Brown
+        '#e377c2',  # Pink
+        '#7f7f7f',  # Gray
+        '#bcbd22',  # Olive
+        '#17becf'   # Cyan
+    ]
+    plt.rcParams['axes.prop_cycle'] = plt.cycler(color=thesis_colors)
     
-    # Set grid style
-    plt.rcParams['grid.alpha'] = 0.2  # Reduced from 0.3 for subtler grid
-    plt.rcParams['grid.linestyle'] = '--'
+    # Remove grid completely for cleaner plots
+    plt.rcParams['axes.grid'] = False
     
-    # Set figure background
+    # Set figure background to pure white
     plt.rcParams['figure.facecolor'] = 'white'
-    plt.rcParams['axes.facecolor'] = 'white'  # Changed from '#f8f9fa' to pure white
+    plt.rcParams['axes.facecolor'] = 'white'
     
-    # Set spine colors
-    plt.rcParams['axes.edgecolor'] = '#cccccc'
+    # Style spines
+    plt.rcParams['axes.edgecolor'] = '#333333'
     plt.rcParams['axes.linewidth'] = 1.0
+    
+    # Configure tick parameters
+    plt.rcParams['xtick.major.size'] = 7.0
+    plt.rcParams['ytick.major.size'] = 7.0
+    plt.rcParams['xtick.minor.size'] = 4.0
+    plt.rcParams['ytick.minor.size'] = 4.0
+    plt.rcParams['xtick.major.width'] = 1.2
+    plt.rcParams['ytick.major.width'] = 1.2
+    plt.rcParams['xtick.minor.width'] = 1.0
+    plt.rcParams['ytick.minor.width'] = 1.0
+    
+    # Legend settings
+    plt.rcParams['legend.frameon'] = True
+    plt.rcParams['legend.framealpha'] = 0.9
+    plt.rcParams['legend.edgecolor'] = '#cccccc'
+    plt.rcParams['legend.fancybox'] = True
+    
+    # Figure quality
+    plt.rcParams['figure.dpi'] = 300
+    plt.rcParams['savefig.dpi'] = 300
 
 def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, output_dir: Path, frost_periods: list = None):
     """Create comparison plots between original and preprocessed data for each station."""
     # Set professional plot style
     set_plot_style()
     
-    # Set publication-quality styling similar to create_water_level_plot_png
-    plt.rcParams.update({
-        'font.family': 'serif',
-        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 16,  # was 12
-        'axes.titlesize': 21,  # was 16
-        'axes.labelsize': 18,  # was 14
-        'xtick.labelsize': 16,  # was 12
-        'ytick.labelsize': 16,  # was 12
-        'legend.fontsize': 16,  # was 12
-        'figure.titlesize': 23  # was 18
-    })
-    
-    # Define consistent colors for better visualization with more visible background colors
+    # Define consistent colors for thesis-worthy visualization
     COLORS = {
         'vst_original': '#1f77b4',   # Blue for original water level
         'vst_processed': '#2ca02c',  # Green for processed water level
         'temperature': '#d62728',    # Red for temperature
-        'rainfall': '#1f77b4',       # Blue for rainfall
+        'rainfall': '#7090FF',       # Lighter blue for rainfall
         'vinge': '#d62728',          # Red for VINGE measurements
         'outliers': '#d62728',       # Red for outliers
         'bounds': '#ff7f0e',         # Orange for bounds
-        'training': '#C8E6C9',       # Darker light green for training (was #E8F5E9)
-        'validation': '#FFE0B2',     # Darker light orange for validation (was #FFF3E0)
-        'testing': '#BBDEFB',        # Darker light blue for testing (was #E3F2FD)
-        'frost': '#90CAF9'           # Darker light blue for frost periods (was #BBDEFB)
+        'training': '#C8E6C9',       # Light green for training
+        'validation': '#FFE0B2',     # Light orange for validation
+        'testing': '#BBDEFB',        # Light blue for testing
+        'frost': '#90CAF9'           # Light blue for frost periods
     }
     
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
@@ -155,7 +215,7 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Create figure with GridSpec - now with 3 rows for water level, temperature, and rainfall
             fig = plt.figure(figsize=(15, 18))
-            gs = GridSpec(3, 1, figure=fig, height_ratios=[2, 1, 1], hspace=0.1)
+            gs = GridSpec(3, 1, figure=fig, height_ratios=[2, 1, 1], hspace=0.2)
             
             # Get the original and processed data for all variables
             orig_vst = original_data[station_name]['vst_raw'].copy()
@@ -274,13 +334,13 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             
             # Plot the original VST data
             ax1.plot(orig_vst_plot.index, orig_vst_plot[vst_col], color=COLORS['vst_original'], alpha=0.8, 
-                    linewidth=0.8, label='Original VST', zorder=2)
+                    linewidth=1.2, label='Original VST', zorder=2)
             
             # Add IQR bounds
             ax1.axhline(y=lower_bound, color=COLORS['bounds'], linestyle='--', alpha=0.6,
-                       linewidth=0.8, label='IQR Bounds', zorder=1)
+                       linewidth=1.0, label='IQR Bounds', zorder=1)
             ax1.axhline(y=upper_bound, color=COLORS['bounds'], linestyle='--', alpha=0.6,
-                       linewidth=0.8, zorder=1)
+                       linewidth=1.0, zorder=1)
             
             # Find and plot outliers
             outlier_points = orig_vst[outlier_mask].copy()
@@ -305,18 +365,20 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                         
                     if start >= start_date:  # Only show frost periods after start date
                         if not frost_added_to_legend:
-                            ax1.axvspan(start, end, color=COLORS['frost'], alpha=0.5, 
+                            ax1.axvspan(start, end, color=COLORS['frost'], alpha=0.3, 
                                      label='Frost Period', zorder=1, hatch='///')
                             frost_added_to_legend = True
                         else:
-                            ax1.axvspan(start, end, color=COLORS['frost'], alpha=0.5, 
+                            ax1.axvspan(start, end, color=COLORS['frost'], alpha=0.3, 
                                      label='_nolegend_', zorder=1, hatch='///')
             
-            ax1.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
-            ax1.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
+            ax1.set_ylabel('Water Level (mm)', fontsize=24, fontweight='bold', labelpad=30)
+            # Position legend in the upper right corner to avoid data
+            ax1.legend(loc='upper right', frameon=True, framealpha=0.9, edgecolor='#cccccc')
+            
+            # Remove grid lines and spines for cleaner look
             ax1.spines['top'].set_visible(False)
             ax1.spines['right'].set_visible(False)
-            ax1.grid(False)
             
             # Middle subplot: Temperature
             ax2 = fig.add_subplot(gs[1])
@@ -329,22 +391,19 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                     # Try to find any column that might contain temperature data
                     proc_temp_col = proc_temp.columns[0]
                 
-                ax2.plot(proc_temp_plot.index, proc_temp_plot[proc_temp_col], color=COLORS['temperature'], alpha=0.8,
-                        linewidth=0.8, label='Temperature', zorder=2)
+                ax2.plot(proc_temp_plot.index, proc_temp_plot[proc_temp_col], 
+                        color=COLORS['temperature'], alpha=0.8,
+                        linewidth=1.2, label='Temperature', zorder=2)
                 
-                # Add freezing threshold line at 0°C
-                ax2.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=0.8, label='Freezing Point (0°C)', zorder=1)
-                
-                ax2.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
-                ax2.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
+                ax2.set_ylabel('Temperature (°C)', fontsize=24, fontweight='bold', labelpad=30)
             else:
                 ax2.text(0.5, 0.5, 'No temperature data available',
                         horizontalalignment='center', verticalalignment='center',
                         transform=ax2.transAxes, fontsize=14)
             
+            # Remove grid lines and spines for cleaner look
             ax2.spines['top'].set_visible(False)
             ax2.spines['right'].set_visible(False)
-            ax2.grid(False)
             
             # Bottom subplot: Rainfall
             ax3 = fig.add_subplot(gs[2])
@@ -357,21 +416,21 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                     # Try to find any column that might contain rainfall data
                     proc_rain_col = proc_rain.columns[0]
                 
-                # Plot rainfall as bars
-                bar_width = 1  # Width of bars in days
+                # Plot rainfall as bars with semi-transparent color
+                bar_width = 2
                 ax3.bar(proc_rain_plot.index, proc_rain_plot[proc_rain_col], width=bar_width,
-                       color=COLORS['rainfall'], alpha=0.5, label='Rainfall', zorder=2)
-                ax3.set_ylabel('Rainfall (mm)', fontweight='bold', labelpad=10)
-                ax3.legend(loc='best', frameon=True, framealpha=0.9, edgecolor='#cccccc')
+                       color='#1f77b4', alpha=0.85, label='Rainfall', zorder=2, edgecolor='black', linewidth=0.2)
+                
+                ax3.set_ylabel('Rainfall (mm)', fontsize=24, fontweight='bold', labelpad=30)
             else:
                 ax3.text(0.5, 0.5, 'No rainfall data available',
                         horizontalalignment='center', verticalalignment='center',
                         transform=ax3.transAxes, fontsize=14)
             
+            # Remove grid lines and spines for cleaner look
             ax3.spines['top'].set_visible(False)
             ax3.spines['right'].set_visible(False)
-            ax3.grid(False)
-            ax3.set_xlabel('Date', fontweight='bold', labelpad=10)
+            ax3.set_xlabel('Date', fontsize=24, fontweight='bold', labelpad=10)
             
             # Set consistent x-axis limits and format for all subplots
             x_min = start_date
@@ -382,12 +441,12 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                 ax.xaxis.set_major_locator(mdates.YearLocator(1))
                 ax.tick_params(axis='x', rotation=45)
             
-            # Format the figure for nice display
-            plt.tight_layout()
+            # Format the figure with tight layout
+            plt.tight_layout(rect=[0, 0, 1, 0.96])  # Leave space for suptitle
             
-            # Save the figure
+            # Save the figure with higher DPI for thesis quality
             plt.savefig(diagnostic_dir / f"{station_name}_preprocessing.png", 
-                       dpi=200, bbox_inches='tight', facecolor='white')
+                       dpi=300, bbox_inches='tight', facecolor='white')
             plt.close()
             
             # Create a separate plot for the data splits
@@ -456,20 +515,10 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
 
 def plot_data_splits(station_data, station_name, output_dir, start_date, train_end, val_end, frost_periods=None):
     """Create plot showing data splits (training/validation/testing) and frost periods."""
-    # Set publication-quality styling
-    plt.rcParams.update({
-        'font.family': 'serif',
-        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 16,  # was 12
-        'axes.titlesize': 21,  # was 16
-        'axes.labelsize': 18,  # was 14
-        'xtick.labelsize': 16,  # was 12
-        'ytick.labelsize': 16,  # was 12
-        'legend.fontsize': 16,  # was 12
-        'figure.titlesize': 23  # was 18
-    })
+    # Use the consistent plot style
+    set_plot_style()
     
-    # Create figure
+    # Create figure with proper dimensions for thesis
     fig, ax = plt.subplots(figsize=(15, 8))
     
     # Get the VST data
@@ -507,31 +556,62 @@ def plot_data_splits(station_data, station_name, output_dir, start_date, train_e
     else:
         vst_col = [col for col in vst_plot.columns if col != 'Date'][0]
     
-    # Plot the data
-    ax.plot(vst_plot.index, vst_plot[vst_col], color='black', linewidth=1, label='Water Level')
+    # Define colors for consistent thesis appearance
+    # These should match the color scheme defined in the set_plot_style function
+    COLORS = {
+        'water_level': '#1f77b4',     # Blue for water level
+        'training': '#C8E6C9',        # Light green for training
+        'validation': '#FFE0B2',      # Light orange for validation
+        'testing': '#BBDEFB',         # Light blue for testing
+        'frost': '#90CAF9'            # Light blue for frost periods
+    }
     
-    # Add background colors for different periods with increased alpha for better visibility
+    # Set date range
     end_date = pd.to_datetime('2025-01-01').tz_localize('UTC')
-    ax.axvspan(start_date, train_end, color='#C8E6C9', alpha=0.4, label='Training')  # Darker green with higher alpha
-    ax.axvspan(train_end, val_end, color='#FFE0B2', alpha=0.4, label='Validation')   # Darker orange with higher alpha
-    ax.axvspan(val_end, end_date, color='#BBDEFB', alpha=0.4, label='Testing')  # Darker blue with higher alpha
+    
+    # Add background colors for different periods with appropriate alpha
+    # Add them from back to front (testing, validation, training)
+    ax.axvspan(val_end, end_date, color=COLORS['testing'], alpha=0.3, label='Testing')
+    ax.axvspan(train_end, val_end, color=COLORS['validation'], alpha=0.3, label='Validation')
+    ax.axvspan(start_date, train_end, color=COLORS['training'], alpha=0.3, label='Training')
     
     # Add frost periods if available
     if frost_periods:
+        frost_added_to_legend = False
         for period in frost_periods:
-            ax.axvspan(period[0], period[1], color='#90CAF9', alpha=0.3)  # Darker frost blue with higher alpha
+            start, end = period
+            # Ensure dates are timezone-aware
+            if hasattr(start, 'tzinfo') and start.tzinfo is None:
+                start = pd.to_datetime(start).tz_localize('UTC')
+            if hasattr(end, 'tzinfo') and end.tzinfo is None:
+                end = pd.to_datetime(end).tz_localize('UTC')
+                
+            if start >= start_date:  # Only show frost periods after start date
+                if not frost_added_to_legend:
+                    ax.axvspan(start, end, color=COLORS['frost'], alpha=0.3,
+                             label='Frost Period', hatch='///', zorder=3)
+                    frost_added_to_legend = True
+                else:
+                    ax.axvspan(start, end, color=COLORS['frost'], alpha=0.3,
+                             label='_nolegend_', hatch='///', zorder=3)
+    
+    # Plot the water level data on top with stronger line
+    ax.plot(vst_plot.index, vst_plot[vst_col], color=COLORS['water_level'], 
+           linewidth=1.5, label='Water Level', zorder=5)
     
     # Customize the plot
-    ax.set_title(f'Data Splits Overview - Station {station_name}', pad=20, fontweight='bold')
-    ax.set_xlabel('Date', fontweight='bold', labelpad=10)
-    ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+    #ax.set_title(f'Data Splits Overview - Station {station_name}', 
+    #            fontsize=20, fontweight='bold', pad=15)
+    ax.set_xlabel('Date', fontsize=24, fontweight='bold', labelpad=10)
+    ax.set_ylabel('Water Level (mm)', fontsize=24, fontweight='bold', labelpad=30)
     
-    # Format x-axis
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    # Format x-axis with clean ticks
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    ax.xaxis.set_major_locator(mdates.YearLocator())
     
-    # Add legend with larger font
-    ax.legend(loc='upper right', frameon=True, facecolor='white', edgecolor='#cccccc', fontsize=16)
+    # Position legend in upper right to avoid data
+    ax.legend(loc='upper right', frameon=True, framealpha=0.9, 
+             edgecolor='#cccccc', fontsize=12)
     
     # Remove top and right spines for cleaner look
     ax.spines['top'].set_visible(False)
@@ -545,10 +625,13 @@ def plot_data_splits(station_data, station_name, output_dir, start_date, train_e
     y_buffer = (y_max - y_min) * 0.1  # Add 10% buffer
     ax.set_ylim(y_min - y_buffer, y_max + y_buffer)
     
+    # Make rotated tick labels aligned properly
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
     # Adjust layout
     plt.tight_layout()
     
-    # Save the plot
+    # Save the plot with high resolution for thesis
     output_path = output_dir / f"data_splits_{station_name}.png"
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -557,29 +640,18 @@ def plot_data_splits(station_data, station_name, output_dir, start_date, train_e
 
 def plot_station_data_overview(original_data: dict, preprocessed_data: dict, output_dir: Path):
     """Create visualization of temperature, rainfall, and VST data showing full available date ranges."""
+    # Apply consistent plot styling
     set_plot_style()
+    
     diagnostic_dir = output_dir / "diagnostics" / "preprocessing"
     diagnostic_dir.mkdir(parents=True, exist_ok=True)
     
-    # Set publication-quality styling similar to create_water_level_plot_png
-    plt.rcParams.update({
-        'font.family': 'serif',
-        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 16,  # was 12
-        'axes.titlesize': 21,  # was 16
-        'axes.labelsize': 18,  # was 14
-        'xtick.labelsize': 16,  # was 12
-        'ytick.labelsize': 16,  # was 12
-        'legend.fontsize': 16,  # was 12
-        'figure.titlesize': 23  # was 18
-    })
-    
-    # Define consistent colors for better visualization
+    # Define consistent colors for better visualization that match thesis style
     COLORS = {
         'vst_original': '#1f77b4',      # Blue for water level
         'temp_original': '#d62728',     # Red for temperature
-        'rain_original': '#1f77b4',     # Blue for rainfall
-        'vinge': '#d62728',             # Red for VINGE measurements
+        'rain_original': '#7090FF',     # Lighter blue for rainfall
+        'vinge': '#ff7f0e',             # Orange for VINGE measurements to contrast with water level
     }
     
     # Define start date for precipitation data - make it timezone-aware
@@ -602,8 +674,8 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
     for station_name in original_data.keys():
         if original_data[station_name]['vst_raw'] is not None:
             # Create figure with GridSpec for better control of subplot heights - now with 4 rows
-            fig = plt.figure(figsize=(15, 15))  # Increased figure height for 4 subplots
-            gs = GridSpec(4, 1, figure=fig, height_ratios=[1, 1, 1, 3], hspace=0.2)
+            fig = plt.figure(figsize=(15, 16))  # Increased figure height for better spacing
+            gs = GridSpec(4, 1, figure=fig, height_ratios=[1, 1, 1, 3], hspace=0.3)
             
             # Get data for this station (use original data for all plots)
             orig_data = original_data[station_name]
@@ -629,16 +701,16 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 min_dates['temperature'] = temp_data.index.min()
                 max_dates['temperature'] = temp_data.index.max()
                 
+                # Plot temperature with thicker line
                 ax1.plot(temp_data.index, temp_data[temp_col],
-                        color=COLORS['temp_original'], alpha=0.8, linewidth=0.8, label='Temperature')
+                        color=COLORS['temp_original'], alpha=0.9, linewidth=1.2, label='Temperature')
                 
-                ax1.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
-                ax1.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                ax1.set_ylabel('Temperature (°C)', fontsize=18, fontweight='bold', labelpad=30)
+                ax1.legend(loc='upper right', frameon=True, framealpha=0.9, edgecolor='#cccccc')
                 
                 # Clean style similar to water_level_plot
                 ax1.spines['top'].set_visible(False)
                 ax1.spines['right'].set_visible(False)
-                ax1.grid(False)
                 
                 # Set x-axis limits for temperature subplot - use its own data range
                 ax1.set_xlim(min_dates['temperature'], max_dates['temperature'])
@@ -676,17 +748,16 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                     min_dates['rainfall'] = rain_data_filtered.index.min()
                     max_dates['rainfall'] = rain_data_filtered.index.max()
                     
-                    # Plot rainfall as bars
+                    # Plot rainfall as bars with alpha for better appearance
                     ax2.bar(rain_data_plot.index, rain_data_plot[rain_col],
-                           color=COLORS['rain_original'], alpha=0.7, width=1, label='Rainfall')
+                           color='#1f77b4', alpha=0.85, width=2, label='Rainfall', edgecolor='black', linewidth=0.2)
                     
-                    ax2.set_ylabel('Precipitation (mm)', fontweight='bold', labelpad=10)
-                    ax2.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                    ax2.set_ylabel('Precipitation (mm)', fontsize=18, fontweight='bold', labelpad=30)
+                    ax2.legend(loc='upper right', frameon=True, framealpha=0.9, edgecolor='#cccccc')
                     
-                    # Clean style similar to water_level_plot
+                    # Clean style
                     ax2.spines['top'].set_visible(False)
                     ax2.spines['right'].set_visible(False)
-                    ax2.grid(False)
                     
                     # Set x-axis limits specifically for rainfall subplot - use its own data range
                     ax2.set_xlim(min_dates['rainfall'], max_dates['rainfall'])
@@ -735,18 +806,17 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                         min_dates['vinge'] = vinge_data.index.min()
                         max_dates['vinge'] = vinge_data.index.max()
                         
-                        # Plot as scatter (don't connect points)
+                        # Plot as scatter with larger marker size
                         ax3.scatter(vinge_data.index, vinge_data['water_level_mm'],
-                                color=COLORS['vinge'], alpha=0.8, s=20, 
-                                label='Vinge', zorder=5)
+                                   color='#d62728', s=30, 
+                                   label='VINGE', zorder=5, edgecolors='white', linewidth=0.5)
                         
-                        ax3.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
-                        ax3.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                        ax3.set_ylabel('Water Level (mm)', fontsize=18, fontweight='bold', labelpad=30)
+                        ax3.legend(loc='upper right', frameon=True, framealpha=0.9, edgecolor='#cccccc')
                         
                         # Clean style
                         ax3.spines['top'].set_visible(False)
                         ax3.spines['right'].set_visible(False)
-                        ax3.grid(False)
                         
                         # Set x-axis limits using its own data range
                         ax3.set_xlim(min_dates['vinge'], max_dates['vinge'])
@@ -785,17 +855,17 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 min_dates['vst_raw'] = vst_data.index.min()
                 max_dates['vst_raw'] = vst_data.index.max()
                 
+                # Plot water level with thicker line
                 ax4.plot(vst_data.index, vst_data[vst_col],
-                        color=COLORS['vst_original'], alpha=0.8, linewidth=0.8, label='VST Raw')
+                        color=COLORS['vst_original'], alpha=0.9, linewidth=1.2, label='Water Level')
                 
-                ax4.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
-                ax4.set_xlabel('Date', fontweight='bold', labelpad=10)
-                ax4.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='best')
+                ax4.set_ylabel('Water Level (mm)', fontsize=18, fontweight='bold', labelpad=30)
+                ax4.set_xlabel('Date', fontsize=24, fontweight='bold', labelpad=10)
+                ax4.legend(loc='upper right', frameon=True, framealpha=0.9, edgecolor='#cccccc')
                 
-                # Clean style similar to water_level_plot
+                # Clean style
                 ax4.spines['top'].set_visible(False)
                 ax4.spines['right'].set_visible(False)
-                ax4.grid(False)
                 
                 # Set x-axis limits for VST subplot - use its own data range
                 ax4.set_xlim(min_dates['vst_raw'], max_dates['vst_raw'])
@@ -814,13 +884,14 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
                         ax.xaxis.set_major_locator(mdates.YearLocator(2))  # Every 2 years
                     elif date_span.days > 365 * 2:  # More than 2 years
-                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
                         ax.xaxis.set_major_locator(mdates.YearLocator())  # Every year
                     else:  # Less than 2 years
-                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
                         ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))  # Every 2 months
                     
-                    ax.tick_params(axis='x', rotation=45)
+                    # Make tick labels more readable with proper rotation and alignment
+                    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
                     
                     # Make sure x-axis ticks and labels are shown for each subplot
                     ax.tick_params(axis='x', which='both', bottom=True, labelbottom=True)
@@ -833,17 +904,16 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                     end_year = max_dates[data_type].year
                     availability_text.append(f"{data_type.capitalize()}: {start_year}-{end_year}")
             
-            # Add main title with data availability
-           # fig.suptitle(f'Station {station_name} - Data Overview\n({", ".join(availability_text)})',
-           #             fontweight='bold', y=0.95)
+            # Format the figure for nice display
+            plt.tight_layout(rect=[0, 0, 1, 0.92])  # Leave room for the titles
             
-            # Format the figure for nice display - don't use autofmt_xdate as it can hide x-axis labels
-            plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave room for the suptitle
-            
-            # PERFORMANCE OPTIMIZATION: Reduce DPI for faster rendering
+            # Save with high resolution for thesis quality
             plt.savefig(diagnostic_dir / f"{station_name}_data_overview.png",
-                       dpi=200, bbox_inches='tight', facecolor='white')
+                       dpi=300, bbox_inches='tight', facecolor='white')
             plt.close()
+
+            # In plot_station_data_overview, after plt.tight_layout(rect=[0, 0, 1, 0.92]), add fig.subplots_adjust(left=0.18)
+            fig.subplots_adjust(left=0.18)
 
 def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, original_data: dict = None):
     """Create visualization comparing VST_RAW, VST_EDT, and VINGE measurements."""
@@ -1002,8 +1072,8 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             
             # Plot VINGE measurements with larger markers and higher zorder
             ax1.scatter(vinge_filtered.index, vinge_filtered['water_level_mm'],
-                       color=COLORS['vinge'], alpha=0.8, s=20, 
-                       label='Vinge', zorder=5)
+                       color='#d62728', alpha=0.8, s=20, 
+                       label='VINGE', zorder=5)
             
             print(f"Number of VINGE points plotted: {len(vinge_filtered)}")
             
@@ -1058,12 +1128,10 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             ax2.axhline(y=-20, color=COLORS['threshold'], linestyle='--', alpha=0.8)
             
             # Style the plots
-            #ax1.set_title('Water Level Measurements Comparison', fontweight='bold', pad=15)
-            ax1.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+            ax1.set_ylabel('Water Level (mm)', fontsize=24, fontweight='bold', labelpad=30)
             
-            #ax2.set_title('Difference Between Manual and Automated Measurements', fontweight='bold', pad=15)
-            ax2.set_ylabel('Difference (mm)', fontweight='bold', labelpad=10)
-            ax2.set_xlabel('Date', fontweight='bold', labelpad=10)
+            ax2.set_ylabel('Difference (mm)', fontsize=24, fontweight='bold', labelpad=30)
+            ax2.set_xlabel('Date', fontsize=24, fontweight='bold', labelpad=10)
             
             # Apply consistent styling for both subplots
             for ax in [ax1, ax2]:
@@ -1087,10 +1155,6 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             ax2.legend(loc='lower right', frameon=True, framealpha=0.9,
                       edgecolor='#cccccc', fontsize=12)
             
-            # Add main title
-            #fig.suptitle(f'Manual vs Automated Water Level Measurements - Station {station_name} (2022-2024)',
-            #            fontweight='bold', y=0.95)
-            
             # Format the figure for nice display
             fig.autofmt_xdate()
             plt.tight_layout()
@@ -1100,39 +1164,65 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
                        dpi=200, bbox_inches='tight', facecolor='white')
             plt.close()
 
-def create_detailed_plot(data, time_windows, folder, output_dir=None):
+def create_detailed_plot(data_dict, time_windows_dict, folder, output_dir=None):
     """
-    Create the main detailed plot with subplots showing anomaly examples.
+    Create the main detailed plot with subplots showing anomaly examples from multiple stations.
     
     Args:
-        data: Dictionary with 'vst_raw' and 'vinge' DataFrames
-        time_windows: List of time windows to highlight
+        data_dict: Dictionary with station data, each containing 'vst_raw' and 'vinge' DataFrames
+        time_windows_dict: Dictionary of time windows organized by station
         folder: Station ID or folder name for the plot
         output_dir: Output directory path (if None, uses default path)
     """
-    if data['vst_raw'] is None:
-        print(f"Missing VST_RAW data for detailed plot in folder {folder}")
-        return
-        
-    # Create figure with subplots - 2 rows, 6 columns for bottom row
-    fig = plt.figure(figsize=(24, 12))
-    gs = fig.add_gridspec(2, 6, height_ratios=[2, 1], hspace=0.3, wspace=0.3)
+    # Apply consistent plot styling
+    set_plot_style()
     
-    # Define colors using a gradient from red through orange and green to dark blues
-    colors = ['#FF0000', '#FF8000', '#00B000', '#00A0FF', '#0040FF', '#000080']
-
+    # Define station-specific colors
+    station_colors = {
+        '21006846': '#1f77b4',  # Blue
+        '21006847': '#2ca02c',  # Green
+        '21006845': '#ff7f0e'   # Orange
+    }
+    
+    # Define error type colors - using a professional color palette
+    error_colors = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#a65628']
+    
+    # Count total number of time windows across all stations
+    total_windows = sum(len(windows) for windows in time_windows_dict.values())
+    
+    # Create figure with subplots - 2 rows, N columns for bottom row
+    fig = plt.figure(figsize=(24, 12))
+    gs = fig.add_gridspec(2, total_windows, height_ratios=[2, 1], hspace=0.3, wspace=0.3)
+    
     # Main plot spanning all columns
     ax_main = fig.add_subplot(gs[0, :])
-    ax_main.plot(data['vst_raw']['Date'], data['vst_raw']['Value'], 
-                'b-', label='Sensor Water Level', linewidth=1)
     
-    if data['vinge'] is not None:
-        ax_main.scatter(data['vinge']['Date'], data['vinge']['W.L [cm]'], 
-                       color='red', s=20, label='Manual Board Measurements')
+    # Plot each station's data in the main plot
+    for station_id, station_data in data_dict.items():
+        if station_data['vst_raw'] is not None:
+            ax_main.plot(station_data['vst_raw']['Date'], 
+                        station_data['vst_raw']['Value'],
+                        color=station_colors[station_id],
+                        linewidth=1.2,
+                        label=f'Station {station_id}',
+                        alpha=0.8)
+            
+            # Plot VINGE data if available
+            if station_data['vinge'] is not None:
+                ax_main.scatter(station_data['vinge']['Date'],
+                              station_data['vinge']['W.L [cm]'],
+                              color=station_colors[station_id],
+                              s=30,
+                              marker='o',
+                              alpha=0.9,
+                              label=f'VINGE {station_id}',
+                              edgecolors='white',
+                              linewidth=0.5)
     
-    ax_main.grid(True, alpha=0.3)
-    ax_main.legend(fontsize=14)
-
+    # Remove grid lines for cleaner look
+    ax_main.grid(False)
+    ax_main.legend(fontsize=14, loc='upper right', frameon=True, framealpha=0.9, edgecolor='#cccccc')
+    
     # Add dynamic date formatter that changes based on zoom level
     locator = mdates.AutoDateLocator()
     formatter = mdates.ConciseDateFormatter(locator)
@@ -1140,127 +1230,158 @@ def create_detailed_plot(data, time_windows, folder, output_dir=None):
     ax_main.xaxis.set_major_formatter(formatter)
     ax_main.tick_params(axis='x', rotation=45, labelsize=12)
     ax_main.tick_params(axis='y', labelsize=12)
-    ax_main.set_ylabel('Water level (mm)', fontsize=14)
-
-    # Plot each subplot without sharing the y-axis
-    for i in range(6):
-        window = time_windows[i]
-        start_date = window["start_date"]
-        end_date = window["end_date"]
-        title = window["title"]
-        y_range = window["y_range"]
+    ax_main.set_ylabel('Water level (mm)', fontsize=16, fontweight='bold')
+    
+    # Remove top and right spines for cleaner look
+    ax_main.spines['top'].set_visible(False)
+    ax_main.spines['right'].set_visible(False)
+    #Check structure of data_dict
+    # Plot each subplot
+    subplot_index = 0
+    for station_id, time_windows in time_windows_dict.items():
+        station_data = data_dict[station_id]
         
-        # Create subplot in bottom row
-        ax = fig.add_subplot(gs[1, i])
-        
-        # Get data for the time window
-        mask = (data['vst_raw']['Date'] >= start_date) & (data['vst_raw']['Date'] <= end_date)
-        window_data = data['vst_raw'][mask]
-        
-        # Get board data for the time window if available
-        if data['vinge'] is not None:
-            board_mask = (data['vinge']['Date'] >= start_date) & (data['vinge']['Date'] <= end_date)
-            board_window_data = data['vinge'][board_mask]
+        for window in time_windows:
+            start_date = window["start_date"]
+            end_date = window["end_date"]
+            title = window["title"]
+            y_range = window["y_range"]
             
-            ax.scatter(board_window_data['Date'], board_window_data['W.L [cm]'], 
-                      color='red', s=30)
-        
-        if len(window_data) > 0:
-            ax.plot(window_data['Date'], window_data['Value'], color=colors[i], linewidth=1)
+            # Create subplot in bottom row
+            ax = fig.add_subplot(gs[1, subplot_index])
             
-            # Set custom y-axis range if specified
-            if y_range is not None:
-                ax.set_ylim(y_range[0], y_range[1])
-        
-        # Remove gridlines
-        ax.grid(False)
-        
-        # Always set the x-axis limits to the requested time window
-        ax.set_xlim(start_date, end_date)
-        
-        # Set a fixed number of ticks
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
-        
-        # Always use the same date format
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-        
-        # Customize subplot
-        ax.set_title(title, fontsize=12, pad=8)
-        ax.grid(False)
-        ax.tick_params(axis='x', rotation=45, labelsize=10)
-        ax.tick_params(axis='y', labelsize=10)
-        if i == 0:
-            ax.set_ylabel('Water level (mm)', fontsize=12)
-
-    # Adjust layout first
-    plt.tight_layout()
+            # Get data for the time window
+            if station_data['vst_raw'] is not None:
+                mask = (station_data['vst_raw']['Date'] >= start_date) & (station_data['vst_raw']['Date'] <= end_date)
+                window_data = station_data['vst_raw'][mask]
+                
+                # Get board data for the time window if available
+                if station_data['vinge'] is not None:
+                    board_mask = (station_data['vinge']['Date'] >= start_date) & (station_data['vinge']['Date'] <= end_date)
+                    board_window_data = station_data['vinge'][board_mask]
+                    
+                    ax.scatter(board_window_data['Date'],
+                             board_window_data['W.L [cm]'],
+                             color=station_colors[station_id],
+                             s=40,
+                             alpha=0.9,
+                             edgecolors='white',
+                             linewidth=0.5)
+                
+                if len(window_data) > 0:
+                    ax.plot(window_data['Date'],
+                           window_data['Value'],
+                           color=station_colors[station_id],
+                           linewidth=1.2,
+                           alpha=0.9)
+                    
+                    # Set custom y-axis range if specified
+                    if y_range is not None:
+                        ax.set_ylim(y_range[0], y_range[1])
+            
+            # Add station ID and error type to subplot title
+            ax.set_title(f'Station {station_id}\n{title}', fontsize=10)
+            
+            # Remove grid lines
+            ax.grid(False)
+            
+            # Always set the x-axis limits to the requested time window
+            ax.set_xlim(start_date, end_date)
+            
+            # Set a fixed number of ticks
+            ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
+            
+            # Always use the same date format
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            
+            # Customize subplot
+            ax.tick_params(axis='x', labelsize=10)
+            ax.tick_params(axis='y', labelsize=10)
+            
+            # Remove top and right spines for cleaner look
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            
+            if subplot_index == 0:
+                ax.set_ylabel('Water level (mm)', fontsize=14, fontweight='bold')
+            
+            subplot_index += 1
+    
+    # Add main title
+    fig.suptitle('Water Level Anomaly Analysis - Multiple Stations',
+                fontsize=24, fontweight='bold', y=0.98)
+    
+    # Adjust layout
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for the title
     
     # Add rectangles and connection lines
-    for i in range(6):
-        ax = fig.axes[i+1]
-        window = time_windows[i]
-        start_date = window["start_date"]
-        end_date = window["end_date"]
-        y_range = window["y_range"]
+    subplot_index = 0
+    for station_id, time_windows in time_windows_dict.items():
+        station_data = data_dict[station_id]
         
-        # Get data for the time window
-        mask = (data['vst_raw']['Date'] >= start_date) & (data['vst_raw']['Date'] <= end_date)
-        window_data = data['vst_raw'][mask]
-        
-        # Calculate y limits with valid data only
-        valid_values = window_data['Value'].dropna()
-        if len(valid_values) > 0:
-            y_min = valid_values.min() if y_range is None else y_range[0]
-            y_max = valid_values.max() if y_range is None else y_range[1]
+        for window in time_windows:
+            ax = fig.axes[subplot_index + 1]  # +1 because main plot is first
+            start_date = window["start_date"]
+            end_date = window["end_date"]
+            y_range = window["y_range"]
             
-            if np.isfinite(y_min) and np.isfinite(y_max):
-                # Calculate the width of the time window in x-axis units
-                x_width = mdates.date2num(end_date) - mdates.date2num(start_date)
+            if station_data['vst_raw'] is not None:
+                # Get data for the time window
+                mask = (station_data['vst_raw']['Date'] >= start_date) & (station_data['vst_raw']['Date'] <= end_date)
+                window_data = station_data['vst_raw'][mask]
                 
-                # Calculate the height of the rectangle to make it square-like
-                y_range_global = ax_main.get_ylim()[1] - ax_main.get_ylim()[0]
-                x_range_global = mdates.date2num(data['vst_raw']['Date'].max()) - mdates.date2num(data['vst_raw']['Date'].min())
-                scaling_factor = y_range_global / x_range_global
-                y_height = x_width * scaling_factor
-                
-                # Apply a scale factor only to the last 4 subplots
-                if i >= 2 and y_range is not None:
-                    scale_factor = 2.0
-                    y_height = (y_max - y_min) * scale_factor
-                
-                # Draw rectangle in main plot
-                rect = plt.Rectangle(
-                    (mdates.date2num(start_date), y_min),
-                    x_width,
-                    y_height,
-                    fill=False, 
-                    color=colors[i],
-                    linewidth=1.5,
-                    transform=ax_main.transData,
-                    zorder=5
-                )
-                ax_main.add_patch(rect)
-                
-                # Get the center point of the data section
-                rect_center_x = mdates.date2num(start_date + (end_date - start_date) / 2)
-                rect_center_y = y_min + (y_height / 2)
-                
-                # Create dotted connection lines
-                con = ConnectionPatch(
-                    xyA=(rect_center_x, rect_center_y),
-                    coordsA=ax_main.transData,
-                    xyB=(0.5, 1.15),
-                    coordsB=ax.transAxes,
-                    arrowstyle='->',
-                    color=colors[i],
-                    linewidth=0.8,
-                    linestyle=':',
-                    axesA=ax_main,
-                    axesB=ax
-                )
-                fig.add_artist(con)
+                # Calculate y limits with valid data only
+                valid_values = window_data['Value'].dropna()
+                if len(valid_values) > 0:
+                    y_min = valid_values.min() if y_range is None else y_range[0]
+                    y_max = valid_values.max() if y_range is None else y_range[1]
+                    
+                    if np.isfinite(y_min) and np.isfinite(y_max):
+                        # Calculate the width of the time window in x-axis units
+                        x_width = mdates.date2num(end_date) - mdates.date2num(start_date)
+                        
+                        # Calculate the height of the rectangle
+                        y_range_global = ax_main.get_ylim()[1] - ax_main.get_ylim()[0]
+                        x_range_global = mdates.date2num(station_data['vst_raw']['Date'].max()) - mdates.date2num(station_data['vst_raw']['Date'].min())
+                        scaling_factor = y_range_global / x_range_global
+                        y_height = x_width * scaling_factor
+                        
+                        # Draw rectangle in main plot
+                        rect = plt.Rectangle(
+                            (mdates.date2num(start_date), y_min),
+                            x_width,
+                            y_height,
+                            fill=False,
+                            color=station_colors[station_id],
+                            linewidth=2.0,
+                            transform=ax_main.transData,
+                            zorder=5
+                        )
+                        ax_main.add_patch(rect)
+                        
+                        # Get the center point of the data section
+                        rect_center_x = mdates.date2num(start_date + (end_date - start_date) / 2)
+                        rect_center_y = y_min + (y_height / 2)
+                        
+                        # Create dotted connection lines with curved lines
+                        con = ConnectionPatch(
+                            xyA=(rect_center_x, rect_center_y),
+                            coordsA=ax_main.transData,
+                            xyB=(0.5, 1.15),
+                            coordsB=ax.transAxes,
+                            arrowstyle='->',
+                            color=station_colors[station_id],
+                            linewidth=1.5,
+                            linestyle=':',
+                            connectionstyle="arc3,rad=0.2",
+                            axesA=ax_main,
+                            axesB=ax
+                        )
+                        fig.add_artist(con)
+            
+            subplot_index += 1
     
-    # Save the plot
+    # Save the plot with high resolution for thesis
     dpi = 300
     if output_dir is None:
         plot_dir = Path(r"C:\Users\olive\OneDrive\GitHub\MasterThesis\plots")
@@ -1268,7 +1389,7 @@ def create_detailed_plot(data, time_windows, folder, output_dir=None):
         plot_dir = Path(output_dir) / "diagnostics" / "preprocessing"
     
     plot_dir.mkdir(parents=True, exist_ok=True)
-    plt.savefig(plot_dir / f'detailed_analysis_{folder}.png', dpi=dpi, bbox_inches='tight')
+    plt.savefig(plot_dir / f'detailed_analysis_all_stations.png', dpi=dpi, bbox_inches='tight', facecolor='white')
     plt.close()
     
-    return plot_dir / f'detailed_analysis_{folder}.png'
+    return plot_dir / f'detailed_analysis_all_stations.png'

@@ -46,49 +46,51 @@ def run_preprocessing_diagnostics(project_root, output_path, station_id):
         else:
             print(f"No frost periods file found at {frost_path}")
         
-        # Filter for just our station
-        original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
-        preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
+        # For individual station plots, filter the data
+        station_original_data = {station_id: original_data[station_id]} if station_id in original_data else {}
+        station_preprocessed_data = {station_id: preprocessed_data[station_id]} if station_id in preprocessed_data else {}
         
-        # Generate preprocessing plots
-        if original_data and preprocessed_data:
+        # Generate preprocessing plots for individual station
+        if station_original_data and station_preprocessed_data:
             print("Generating preprocessing plots...")
-            plot_preprocessing_comparison(original_data, preprocessed_data, Path(output_path), frost_periods)
-            plot_station_data_overview(original_data, preprocessed_data, Path(output_path))
-            plot_vst_vinge_comparison(preprocessed_data, Path(output_path), original_data)
+            plot_preprocessing_comparison(station_original_data, station_preprocessed_data, Path(output_path), frost_periods)
+            plot_station_data_overview(station_original_data, station_preprocessed_data, Path(output_path))
+            plot_vst_vinge_comparison(station_preprocessed_data, Path(output_path), station_original_data)
             
-            # Generate detailed analysis plot
+            # Generate detailed analysis plot using ALL stations
             print("Generating detailed error analysis plot...")
-            station_data = original_data[station_id]
             
-            # Prepare data in the format expected by create_detailed_plot
-            plot_data = {
-                'vst_raw': pd.DataFrame({
-                    'Date': station_data['vst_raw'].index,
-                    'Value': station_data['vst_raw'].iloc[:, 0]  # First column after Date
-                }),
-                'vinge': None
-            }
-            
-            # Add VINGE data if available
-            if 'vinge' in station_data and station_data['vinge'] is not None:
-                vinge_df = station_data['vinge'].copy()
-                if 'W.L [cm]' not in vinge_df.columns:
-                    # Try to find a suitable column for VINGE data
-                    value_cols = [col for col in vinge_df.columns if col != 'Date']
-                    if value_cols:
-                        vinge_df['W.L [cm]'] = vinge_df[value_cols[0]]
+            # Create data dictionary for all stations
+            data_dict = {}
+            for current_station_id in original_data.keys():
+                station_data = original_data[current_station_id]
+                data_dict[current_station_id] = {
+                    'vst_raw': pd.DataFrame({
+                        'Date': station_data['vst_raw'].index,
+                        'Value': station_data['vst_raw'].iloc[:, 0]  # First column after Date
+                    }),
+                    'vinge': None
+                }
                 
-                plot_data['vinge'] = pd.DataFrame({
-                    'Date': vinge_df.index,
-                    'W.L [cm]': vinge_df['W.L [cm]']
-                })
+                # Add VINGE data if available
+                if 'vinge' in station_data and station_data['vinge'] is not None:
+                    vinge_df = station_data['vinge'].copy()
+                    if 'W.L [cm]' not in vinge_df.columns:
+                        # Try to find a suitable column for VINGE data
+                        value_cols = [col for col in vinge_df.columns if col != 'Date']
+                        if value_cols:
+                            vinge_df['W.L [cm]'] = vinge_df[value_cols[0]]
+                    
+                    data_dict[current_station_id]['vinge'] = pd.DataFrame({
+                        'Date': vinge_df.index,
+                        'W.L [cm]': vinge_df['W.L [cm]']
+                    })
             
             # Get time windows and create the detailed plot
-            time_windows = get_time_windows()
+            time_windows_dict = get_time_windows()
             detailed_plot_path = create_detailed_plot(
-                data=plot_data,
-                time_windows=time_windows,
+                data_dict=data_dict,
+                time_windows_dict=time_windows_dict,
                 folder=station_id,
                 output_dir=output_path
             )
@@ -148,7 +150,7 @@ def setup_basic_diagnostics(train_data, feature_cols, output_path):
         
         feature_plot_dir = Path(output_path) / "feature_plots"
         feature_plot_dir.mkdir(parents=True, exist_ok=True)
-        plot_features_stacked_plots(train_data, feature_cols, output_dir=feature_plot_dir, years_to_show=0)
+        plot_features_stacked_plots(train_data, feature_cols, output_dir=feature_plot_dir, years_to_show=3)
         print(f"Generated feature plots in {feature_plot_dir}")
     except Exception as e:
         print(f"Error setting up basic diagnostics: {str(e)}")
