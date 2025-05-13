@@ -251,6 +251,9 @@ def preprocess_data():
     # Align data to common time index
     All_station_data = align_data(All_station_data)
     
+    # Collect frost periods from all stations
+    all_frost_periods = []
+    
     # Process each station's data
     for station_name, station_data in All_station_data.items():
         # Detect and remove spikes
@@ -261,6 +264,9 @@ def preprocess_data():
         # Detect freezing periods
         temp_data = station_data['temperature']
         frost_periods = detect_frost_periods(temp_data)
+        # Add to the combined list
+        all_frost_periods.extend(frost_periods)
+        
         # Count points before frost period removal
         points_before = len(station_data['vst_raw'])
         #Remove VST data during frost periods
@@ -313,30 +319,15 @@ def preprocess_data():
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
-    #save_data_Dict(frost_periods, filename=save_path / 'frost_periods.pkl')
+    # Save the frost periods
+    save_data_Dict(all_frost_periods, filename=save_path / 'frost_periods.pkl')
+    print(f"Saved {len(all_frost_periods)} frost periods to {save_path / 'frost_periods.pkl'}")
   
-    return All_station_data, All_station_data_original
-
-def print_time_series_ranges(data):
-    """
-    Print the range (min, max) of all time series (vst_raw, rainfall, and temperature) before preprocessing.
-    
-    Args:
-        data (dict): Dictionary containing original station data.
-    """
-    for station_id, station_data in data.items():
-        print(f"\nStation ID: {station_id}")
-        for key in ['vst_raw', 'rainfall', 'temperature']:
-            if key in station_data and station_data[key] is not None:
-                min_value = station_data[key].min().min()
-                max_value = station_data[key].max().max()
-                print(f"  {key} - Min: {min_value}, Max: {max_value}")
+    return All_station_data, All_station_data_original, all_frost_periods
 
 if __name__ == "__main__":
-    processed_data, original_data = preprocess_data()
-    print(f'Original data range: {print_time_series_ranges(original_data)}')
-    print(f'Processed data range: {print_time_series_ranges(processed_data)}')
-    station_id = '21006847'
+    processed_data, original_data, frost_periods = preprocess_data()
+    station_id = '21006846'
     
     # Create figure with secondary y-axis
     fig = make_subplots(rows=4, cols=1,
