@@ -1,10 +1,8 @@
 import sys
 from pathlib import Path
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
-import plotly.io as pio
 from plotly.offline import plot
 import copy
 from plotly_resampler import FigureResampler
@@ -279,6 +277,11 @@ def preprocess_data():
                     (station_data['vst_raw'].index <= end))
             ]
         
+        # From vst_raw remove points below 0
+        n_subZero = np.sum(station_data['vst_raw'] < 0)
+        station_data['vst_raw'] = station_data['vst_raw'][station_data['vst_raw'] > 0]
+        print(f"Removed {n_subZero} points below 0")
+
         # Create vst_raw_feature as a separate feature
         # This will be used as an input feature, independent of the target vst_raw
         station_data['vst_raw_feature'] = station_data['vst_raw'].copy()
