@@ -1,13 +1,11 @@
 import sys
 from pathlib import Path
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
-import plotly.io as pio
 from plotly.offline import plot
 import copy
-
+import numpy as np
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 from data_utils.data_loading import load_all_station_data, save_data_Dict
@@ -272,6 +270,11 @@ def preprocess_data():
                     (station_data['vst_raw'].index <= end))
             ]
         
+        # From vst_raw remove points below 0
+        n_subZero = np.sum(station_data['vst_raw'] < 0)
+        station_data['vst_raw'] = station_data['vst_raw'][station_data['vst_raw'] > 0]
+        print(f"Removed {n_subZero} points below 0")
+
         # Create vst_raw_feature as a separate feature
         # This will be used as an input feature, independent of the target vst_raw
         station_data['vst_raw_feature'] = station_data['vst_raw'].copy()
@@ -314,9 +317,26 @@ def preprocess_data():
   
     return All_station_data, All_station_data_original
 
+def print_time_series_ranges(data):
+    """
+    Print the range (min, max) of all time series (vst_raw, rainfall, and temperature) before preprocessing.
+    
+    Args:
+        data (dict): Dictionary containing original station data.
+    """
+    for station_id, station_data in data.items():
+        print(f"\nStation ID: {station_id}")
+        for key in ['vst_raw', 'rainfall', 'temperature']:
+            if key in station_data and station_data[key] is not None:
+                min_value = station_data[key].min().min()
+                max_value = station_data[key].max().max()
+                print(f"  {key} - Min: {min_value}, Max: {max_value}")
+
 if __name__ == "__main__":
-    processed_data, original_data  = preprocess_data()
-    station_id = '21006846'
+    processed_data, original_data = preprocess_data()
+    print(f'Original data range: {print_time_series_ranges(original_data)}')
+    print(f'Processed data range: {print_time_series_ranges(processed_data)}')
+    station_id = '21006847'
     
     # Create figure with secondary y-axis
     fig = make_subplots(rows=4, cols=1,
