@@ -5,7 +5,8 @@ from plotly.subplots import make_subplots
 import pandas as pd
 from plotly.offline import plot
 import copy
-import numpy as np
+from plotly_resampler import FigureResampler
+
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 from data_utils.data_loading import load_all_station_data, save_data_Dict
@@ -329,9 +330,46 @@ def preprocess_data():
   
     return All_station_data, All_station_data_original, all_frost_periods
 
+def create_interactive_station_plot(original_data, station_id):
+    """
+    Create an interactive plot showing only the full original vst_raw data.
+    
+    Args:
+        original_data: Dictionary containing original station data
+        station_id: ID of the station to plot
+    """
+    # Create a simple figure
+    fig = go.Figure()
+    
+    # Convert to FigureResampler for better performance with large datasets
+    fig = FigureResampler(fig)
+    
+    # Add original VST raw data trace
+    fig.add_trace(
+        go.Scattergl(
+            name='VST Raw Data',
+            line=dict(color='blue', width=1),
+            hovertemplate='Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
+        ),
+        hf_x=original_data[station_id]['vst_raw'].index,
+        hf_y=original_data[station_id]['vst_raw']['Value']
+    )
+    
+    # Update layout
+    fig.update_layout(
+        height=600,
+        width=1200,
+        title_text=f"Station {station_id} - Original VST Raw Data",
+        hovermode='x',
+        yaxis_title="Water Level (mm)",
+        xaxis_title="Date"
+    )
+    
+    return fig
+
 if __name__ == "__main__":
     processed_data, original_data, frost_periods = preprocess_data()
-    station_id = '21006846'
+    station_id = '21006845'  # You can change this to any station ID
     
     # Create figure with secondary y-axis
     fig = make_subplots(rows=4, cols=1,
@@ -397,7 +435,11 @@ if __name__ == "__main__":
     fig.update_yaxes(title_text="VST Value", row=2, col=1)
 
     # Open the plot in browser
-    plot(fig, filename='station_data_comparison.html')
+    #plot(fig, filename='station_data_comparison.html')
 
-
+    # Create interactive plot showing only original vst_raw data
+    interactive_fig = create_interactive_station_plot(original_data, station_id)
+    
+    # Show using Dash (interactive mode)
+    interactive_fig.show_dash(mode='inline', port=8050)
 

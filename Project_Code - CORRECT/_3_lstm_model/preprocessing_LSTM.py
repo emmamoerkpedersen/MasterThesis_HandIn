@@ -64,7 +64,10 @@ class DataPreprocessor:
         """
         data_dir = project_root / "data_utils" / "Sample data"
         data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
-
+        # Print the structure of the data
+        print(data.keys())
+        print(data[station_id].keys())
+        
         # Check if station_id exists in the data dictionary, if not return empty dict
         station_data = data.get(station_id)
         if not station_data:
