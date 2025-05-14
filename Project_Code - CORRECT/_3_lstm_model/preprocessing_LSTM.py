@@ -70,9 +70,10 @@ class DataPreprocessor:
         if not station_data:
             raise ValueError(f"Station ID {station_id} not found in the data.")
 
+      
         # Concatenate all station data columns
         df = pd.concat(station_data.values(), axis=1)
-
+       
         # Add feature station data
         for station in self.config['feature_stations']:
             feature_station_id = station['station_id']
@@ -118,16 +119,9 @@ class DataPreprocessor:
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         
-        # Fill temperature and rainfall Nan with bfill and ffill
-        data.loc[:, 'temperature'] = data['temperature'].ffill().bfill()
-        data.loc[:, 'rainfall'] = data['rainfall'].fillna(-1)
+        # Fill NaN in vst_raw_feature with -1 - Only feature which needs it
         data.loc[:, 'vst_raw_feature'] = data['vst_raw_feature'].fillna(-1)
-        #data.loc[:, 'vst_raw'] = data['vst_raw'].fillna(-1)
-        #data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006845_rainfall'] = data['feature_station_21006845_rainfall'].fillna(-1)
-        #data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006847_rainfall'] = data['feature_station_21006847_rainfall'].fillna(-1)
-        
+       
         #Aggregate temperature to 30 days
         data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
         print(f"  - Aggregated temperature to 30 days")
