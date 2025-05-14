@@ -301,25 +301,19 @@ def preprocess_data():
             station_data['rainfall'] = station_data['rainfall'].fillna(-1)
 
 
-        # Print information regarding Nan in the data
-        print(f"\nProcessed {station_name}:")
-        print(f"  - NaN in temperature: {station_data['temperature'].isna().sum()}")
-        print(f"  - NaN in rainfall: {station_data['rainfall'].isna().sum()}")
-        print(f"  - NaN in vst_raw_feature: {station_data['vst_raw_feature'].isna().sum()}")
-        
-        # print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
-        # print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
-        # print(f"  - Total data points removed: {n_spikes + n_flatlines +points_removed_frost}")
-        # print(f"Percentage of data points removed: {(n_spikes + n_flatlines +points_removed_frost) / len(All_station_data_original[station_name]['vst_raw']) * 100:.2f}%")
+        print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
+        print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
+        print(f"  - Total data points removed: {n_spikes + n_flatlines +points_removed_frost}")
+        print(f"Percentage of data points removed: {(n_spikes + n_flatlines +points_removed_frost) / len(All_station_data_original[station_name]['vst_raw']) * 100:.2f}%")
 
-        # print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
-        # print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
-        # print(f"  - Removed {n_spikes} spikes")
-        # print(f"  - Removed {int(n_flatlines)} flatline points")
-        # print(f"  - Average flatline duration: {avg_flatline_duration:.2f} points")
-        # print(f"  - Average spike intensity: {avg_spike_intensity:.2f}")    
-        # print(f"  - Average spike duration: {avg_spike_duration:.2f} points")    
-        # print(f"  - Negative to positive spike ratio: {neg_pos_spike_ratio:.2f}")    
+        print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
+        print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
+        print(f"  - Removed {n_spikes} spikes")
+        print(f"  - Removed {int(n_flatlines)} flatline points")
+        print(f"  - Average flatline duration: {avg_flatline_duration:.2f} points")
+        print(f"  - Average spike intensity: {avg_spike_intensity:.2f}")    
+        print(f"  - Average spike duration: {avg_spike_duration:.2f} points")    
+        print(f"  - Negative to positive spike ratio: {neg_pos_spike_ratio:.2f}")    
         
 
     # Save the preprocessed data
