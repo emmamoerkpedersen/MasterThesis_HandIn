@@ -115,23 +115,19 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'hidden_size': 12,         
+    'hidden_size': 32,         # Reduced from 64 to avoid overfitting
     'num_layers': 2,                       
     'dropout': 0.25,             
     'batch_size': 16,
-    'sequence_length': 150,
-    'prediction_window': 10,
+    'sequence_length': 24,     # Reduced sequence length to make processing more stable
     'epochs': 50,
     'patience': 5,            
 
-    'warmup_length': 50,
+    'warmup_length': 0,        # No warmup for standard model
     'learning_rate': 0.001,    
 
-    'threshold': 15,
-    'window_size': 150,
-
-    # 'peak_weighted_loss', 'dynamic_weighted_loss', 'smoothL1_loss', 'mse_loss', 'peak_focused_loss'
-    'objective_function': 'smoothL1_loss',
+    # 'smoothL1_loss', 'mse_loss', ...
+    'objective_function': 'mse_loss',  # Changed to MSE for better stability
     'use_time_features': True,  
     'use_cumulative_features': True, 
     # Add lag features for better prediction

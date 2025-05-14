@@ -741,7 +741,7 @@ def plot_station_data_overview(original_data: dict, preprocessed_data: dict, out
                 
                 # PERFORMANCE OPTIMIZATION: For rainfall, resample to daily sum for better visualization
                 if len(rain_data_filtered) > 1000:
-                    rain_data_plot = rain_data_filtered.resample('D').sum().dropna()
+                    rain_data_plot = rain_data_filtered.resample('6H').sum().dropna()
                 else:
                     rain_data_plot = rain_data_filtered
                 

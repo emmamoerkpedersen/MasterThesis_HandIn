@@ -19,8 +19,6 @@ sys.path.append(str(Path(__file__).parent))
 # Local imports
 # Configuration
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
-from _4_anomaly_detection.z_score import calculate_z_scores, calculate_z_scores_mad
-from _4_anomaly_detection.anomaly_visualization import plot_water_level_anomalies
 
 # Pipeline utilities
 from utils.pipeline_utils import (
@@ -82,7 +80,7 @@ def run_pipeline(
         model_diagnostics (bool): Whether to generate basic model plots (prediction plots)
         advanced_diagnostics (bool): Whether to generate advanced model diagnostics
         error_multiplier (float): Multiplier for error counts per year (1.0 = base counts)
-        model_type (str): Type of model to use ('standard' or 'iterative')
+        model_type (str): Type of model to use (only 'standard' supported now)
     
     Returns:
         dict: Dictionary containing performance metrics
@@ -102,31 +100,9 @@ def run_pipeline(
     original_train_data = train_data.copy()
     original_val_data = val_data.copy()
     original_test_data = test_data.copy()
+    # print information on nan values in each feature and in train data
+    print(f"NaN values in train_data: {train_data.isna().sum()}")
     
-    # Prepare data based on model type
-    if model_type == 'iterative':
-        print("\nPreparing data for iterative forecasting...")
-        train_data = preprocessor.prepare_iterative_data(
-            train_data, 
-            sequence_length=model_config['sequence_length'],
-            prediction_window=model_config['prediction_window'],
-            is_training=True
-        )
-        
-        val_data = preprocessor.prepare_iterative_data(
-            val_data,
-            sequence_length=model_config['sequence_length'],
-            prediction_window=model_config['prediction_window'],
-            is_training=False
-        )
-        
-        test_data = preprocessor.prepare_iterative_data(
-            test_data,
-            sequence_length=model_config['sequence_length'],
-            prediction_window=model_config['prediction_window'],
-            is_training=False
-        )
-
     # Generate diagnostics if enabled
     if model_diagnostics:
         setup_basic_diagnostics(original_train_data, preprocessor.feature_cols, output_path)
@@ -177,25 +153,11 @@ def run_pipeline(
                 original_val_data, error_generator, f"{station_id}_val", water_level_cols
             )
             stations_results.update(val_results)
-            
-            # Prepare data with errors based on model type
-            if model_type == 'iterative':
-                train_data_with_errors = preprocessor.prepare_iterative_data(
-                    train_data_with_errors_raw,
-                    sequence_length=model_config['sequence_length'],
-                    prediction_window=model_config['prediction_window'],
-                    is_training=True
-                )
-                val_data_with_errors = preprocessor.prepare_iterative_data(
-                    val_data_with_errors_raw,
-                    sequence_length=model_config['sequence_length'],
-                    prediction_window=model_config['prediction_window'],
-                    is_training=False
-                )
-            else:
-                train_data_with_errors = train_data_with_errors_raw
-                val_data_with_errors = val_data_with_errors_raw
-            
+        
+
+            train_data_with_errors = train_data_with_errors_raw
+            val_data_with_errors = val_data_with_errors_raw
+        
             print("\nSynthetic error injection complete.")
             print(f"Created datasets with synthetic errors in {len(water_level_cols)} feature columns")
             
@@ -220,22 +182,9 @@ def run_pipeline(
     print("\nInitializing model...")
     input_size = len(preprocessor.feature_cols)
     
-    if model_type == 'standard':
-        model = create_lstm_model(input_size, model_config, LSTMModel)
-        trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
-    else:
-        from experiments.iterative_forecaster.iterative_forecast_model import ForecastingLSTM
-        from experiments.iterative_forecaster.train_iterative_model import IterativeForecastTrainer
-        
-        model = ForecastingLSTM(
-            input_size=input_size,
-            hidden_size=model_config['hidden_size'],
-            output_size=model_config['prediction_window'],
-            num_layers=model_config['num_layers'],
-            dropout=model_config['dropout']
-        )
-        trainer = IterativeForecastTrainer(model_config, preprocessor=preprocessor)
-
+    model = create_lstm_model(input_size, model_config, LSTMModel)
+    trainer = LSTM_Trainer(model_config, preprocessor=preprocessor)
+    
     print_model_params(model_config)
     
     # Select appropriate training data clean/with errors
@@ -255,62 +204,6 @@ def run_pipeline(
     # Process validation predictions
     val_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
     
-    # Calculate Z-scores
-    if inject_synthetic_errors and val_data_with_errors_raw is not None:
-        print("Calculating Z-scores for data with synthetic errors")
-        # Use data with synthetic error
-        z_scores, anomalies = calculate_z_scores_mad(
-            val_data_with_errors_raw['vst_raw'].values, 
-            val_predictions_df['vst_raw'].values,
-            window_size=model_config['window_size'],
-            threshold=model_config['threshold']  
-        )
-    else:
-        print("Calculating Z-scores for clean data")
-        # Use clean data
-        z_scores, anomalies = calculate_z_scores_mad(
-            original_val_data['vst_raw'].values, 
-            val_predictions_df['vst_raw'].values,
-            window_size=model_config['window_size'],
-            threshold=model_config['threshold']  
-        )
-    print(f"Number of anomalies detected: {np.sum(anomalies)}")
-    
-    
-    print("Creating anomaly visualization...")
-    if inject_synthetic_errors and val_data_with_errors_raw is not None:
-        # Use data with synthetic errors for visualization
-        test_data_viz = val_data_with_errors_raw
-    else:
-        # Use clean data for visualization
-        test_data_viz = original_val_data
-    
-    # Create the visualization with detected anomalies
-    plot_title = f"Water Level Forecasting with Anomaly Detection - Station {station_id}"
-    if inject_synthetic_errors:
-        plot_title += " (Data with Synthetic Errors)"
-    
-    # Create output directory
-    anomaly_viz_dir = Path(project_root) / "results" / "anomaly_detection"
-    anomaly_viz_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate visualization
-    png_path, html_path = plot_water_level_anomalies(
-        test_data=test_data_viz,
-        predictions=val_predictions_df['vst_raw'],
-        z_scores=z_scores,
-        anomalies=anomalies,
-        title=plot_title,
-        output_dir=anomaly_viz_dir,
-        save_png=True,
-        save_html=True,
-        show_plot=False,
-        sequence_length=model_config['sequence_length']  # Don't show plot directly to avoid blocking the pipeline
-    )
-    
-    print(f"Anomaly visualization saved to:")
-    print(f"PNG: {png_path}")
-    print(f"HTML: {html_path}")
     
     # Set plot titles
     val_plot_title = "Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data"
@@ -363,12 +256,7 @@ def run_pipeline(
     #         synthetic_data=None  # No synthetic errors in test data
     #     )
     
-    # Calculate metrics using original test data
-    if model_type == 'iterative':
-        # For iterative model, use the original test data for metrics
-        test_data_nan_mask = ~np.isnan(original_test_data['vst_raw']).values
-    else:
-        test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
+    test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
     
     # Ensure predictions are properly shaped
     test_predictions_reshaped = np.array(test_predictions).flatten()
@@ -421,8 +309,8 @@ if __name__ == "__main__":
                       help='Generate advanced model diagnostics')
     parser.add_argument('--no_diagnostics', action='store_true',
                       help='Disable all diagnostics plots')
-    parser.add_argument('--model_type', type=str, choices=['standard', 'iterative'], default='iterative',
-                      help='Type of model to use. Choose between standard LSTM or iterative forecaster')
+    parser.add_argument('--model_type', type=str, choices=['standard'], default='standard',
+                      help='Type of model to use. Currently only standard LSTM is supported')
     
     args = parser.parse_args()
     
@@ -449,11 +337,6 @@ if __name__ == "__main__":
             if args.error_multiplier is not None:
                 print(f"Using error multiplier: {args.error_multiplier:.1f}x")
                 print(f"(This multiplies the base error counts per year defined in config.py)")
-            
-            if args.model_type == 'iterative':
-                print(f"\nUsing iterative forecaster with configuration:")
-                print(f"  - Sequence length: {LSTM_CONFIG['sequence_length']}")
-                print(f"  - Prediction window: {LSTM_CONFIG['prediction_window']}")
             
             # Configure diagnostics output
             if args.no_diagnostics:

@@ -19,9 +19,12 @@ def create_lstm_model(input_size, model_config, model_class):
     Returns:
         Instantiated LSTM model
     """
+    sequence_length = model_config.get('sequence_length', 150)
+    print(f"Creating model with sequence_length: {sequence_length}")
+    
     model = model_class(
         input_size=input_size,
-        sequence_length=model_config['sequence_length'],
+        sequence_length=sequence_length,
         hidden_size=model_config['hidden_size'],
         output_size=len(model_config['output_features']),
         num_layers=model_config['num_layers'],
@@ -130,22 +133,6 @@ def process_val_predictions(val_predictions, preprocessor, validation_data, mode
     predictions_original = preprocessor.feature_scaler.inverse_transform_target(predictions_reshaped)
     predictions_flattened = predictions_original.flatten()  # Ensure 1D array
     
-    # Handle iterative forecasting predictions differently
-    if model_config is not None and model_config.get('model_type') == 'iterative':
-        sequence_length = model_config.get('sequence_length', 50)
-        
-        # Create array of NaNs with the same length as validation data
-        aligned_predictions = np.full(len(validation_data), np.nan)
-        
-        # Place predictions after sequence_length
-        if len(predictions_flattened) > 0:
-            # Calculate how many predictions we can place
-            available_space = len(aligned_predictions) - sequence_length
-            num_predictions = min(len(predictions_flattened), available_space)
-            aligned_predictions[sequence_length:sequence_length + num_predictions] = predictions_flattened[:num_predictions]
-            
-        predictions_flattened = aligned_predictions
-    
     # Print data lengths for debugging
     print(f"Validation predictions length: {len(predictions_flattened)}")
     print(f"Validation data length: {len(validation_data)}")
@@ -191,22 +178,6 @@ def process_test_predictions(test_predictions, test_data, model_config=None):
     # Now flatten to 1D
     test_predictions = test_predictions.flatten()
     print(f"Final flattened shape: {test_predictions.shape}")
-    
-    # Handle iterative forecasting predictions differently
-    if model_config is not None and model_config.get('model_type') == 'iterative':
-        sequence_length = model_config.get('sequence_length', 50)
-        
-        # Create array of NaNs with the same length as test data
-        aligned_predictions = np.full(len(test_data), np.nan)
-        
-        # Place predictions after sequence_length
-        if len(test_predictions) > 0:
-            # Calculate how many predictions we can place
-            available_space = len(aligned_predictions) - sequence_length
-            num_predictions = min(len(test_predictions), available_space)
-            aligned_predictions[sequence_length:sequence_length + num_predictions] = test_predictions[:num_predictions]
-            
-        test_predictions = aligned_predictions
     
     # Print data lengths for debugging
     print(f"Test predictions length: {len(test_predictions)}")
