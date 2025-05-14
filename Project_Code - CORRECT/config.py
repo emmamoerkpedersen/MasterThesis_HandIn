@@ -119,11 +119,11 @@ LSTM_CONFIG = {
     'num_layers': 2,                       
     'dropout': 0.25,             
     'batch_size': 16,
-    'sequence_length': 24,     # Reduced sequence length to make processing more stable
+    'sequence_length': 500,     # Reduced sequence length to make processing more stable
     'epochs': 50,
     'patience': 5,            
 
-    'warmup_length': 0,        # No warmup for standard model
+    'warmup_length': 5,        # No warmup for standard model
     'learning_rate': 0.001,    
 
     # 'smoothL1_loss', 'mse_loss', ...
@@ -135,7 +135,7 @@ LSTM_CONFIG = {
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
-        'vst_raw_feature',
+      #  'vst_raw_feature',
         'rainfall',
         'temperature',
         

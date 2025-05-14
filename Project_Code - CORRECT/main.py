@@ -52,6 +52,8 @@ from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_c
 
 # Experiment modules
 from experiments.error_frequency import run_error_frequency_experiments
+
+# EMMA HUSK AT BRUGE GAMLE MODEL OG TRÆNIN GOGSÅ!!!
 from experiments.Improved_model_structure.train_model import LSTM_Trainer
 from experiments.Improved_model_structure.model import LSTMModel
 
@@ -100,8 +102,6 @@ def run_pipeline(
     original_train_data = train_data.copy()
     original_val_data = val_data.copy()
     original_test_data = test_data.copy()
-    # print information on nan values in each feature and in train data
-    print(f"NaN values in train_data: {train_data.isna().sum()}")
     
     # Generate diagnostics if enabled
     if model_diagnostics:

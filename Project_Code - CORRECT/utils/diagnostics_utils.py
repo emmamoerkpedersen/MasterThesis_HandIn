@@ -197,32 +197,38 @@ def run_advanced_diagnostics(test_data, predictions, station_id, output_path, is
                 output_dir=diagnostics_dir,
                 station_id=station_id,
                 rainfall=rainfall_series,
-                n_event_plots=3,  # Analyze top 3 water level events
                 features_df=features_df
             )
         else:
-            from _3_lstm_model.model_diagnostics import generate_all_diagnostics, analyze_individual_residuals
+            from _3_lstm_model.model_diagnostics import analyze_individual_residuals, create_actual_vs_predicted_plot
             
             # For single model diagnostics, predictions should be a Series
-            # Use the new individual residual plots function
+            actual = pd.Series(test_data['vst_raw'], index=test_data.index)
+            
+            # Create individual residual plots
             print("\nGenerating individual residual plots...")
             individual_plots = analyze_individual_residuals(
-                actual=pd.Series(test_data['vst_raw'], index=test_data.index),
+                actual=actual,
                 predictions=predictions,
                 output_dir=diagnostics_dir,
                 station_id=station_id,
                 features_df=features_df
             )
             
-            print("\nGenerating other diagnostics...")
-            all_visualization_paths = generate_all_diagnostics(
-                actual=pd.Series(test_data['vst_raw'], index=test_data.index),
+            # Create actual vs predicted plot
+            print("\nGenerating actual vs predicted plot...")
+            actual_pred_path = create_actual_vs_predicted_plot(
+                actual=actual,
                 predictions=predictions,
                 output_dir=diagnostics_dir,
-                station_id=station_id,
-                rainfall=rainfall_series,
-                features_df=features_df,
+                station_id=station_id
             )
+            
+            # Combine all visualization paths
+            all_visualization_paths = {
+                'residual_plots': individual_plots,
+                'actual_vs_predicted': actual_pred_path
+            }
         
         return all_visualization_paths
     except Exception as e:
