@@ -200,7 +200,12 @@ def run_advanced_diagnostics(test_data, predictions, station_id, output_path, is
                 features_df=features_df
             )
         else:
-            from _3_lstm_model.model_diagnostics import analyze_individual_residuals, create_actual_vs_predicted_plot
+            from _3_lstm_model.model_diagnostics import (
+                analyze_individual_residuals, 
+                create_actual_vs_predicted_plot,
+                create_feature_importance_plot,
+                create_correlation_analysis
+            )
             
             # For single model diagnostics, predictions should be a Series
             actual = pd.Series(test_data['vst_raw'], index=test_data.index)
@@ -224,10 +229,35 @@ def run_advanced_diagnostics(test_data, predictions, station_id, output_path, is
                 station_id=station_id
             )
             
+            # Get all feature columns from the test data
+            feature_cols = [col for col in test_data.columns if col != 'vst_raw']
+            
+            # Create feature importance plot
+            print("\nGenerating feature importance plot...")
+            feature_importance_path = create_feature_importance_plot(
+                test_data=test_data,
+                predictions=predictions,
+                feature_cols=feature_cols,
+                output_dir=diagnostics_dir,
+                station_id=station_id
+            )
+            
+            # Create correlation analysis plots
+            print("\nGenerating correlation analysis plots...")
+            correlation_paths = create_correlation_analysis(
+                test_data=test_data,
+                predictions=predictions,
+                feature_cols=feature_cols,
+                output_dir=diagnostics_dir,
+                station_id=station_id
+            )
+            
             # Combine all visualization paths
             all_visualization_paths = {
                 'residual_plots': individual_plots,
-                'actual_vs_predicted': actual_pred_path
+                'actual_vs_predicted': actual_pred_path,
+                'feature_importance': feature_importance_path,
+                'correlation_analysis': correlation_paths
             }
         
         return all_visualization_paths
