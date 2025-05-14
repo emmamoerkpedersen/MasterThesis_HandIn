@@ -119,7 +119,7 @@ LSTM_CONFIG = {
     'num_layers': 2,                       
     'dropout': 0.25,             
     'batch_size': 16,
-    'sequence_length': 500,     # Reduced sequence length to make processing more stable
+    'sequence_length': 5000,     # Reduced sequence length to make processing more stable
     'epochs': 50,
     'patience': 5,            
 
