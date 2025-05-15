@@ -132,7 +132,7 @@ class LSTM_Trainer:
         Returns:
             dict: Dictionary of performance metrics
         """
-        from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+        from sklearn.metrics import mean_squared_error, mean_absolute_error
         
         # Remove NaN values for metric calculation
         valid_mask = (~np.isnan(targets)) & (~np.isnan(predictions))
@@ -143,7 +143,6 @@ class LSTM_Trainer:
             return {
                 'rmse': float('nan'),
                 'mae': float('nan'),
-                'r2': float('nan'),
                 'mean_error': float('nan'),
                 'std_error': float('nan'),
                 'nse': float('nan')
@@ -157,32 +156,7 @@ class LSTM_Trainer:
         nse = 1 - (np.sum((valid_targets - valid_predictions) ** 2) / 
                    np.sum((valid_targets - np.mean(valid_targets)) ** 2))
         
-        # Calculate and validate R² score (can be extremely negative for poor models)
-        r2 = r2_score(valid_targets, valid_predictions)
-        r2_original = r2  # Store original value for reporting
-        
-        # Provide more informative message about the R² value quality
-        if r2 < -1.0:
-            # Different warning messages based on how negative the R² is
-            if r2 < -10.0:
-                print(f"Warning: R² value is extremely negative ({r2:.4f}). Model predictions are very poor and may need significant improvement.")
-            elif r2 < -5.0:
-                print(f"Warning: R² value is highly negative ({r2:.4f}). The model may be struggling with this dataset.")
-            else:
-                print(f"Warning: R² value is negative ({r2:.4f}). This indicates the model performs worse than a simple mean baseline.")
-                
-            # Calculate mean of target to understand baseline
-            target_mean = np.mean(valid_targets)
-            print(f"Target mean: {target_mean:.4f}, Target std: {np.std(valid_targets):.4f}")
-            
-            # Optional: explain what R² means
-            print("Note: R² < 0 means the model performs worse than predicting the mean value for all points.")
-            print("      R² = 0 means the model performs as well as predicting the mean.")
-            print("      R² = 1 means perfect predictions.")
-            
-            # Constrain the value to -1.0 for reporting
-            r2 = -1.0
-        
+      
         # Calculate error statistics
         errors = valid_predictions - valid_targets
         mean_error = np.mean(errors)
@@ -193,8 +167,6 @@ class LSTM_Trainer:
         return {
             'rmse': rmse,
             'mae': mae,
-            'r2': r2,
-            'r2_original': r2_original,  # Store the original unconstrained value
             'mean_error': mean_error,
             'std_error': std_error,
             'nse': nse  # Add NSE to the returned metrics
