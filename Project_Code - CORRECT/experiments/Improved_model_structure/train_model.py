@@ -44,9 +44,6 @@ class LSTM_Trainer:
         # Initialize history
         self.history = {'train_loss': [], 'val_loss': [], 'learning_rates': []}
         
-        # Get peak weight for the custom loss function (default to 2.0 if not specified)
-        self.peak_weight = config.get('peak_weight', 2.0)
-        
         # Initialize learning rate scheduler
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, 
@@ -124,14 +121,13 @@ class LSTM_Trainer:
             return total_loss / len(data_loader), val_predictions, val_targets
 
 
-    def evaluate_predictions(self, predictions, targets, data_index=None):
+    def evaluate_predictions(self, predictions, targets):
         """
         Calculate performance metrics for model predictions.
         
         Args:
             predictions: Model predictions (numpy array)
             targets: Target values (numpy array)
-            data_index: Optional pandas DatetimeIndex for calculating peak metrics
             
         Returns:
             dict: Dictionary of performance metrics
@@ -150,8 +146,6 @@ class LSTM_Trainer:
                 'r2': float('nan'),
                 'mean_error': float('nan'),
                 'std_error': float('nan'),
-                'peak_mae': float('nan'),
-                'peak_rmse': float('nan'),
                 'nse': float('nan')
             }
         
@@ -193,28 +187,7 @@ class LSTM_Trainer:
         errors = valid_predictions - valid_targets
         mean_error = np.mean(errors)
         std_error = np.std(errors)
-        
-        # Calculate peak-specific metrics (if we have indices)
-        peak_mae = float('nan')
-        peak_rmse = float('nan')
-        
-        if data_index is not None and len(valid_targets) > 0:
-            try:
-                # Identify peaks (top 10% of values)
-                peak_threshold = np.percentile(valid_targets, 90)
-                peak_mask = valid_targets >= peak_threshold
-                
-                if np.sum(peak_mask) > 0:
-                    peak_mae = mean_absolute_error(
-                        valid_targets[peak_mask], 
-                        valid_predictions[peak_mask]
-                    )
-                    peak_rmse = np.sqrt(mean_squared_error(
-                        valid_targets[peak_mask], 
-                        valid_predictions[peak_mask]
-                    ))
-            except Exception as e:
-                print(f"Error calculating peak metrics: {e}")
+    
         
         # Add the original R² value for debugging
         return {
@@ -224,8 +197,6 @@ class LSTM_Trainer:
             'r2_original': r2_original,  # Store the original unconstrained value
             'mean_error': mean_error,
             'std_error': std_error,
-            'peak_mae': peak_mae,
-            'peak_rmse': peak_rmse,
             'nse': nse  # Add NSE to the returned metrics
         }
 
