@@ -115,21 +115,22 @@ PHYSICAL_LIMITS = {
 
 # LSTM Configuration
 LSTM_CONFIG = {
-    'hidden_size': 32,         # Reduced from 64 to avoid overfitting
-    'num_layers': 2,                       
-    'dropout': 0.25,             
-    'batch_size': 16,
-    'sequence_length': 5000,     # Reduced sequence length to make processing more stable
+    'hidden_size': 128,         
+    'num_layers': 1,                       
+    'dropout': 0.25,  # N/A for standard model as we only have one layer             
+    'batch_size': 1,
+    'sequence_length': 70080,     
     'epochs': 50,
     'patience': 5,            
-
-    'warmup_length': 5,        # No warmup for standard model
     'learning_rate': 0.001,    
+
+    'warmup_length': 0,        # No warmup for standard model
+        
 
     # 'smoothL1_loss', 'mse_loss', ...
     'objective_function': 'mse_loss',  # Changed to MSE for better stability
-    'use_time_features': True,  
-    'use_cumulative_features': True, 
+    'use_time_features': False,  
+    'use_cumulative_features': False, 
     # Add lag features for better prediction
     'use_lagged_features': False,
     'lag_hours': [72, 144, 288],  # Lag periods in hours
@@ -143,13 +144,13 @@ LSTM_CONFIG = {
     'output_features': ['vst_raw'],
 
     'feature_stations': [
-        {
-            'station_id': '21006845',
-            'features': ['vst_raw', 'rainfall']
-        },
-        {
-            'station_id': '21006847',
-            'features': ['vst_raw', 'rainfall']
-        }
+    #     {
+    #         'station_id': '21006845',
+    #         'features': ['vst_raw', 'rainfall']
+    #     },
+    #     {
+    #         'station_id': '21006847',
+    #         'features': ['vst_raw', 'rainfall']
+    #     }
     ]
 }

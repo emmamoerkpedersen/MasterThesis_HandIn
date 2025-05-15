@@ -169,9 +169,6 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
     COLORS = {
         'vst_original': '#1f77b4',   # Blue for original water level
         'vst_processed': '#2ca02c',  # Green for processed water level
-        'temperature': '#d62728',    # Red for temperature
-        'rainfall': '#7090FF',       # Lighter blue for rainfall
-        'vinge': '#d62728',          # Red for VINGE measurements
         'outliers': '#d62728',       # Red for outliers
         'bounds': '#ff7f0e',         # Orange for bounds
         'training': '#C8E6C9',       # Light green for training
@@ -213,15 +210,12 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
         if (original_data[station_name]['vst_raw'] is not None and 
             preprocessed_data[station_name]['vst_raw'] is not None):
             
-            # Create figure with GridSpec - now with 3 rows for water level, temperature, and rainfall
-            fig = plt.figure(figsize=(15, 18))
-            gs = GridSpec(3, 1, figure=fig, height_ratios=[2, 1, 1], hspace=0.2)
+            # Create figure for water level only (removed temperature and rainfall plots)
+            fig, ax1 = plt.subplots(figsize=(15, 8))
             
-            # Get the original and processed data for all variables
+            # Get the original and processed data for water level
             orig_vst = original_data[station_name]['vst_raw'].copy()
             proc_vst = preprocessed_data[station_name]['vst_raw'].copy()
-            proc_temp = preprocessed_data[station_name]['temperature'].copy() if 'temperature' in preprocessed_data[station_name] else None
-            proc_rain = preprocessed_data[station_name]['rainfall'].copy() if 'rainfall' in preprocessed_data[station_name] else None
             
             # Get the value column names
             vst_col = [col for col in orig_vst.columns if col != 'Date'][0]
@@ -249,38 +243,16 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             # Ensure all DataFrames have timezone-aware datetime index
             orig_vst = ensure_tz_aware(orig_vst)
             proc_vst = ensure_tz_aware(proc_vst)
-            proc_temp = ensure_tz_aware(proc_temp)
-            proc_rain = ensure_tz_aware(proc_rain)
             
             # Filter data to start from 2010
             orig_vst = orig_vst[orig_vst.index >= start_date]
             proc_vst = proc_vst[proc_vst.index >= start_date]
-            if proc_temp is not None:
-                proc_temp = proc_temp[proc_temp.index >= start_date]
-            if proc_rain is not None:
-                proc_rain = proc_rain[proc_rain.index >= start_date]
-                # Replace negative values with 0 for rainfall (they're likely fill values)
-                if 'rainfall' in proc_rain.columns:
-                    proc_rain['rainfall'] = proc_rain['rainfall'].clip(lower=0)
-                else:
-                    rain_col = [col for col in proc_rain.columns if col != 'Date'][0]
-                    proc_rain[rain_col] = proc_rain[rain_col].clip(lower=0)
             
             # PERFORMANCE OPTIMIZATION: Downsample data if too large
             if len(orig_vst) > 10000:
                 orig_vst_plot = orig_vst.resample('6H').mean().dropna()
             else:
                 orig_vst_plot = orig_vst
-                
-            if proc_temp is not None and len(proc_temp) > 10000:
-                proc_temp_plot = proc_temp.resample('6H').mean().dropna()
-            else:
-                proc_temp_plot = proc_temp
-                
-            if proc_rain is not None and len(proc_rain) > 10000:
-                proc_rain_plot = proc_rain.resample('6H').sum().dropna()
-            else:
-                proc_rain_plot = proc_rain
             
             # Calculate IQR bounds using the original data (use full dataset for calculations)
             Q1 = orig_vst[vst_col].quantile(0.25)
@@ -329,9 +301,6 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                 'IQR': IQR
             })
             
-            # Top subplot: Water Level Comparison
-            ax1 = fig.add_subplot(gs[0])
-            
             # Plot the original VST data
             ax1.plot(orig_vst_plot.index, orig_vst_plot[vst_col], color=COLORS['vst_original'], alpha=0.8, 
                     linewidth=1.2, label='Original VST', zorder=2)
@@ -379,72 +348,18 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
             # Remove grid lines and spines for cleaner look
             ax1.spines['top'].set_visible(False)
             ax1.spines['right'].set_visible(False)
+            ax1.set_xlabel('Date', fontsize=24, fontweight='bold', labelpad=10)
             
-            # Middle subplot: Temperature
-            ax2 = fig.add_subplot(gs[1])
-            
-            if proc_temp is not None:
-                # For processed data, the column might be renamed to 'temperature'
-                if 'temperature' in proc_temp.columns:
-                    proc_temp_col = 'temperature'
-                else:
-                    # Try to find any column that might contain temperature data
-                    proc_temp_col = proc_temp.columns[0]
-                
-                ax2.plot(proc_temp_plot.index, proc_temp_plot[proc_temp_col], 
-                        color=COLORS['temperature'], alpha=0.8,
-                        linewidth=1.2, label='Temperature', zorder=2)
-                
-                ax2.set_ylabel('Temperature (°C)', fontsize=24, fontweight='bold', labelpad=30)
-            else:
-                ax2.text(0.5, 0.5, 'No temperature data available',
-                        horizontalalignment='center', verticalalignment='center',
-                        transform=ax2.transAxes, fontsize=14)
-            
-            # Remove grid lines and spines for cleaner look
-            ax2.spines['top'].set_visible(False)
-            ax2.spines['right'].set_visible(False)
-            
-            # Bottom subplot: Rainfall
-            ax3 = fig.add_subplot(gs[2])
-            
-            if proc_rain is not None:
-                # For processed data, the column might be renamed to 'rainfall'
-                if 'rainfall' in proc_rain.columns:
-                    proc_rain_col = 'rainfall'
-                else:
-                    # Try to find any column that might contain rainfall data
-                    proc_rain_col = proc_rain.columns[0]
-                
-                # Plot rainfall as bars with semi-transparent color
-                bar_width = 4
-                #resample to 6H
-                proc_rain_plot = proc_rain_plot.resample('6H').sum().dropna()
-                ax3.bar(proc_rain_plot.index, proc_rain_plot[proc_rain_col], width=bar_width,
-                       color='#1f77b4', alpha=0.85, label='Rainfall', zorder=2, linewidth=0.2)
-                
-                ax3.set_ylabel('Rainfall (mm)', fontsize=24, fontweight='bold', labelpad=30)
-            else:
-                ax3.text(0.5, 0.5, 'No rainfall data available',
-                        horizontalalignment='center', verticalalignment='center',
-                        transform=ax3.transAxes, fontsize=14)
-            
-            # Remove grid lines and spines for cleaner look
-            ax3.spines['top'].set_visible(False)
-            ax3.spines['right'].set_visible(False)
-            ax3.set_xlabel('Date', fontsize=24, fontweight='bold', labelpad=10)
-            
-            # Set consistent x-axis limits and format for all subplots
+            # Set consistent x-axis limits and format
             x_min = start_date
             x_max = pd.to_datetime('2025-01-01').tz_localize('UTC')  # Use timezone-aware date
-            for ax in [ax1, ax2, ax3]:
-                ax.set_xlim(x_min, x_max)
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-                ax.xaxis.set_major_locator(mdates.YearLocator(1))
-                ax.tick_params(axis='x', rotation=45)
+            ax1.set_xlim(x_min, x_max)
+            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+            ax1.xaxis.set_major_locator(mdates.YearLocator(1))
+            ax1.tick_params(axis='x', rotation=45)
             
             # Format the figure with tight layout
-            plt.tight_layout(rect=[0, 0, 1, 0.96])  # Leave space for suptitle
+            plt.tight_layout()
             
             # Save the figure with higher DPI for thesis quality
             plt.savefig(diagnostic_dir / f"{station_name}_preprocessing.png", 
@@ -515,16 +430,19 @@ def plot_preprocessing_comparison(original_data: dict, preprocessed_data: dict, 
                 f.write(f"  • IQR: {row['IQR']:.1f}\n")
                 f.write("\n" + "="*30 + "\n\n")
 
-def plot_data_splits(station_data, station_name, output_dir, start_date, train_end, val_end, frost_periods=None):
-    """Create plot showing data splits (training/validation/testing) and frost periods."""
+def plot_data_splits(station_data, station_name, output_dir, start_date, train_end, val_end):
+    """Create plot showing data splits (training/validation/testing) and environmental variables."""
     # Use the consistent plot style
     set_plot_style()
     
-    # Create figure with proper dimensions for thesis
-    fig, ax = plt.subplots(figsize=(15, 8))
+    # Create figure with GridSpec for better subplot control
+    fig = plt.figure(figsize=(15, 18))
+    gs = GridSpec(3, 1, figure=fig, height_ratios=[2, 1, 1], hspace=0.2)
     
-    # Get the VST data
+    # Get the data
     vst_data = station_data['vst_raw'].copy()
+    temp_data = station_data['temperature'].copy() if 'temperature' in station_data else None
+    rain_data = station_data['rainfall'].copy() if 'rainfall' in station_data else None
     
     # Function to ensure datetime index is timezone-aware
     def ensure_tz_aware(df):
@@ -540,17 +458,37 @@ def plot_data_splits(station_data, station_name, output_dir, start_date, train_e
                 df.index = df.index.tz_convert('UTC')
         return df
     
-    # Ensure DataFrame has timezone-aware datetime index
+    # Ensure DataFrames have timezone-aware datetime index
     vst_data = ensure_tz_aware(vst_data)
+    temp_data = ensure_tz_aware(temp_data)
+    rain_data = ensure_tz_aware(rain_data)
     
     # Filter data to start from specified date
     vst_data = vst_data[vst_data.index >= start_date]
+    if temp_data is not None:
+        temp_data = temp_data[temp_data.index >= start_date]
+    if rain_data is not None:
+        rain_data = rain_data[rain_data.index >= start_date]
     
     # PERFORMANCE OPTIMIZATION: Downsample data if too large
     if len(vst_data) > 10000:
         vst_plot = vst_data.resample('6H').mean().dropna()
     else:
         vst_plot = vst_data
+    
+    if temp_data is not None and len(temp_data) > 10000:
+        temp_plot = temp_data.resample('6H').mean().dropna()
+    else:
+        temp_plot = temp_data
+    
+    if rain_data is not None:
+        rain_plot = rain_data.copy()
+        
+        # Resample to 6H to match preprocessing_comparison method
+        if len(rain_plot) > 10000:
+            rain_plot = rain_plot.resample('6H').sum().dropna()
+    else:
+        rain_plot = rain_data
     
     # Get the VST column name
     if 'vst_raw' in vst_plot.columns:
@@ -559,76 +497,132 @@ def plot_data_splits(station_data, station_name, output_dir, start_date, train_e
         vst_col = [col for col in vst_plot.columns if col != 'Date'][0]
     
     # Define colors for consistent thesis appearance
-    # These should match the color scheme defined in the set_plot_style function
     COLORS = {
         'water_level': '#1f77b4',     # Blue for water level
+        'temperature': '#d62728',     # Red for temperature
+        'rainfall': '#1f77b4',        # Blue for rainfall (matching preprocessing_comparison)
         'training': '#C8E6C9',        # Light green for training
         'validation': '#FFE0B2',      # Light orange for validation
-        'testing': '#BBDEFB',         # Light blue for testing
-        'frost': '#90CAF9'            # Light blue for frost periods
+        'testing': '#BBDEFB'          # Light blue for testing
     }
     
     # Set date range
     end_date = pd.to_datetime('2025-01-01').tz_localize('UTC')
     
+    # 1. Water Level Plot (top subplot)
+    ax1 = fig.add_subplot(gs[0])
+    
     # Add background colors for different periods with appropriate alpha
     # Add them from back to front (testing, validation, training)
-    ax.axvspan(val_end, end_date, color=COLORS['testing'], alpha=0.3, label='Testing')
-    ax.axvspan(train_end, val_end, color=COLORS['validation'], alpha=0.3, label='Validation')
-    ax.axvspan(start_date, train_end, color=COLORS['training'], alpha=0.3, label='Training')
+    ax1.axvspan(val_end, end_date, color=COLORS['testing'], alpha=0.3, label='Testing')
+    ax1.axvspan(train_end, val_end, color=COLORS['validation'], alpha=0.3, label='Validation')
+    ax1.axvspan(start_date, train_end, color=COLORS['training'], alpha=0.3, label='Training')
     
-    # Add frost periods if available
-    if frost_periods:
-        frost_added_to_legend = False
-        for period in frost_periods:
-            start, end = period
-            # Ensure dates are timezone-aware
-            if hasattr(start, 'tzinfo') and start.tzinfo is None:
-                start = pd.to_datetime(start).tz_localize('UTC')
-            if hasattr(end, 'tzinfo') and end.tzinfo is None:
-                end = pd.to_datetime(end).tz_localize('UTC')
-                
-            if start >= start_date:  # Only show frost periods after start date
-                if not frost_added_to_legend:
-                    ax.axvspan(start, end, color=COLORS['frost'], alpha=0.3,
-                             label='Frost Period', hatch='///', zorder=3)
-                    frost_added_to_legend = True
-                else:
-                    ax.axvspan(start, end, color=COLORS['frost'], alpha=0.3,
-                             label='_nolegend_', hatch='///', zorder=3)
-    
-    # Plot the water level data on top with stronger line
-    ax.plot(vst_plot.index, vst_plot[vst_col], color=COLORS['water_level'], 
+    # Plot the water level data
+    ax1.plot(vst_plot.index, vst_plot[vst_col], color=COLORS['water_level'], 
            linewidth=1.5, label='Water Level', zorder=5)
     
-    # Customize the plot
-    #ax.set_title(f'Data Splits Overview - Station {station_name}', 
-    #            fontsize=20, fontweight='bold', pad=15)
-    ax.set_xlabel('Date', fontsize=24, fontweight='bold', labelpad=10)
-    ax.set_ylabel('Water Level (mm)', fontsize=24, fontweight='bold', labelpad=30)
-    
-    # Format x-axis with clean ticks
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    ax.xaxis.set_major_locator(mdates.YearLocator())
-    
-    # Position legend in upper right to avoid data
-    ax.legend(loc='upper right', frameon=True, framealpha=0.9, 
-             edgecolor='#cccccc', fontsize=12)
+    # Customize the water level plot
+    ax1.set_ylabel('Water Level (mm)', fontsize=24, fontweight='bold', labelpad=30)
     
     # Remove top and right spines for cleaner look
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
+    ax1.spines['top'].set_visible(False)
+    ax1.spines['right'].set_visible(False)
     
     # Set x-axis limits
-    ax.set_xlim(start_date, end_date)
+    ax1.set_xlim(start_date, end_date)
     
     # Improve y-axis scaling with buffer
     y_min, y_max = vst_plot[vst_col].min(), vst_plot[vst_col].max()
     y_buffer = (y_max - y_min) * 0.1  # Add 10% buffer
-    ax.set_ylim(y_min - y_buffer, y_max + y_buffer)
+    ax1.set_ylim(y_min - y_buffer, y_max + y_buffer)
     
-    # Make rotated tick labels aligned properly
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    # Add legend to the first plot
+    ax1.legend(loc='upper right', frameon=True, framealpha=0.9, 
+             edgecolor='#cccccc', fontsize=12)
+    
+    # 2. Temperature Plot (middle subplot)
+    ax2 = fig.add_subplot(gs[1])
+    
+    # Add the same background colors for splits (without adding to legend)
+    ax2.axvspan(val_end, end_date, color=COLORS['testing'], alpha=0.3, label='_nolegend_')
+    ax2.axvspan(train_end, val_end, color=COLORS['validation'], alpha=0.3, label='_nolegend_')
+    ax2.axvspan(start_date, train_end, color=COLORS['training'], alpha=0.3, label='_nolegend_')
+    
+    # Plot temperature if available
+    if temp_plot is not None and not temp_plot.empty:
+        # Get temperature column name
+        temp_col = 'temperature' if 'temperature' in temp_plot.columns else temp_plot.columns[0]
+        
+        ax2.plot(temp_plot.index, temp_plot[temp_col], color=COLORS['temperature'], 
+                linewidth=1.5, label='Temperature', zorder=5)
+        
+        # Customize the temperature plot
+        ax2.set_ylabel('Temperature (°C)', fontsize=24, fontweight='bold', labelpad=30)
+        
+        # Improve y-axis scaling with buffer
+        t_min, t_max = temp_plot[temp_col].min(), temp_plot[temp_col].max()
+        t_buffer = (t_max - t_min) * 0.1  # Add 10% buffer
+        ax2.set_ylim(t_min - t_buffer, t_max + t_buffer)
+    else:
+        ax2.text(0.5, 0.5, 'No temperature data available',
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax2.transAxes, fontsize=14)
+    
+    # Remove top and right spines for cleaner look
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+    
+    # Set x-axis limits
+    ax2.set_xlim(start_date, end_date)
+    
+    # 3. Rainfall Plot (bottom subplot)
+    ax3 = fig.add_subplot(gs[2])
+    
+    # Add the same background colors for splits (without adding to legend)
+    ax3.axvspan(val_end, end_date, color=COLORS['testing'], alpha=0.3, label='_nolegend_')
+    ax3.axvspan(train_end, val_end, color=COLORS['validation'], alpha=0.3, label='_nolegend_')
+    ax3.axvspan(start_date, train_end, color=COLORS['training'], alpha=0.3, label='_nolegend_')
+    
+    # Plot rainfall if available
+    if rain_plot is not None and not rain_plot.empty:
+        # Get rainfall column name
+        rain_col = 'rainfall' if 'rainfall' in rain_plot.columns else rain_plot.columns[0]
+        
+        # Replace negative values with 0 for rainfall (they're likely fill values)
+        rain_plot[rain_col] = rain_plot[rain_col].clip(lower=0)
+        
+        # Resample to 6H to match exactly what's in plot_preprocessing_comparison
+        rain_plot = rain_plot.resample('6H').sum().dropna()
+        
+        # Plot rainfall as bars with exact same parameters as in plot_preprocessing_comparison
+        bar_width = 4
+        ax3.bar(rain_plot.index, rain_plot[rain_col], width=bar_width,
+               color='#1f77b4', alpha=0.85, label='Rainfall', zorder=2, linewidth=0.2)
+        
+        # Customize the rainfall plot
+        ax3.set_ylabel('Rainfall (mm)', fontsize=24, fontweight='bold', labelpad=30)
+    else:
+        ax3.text(0.5, 0.5, 'No rainfall data available',
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax3.transAxes, fontsize=14)
+    
+    # Remove top and right spines for cleaner look
+    ax3.spines['top'].set_visible(False)
+    ax3.spines['right'].set_visible(False)
+    
+    # Set x-axis limits
+    ax3.set_xlim(start_date, end_date)
+    
+    # Add x-axis label to the bottom subplot only
+    ax3.set_xlabel('Date', fontsize=24, fontweight='bold', labelpad=10)
+    
+    # Format x-axis with clean ticks on all subplots
+    for ax in [ax1, ax2, ax3]:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+        ax.xaxis.set_major_locator(mdates.YearLocator())
+        # Make rotated tick labels aligned properly
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
     
     # Adjust layout
     plt.tight_layout()

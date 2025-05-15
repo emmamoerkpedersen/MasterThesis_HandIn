@@ -67,7 +67,8 @@ class DataPreprocessor:
         # Print the structure of the data
         print(data.keys())
         print(data[station_id].keys())
-        
+        # Save vinge data to use for plotting 
+        vinge_data = data[station_id]['vinge']
         # Check if station_id exists in the data dictionary, if not return empty dict
         station_data = data.get(station_id)
         if not station_data:
@@ -121,14 +122,14 @@ class DataPreprocessor:
         end_date = pd.Timestamp('2025-01-07')
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
-        
-        # Fill NaN in vst_raw_feature, and vst_raw_feature_station_21006845 and 46 with -1
-        data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
+        vinge_data = vinge_data[(vinge_data.index >= start_date) & (vinge_data.index <= end_date)]
+        # # Fill NaN in vst_raw_feature, and vst_raw_feature_station_21006845 and 46 with -1
+        # data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
+        # data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
 
-        #Aggregate temperature to 30 days
-        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
-        print(f"  - Aggregated temperature to 30 days")
+        # #Aggregate temperature to 30 days
+        # data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
+        # print(f"  - Aggregated temperature to 30 days")
 
         # Add cumulative rainfall features if enabled in config
         if self.config.get('use_cumulative_features', False):
@@ -201,7 +202,7 @@ class DataPreprocessor:
         print(f'Validation data: {val_data.shape}')
         print(f'Test data: {test_data.shape}')
 
-        return train_data, val_data, test_data
+        return train_data, val_data, test_data, vinge_data
     
     def prepare_data(self, data, is_training=True):
         """

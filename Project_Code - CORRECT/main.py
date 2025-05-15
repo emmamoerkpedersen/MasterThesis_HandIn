@@ -53,9 +53,12 @@ from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_c
 # Experiment modules
 from experiments.error_frequency import run_error_frequency_experiments
 
-# EMMA HUSK AT BRUGE GAMLE MODEL OG TRÆNIN GOGSÅ!!!
-from experiments.Improved_model_structure.train_model import LSTM_Trainer
-from experiments.Improved_model_structure.model import LSTMModel
+from _3_lstm_model.train_model import LSTM_Trainer
+from _3_lstm_model.model import LSTMModel
+
+# # EMMA HUSK AT BRUGE GAMLE MODEL OG TRÆNIN GOGSÅ!!!
+# from experiments.Improved_model_structure.train_model import LSTM_Trainer
+# from experiments.Improved_model_structure.model import LSTMModel
 
 def run_pipeline(
     project_root: Path,
@@ -96,7 +99,7 @@ def run_pipeline(
     #########################################################
     station_id = '21006846'
     print(f"\nProcessing data for station {station_id}...")
-    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
+    train_data, val_data, test_data, vinge_data = preprocessor.load_and_split_data(project_root, station_id)
     
     # Store original data for later use
     original_train_data = train_data.copy()
@@ -237,7 +240,8 @@ def run_pipeline(
             model_config, 
             best_val_loss, 
             title_suffix=val_plot_title,
-            synthetic_data=synthetic_data
+            synthetic_data=synthetic_data,
+            vinge_data=vinge_data
         )
         plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
     # Generate test predictions

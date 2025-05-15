@@ -52,7 +52,7 @@ def set_plot_style():
     plt.rcParams['axes.edgecolor'] = '#cccccc'
     plt.rcParams['axes.linewidth'] = 1.0
 
-def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None, show_config=False, synthetic_data=None):
+def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None, show_config=False, synthetic_data=None, vinge_data=None):
     """
     Create an interactive plot with aligned datetime indices, rainfall data, and model configuration.
     
@@ -68,6 +68,7 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         title_suffix: Optional suffix to add to the plot title
         show_config: Whether to show model configuration (default: False)
         synthetic_data: Optional DataFrame containing data with synthetic errors
+        vinge_data: Optional DataFrame containing manual board (VINGE) measurements
     """
     # Ensure output directory exists using relative path
     output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
@@ -75,10 +76,10 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     
     station_id = str(station_id)
     
-    # Create the title with optional suffix
-    title = f'Prediction Analysis for Station {station_id}'
-    if title_suffix:
-        title = f'{title} - {title_suffix}'
+    # # Create the title with optional suffix
+    # title = f'Prediction Analysis for Station {station_id}'
+    # if title_suffix:
+    #     title = f'{title} - {title_suffix}'
     
     # Get the actual test data with its datetime index
     test_actual = test_data['vst_raw']
@@ -145,6 +146,10 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         elif isinstance(synthetic_data, pd.DataFrame):
             synthetic_df = synthetic_data
     
+    # Align vinge_data index with test_data
+    if vinge_data is not None:
+        vinge_data = vinge_data.reindex(test_data.index)
+
     # Always create the PNG version with config text at the bottom
     png_path = create_water_level_plot_png(
         test_actual, 
@@ -157,7 +162,8 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         metrics=metrics,
         show_config=show_config,
         title_suffix=title_suffix,
-        synthetic_data=synthetic_data  # Pass the full structure with both data and error_periods
+        synthetic_data=synthetic_data,  # Pass the full structure with both data and error_periods
+        vinge_data=vinge_data  # Pass vinge_data to the PNG creation function
     )
     
     # Create the HTML version only if requested
@@ -206,6 +212,21 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
                 ),
                 row=2, col=1
             )
+            
+            # Add VINGE data if available
+            if vinge_data is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=vinge_data.index,
+                        y=vinge_data['vinge'].values,
+                        name="VINGE Data",
+                        mode='markers',
+                        marker=dict(size=8, color='#ff7f0e'),
+                    ),
+                    row=2, col=1
+                )
+            if vinge_data is None:
+                print(f"VINGE data is None for station {station_id}")
             
             # Add synthetic error data if available
             if synthetic_df is not None:
@@ -306,6 +327,20 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
                 )
             )
             
+            # Add VINGE data if available
+            if vinge_data is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=vinge_data.index,
+                        y=vinge_data['vinge'].values,
+                        name="VINGE Data",
+                        # Should be shown as dots
+                        mode='markers',
+                        marker=dict(size=8, color='#ff7f0e'),
+                    ),
+                    row=2, col=1
+                )
+            
             # Add synthetic error data if available
             if synthetic_df is not None:
                 # Add colored background regions for different error types
@@ -357,14 +392,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         
         # Update layout
         fig.update_layout(
-            title={
-                'text': title,
-                'y': 0.95,  # Moved down slightly to make room for config
-                'x': 0.5,
-                'xanchor': 'center',
-                'yanchor': 'top',
-                'font': {'size': 24}
-            },
             width=1500,  # Back to reasonable width
             height=1000,  # Keep height
             showlegend=True,
@@ -989,7 +1016,7 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
         
         # Only use filtered data if it's not empty
         if not filtered_data.empty:
-            print(f"Limiting plot to the most recent {years_to_show} years: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            print(f"Limiting feature plot to the most recent {years_to_show} years: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
             data = filtered_data
         else:
             print(f"Warning: No data in the last {years_to_show} years. Using all available data.")
@@ -1419,8 +1446,9 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
         metrics=metrics,
         show_config=show_config,
         title_suffix=title_suffix,
-        synthetic_data=synthetic_data,  # Pass the full structure with both data and error_periods
-        anomalies=anomalies  # Pass anomalies to the PNG creation function
+        synthetic_data=synthetic_data, 
+        anomalies=anomalies,  # Pass the full structure with both data and error_periods
+        vinge_data=None  # Pass vinge_data as None since it's not provided in the new function
     )
     
     # Create the HTML version only if requested
@@ -1632,7 +1660,7 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
                         x=synthetic_df.index,
                         y=synthetic_df['vst_raw'].values,
                         name="VST RAW (with Synthetic Errors)",
-                        line=dict(color='#d62728', width=1)
+                        line=dict(color='#d62728', width=1, dash='dot')
                     )
                 )
             
@@ -1670,14 +1698,6 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
         
         # Update layout
         fig.update_layout(
-            title={
-                'text': title,
-                'y': 0.95,
-                'x': 0.5,
-                'xanchor': 'center',
-                'yanchor': 'top',
-                'font': {'size': 24}
-            },
             width=1500,
             height=1000,
             showlegend=True,

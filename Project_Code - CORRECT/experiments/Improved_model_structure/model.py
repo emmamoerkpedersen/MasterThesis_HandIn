@@ -55,6 +55,7 @@ class LSTMModel(nn.Module):
             bidirectional=False  # Using unidirectional LSTM
         )
 
+
         # # Attention mechanism for focusing on important parts of the sequence
         #self.attention = AttentionLayer(hidden_size)
         

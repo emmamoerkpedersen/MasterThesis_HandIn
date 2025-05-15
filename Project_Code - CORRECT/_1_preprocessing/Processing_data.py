@@ -30,50 +30,62 @@ def rename_columns(dictionary):
     
     return dictionary
 
-def detect_frost_periods(temperature_data):
+def detect_frost_periods(temperature_data, vst_data):
     """
-    Detect frost periods based on temperature data.
+    Detect frost periods based on temperature data and remove corresponding data from vst_data.
     
     Args:
-        temperature_data (pd.DataFrame): DataFrame containing temperature measurements
+        temperature_data (pd.DataFrame): DataFrame with a datetime index and a 'temperature' column.
+        vst_data (pd.DataFrame): DataFrame with a datetime index to be filtered during frost periods.
         
     Returns:
-        list: List of tuples containing (start_time, end_time) for each frost period
+        tuple: (list of frost periods, vst_data with frost periods removed, number of data points removed)
     """
+
+    # Drop NaNs in temperature column
+    temperature_data = temperature_data.dropna(subset=['temperature'])
+
     frost_periods = []
     frost_sum = 0
     current_period_start = None
     current_period_end = None
-    
+    points_removed_frost = 0  # Initialize counter for removed points
+    threshold = 35
+
     for idx in range(len(temperature_data)):
         current_time = temperature_data.index[idx]
         current_temp = temperature_data['temperature'].iloc[idx]
-        
+
+        if pd.isna(current_temp):
+            continue  # Skip NaNs explicitly, though dropna already handled most
+
         if current_temp < 0:
-            # Start or continue tracking frost period
             if current_period_start is None:
                 current_period_start = current_time
             current_period_end = current_time
             frost_sum += current_temp
         else:
-            # Temperature is above 0, check if we were tracking a frost period
             if current_period_start is not None:
-                # Check against single threshold
-                if frost_sum < -15:
-                    # Add 24 hours to the end of the frost period
+                if frost_sum < -threshold:
                     extended_end = current_period_end + pd.Timedelta(hours=24)
-                    # Convert times to timezone-naive if they're not already
-                    if current_period_start.tzinfo is not None:
-                        current_period_start = current_period_start.tz_localize(None)
-                    if extended_end.tzinfo is not None:
-                        extended_end = extended_end.tz_localize(None)
                     frost_periods.append((current_period_start, extended_end))
-                # Reset tracking regardless of whether threshold was met
+                    # Count and remove data from vst_data during frost periods
+                    points_removed_frost += vst_data[(vst_data.index >= current_period_start) & (vst_data.index <= extended_end)].shape[0]
+                    vst_data = vst_data[~((vst_data.index >= current_period_start) & (vst_data.index <= extended_end))]
                 current_period_start = None
                 current_period_end = None
                 frost_sum = 0
-    
-    return frost_periods
+
+    # Handle case where data ends in a frost period
+    if current_period_start is not None:
+        if frost_sum < -threshold:
+            extended_end = current_period_end + pd.Timedelta(hours=24)
+            frost_periods.append((current_period_start, extended_end))
+            # Count and remove data from vst_data during frost periods
+            points_removed_frost += vst_data[(vst_data.index >= current_period_start) & (vst_data.index <= extended_end)].shape[0]
+            vst_data = vst_data[~((vst_data.index >= current_period_start) & (vst_data.index <= extended_end))]
+
+    return frost_periods, vst_data, points_removed_frost
 
 def remove_spikes(vst_data):
     """
@@ -211,7 +223,7 @@ def align_data(data):
                 df.index = df.index.tz_localize(None)
 
             # Round timestamps **only** for the vst_raw, vst_edt, vinge data
-            if subkey == 'vst_raw' or subkey == 'vst_edt':
+            if subkey == 'vst_raw' or subkey == 'vst_edt' or subkey == 'vinge':
                 df.index = df.index.round('15min')
 
             # Remove duplicates after rounding (if any)
@@ -261,26 +273,20 @@ def preprocess_data():
         station_data['vst_raw'], n_spikes, (lower_bound, upper_bound), avg_spike_intensity, avg_spike_duration, neg_pos_spike_ratio = remove_spikes(station_data['vst_raw'])
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines, avg_flatline_duration = remove_flatlines(station_data['vst_raw'])
-        
-        # Detect freezing periods
+
+        # Detect freezing periods and remove from vst_raw
         temp_data = station_data['temperature']
-        frost_periods = detect_frost_periods(temp_data)
+        frost_periods, station_data['vst_raw'], points_removed_frost = detect_frost_periods(temp_data, station_data['vst_raw'])
         # Add to the combined list
         all_frost_periods.extend(frost_periods)
-        
+              
         # Count points before frost period removal
         points_before = len(station_data['vst_raw'])
-        #Remove VST data during frost periods
-        for start, end in frost_periods:
-            station_data['vst_raw'] = station_data['vst_raw'][
-                ~((station_data['vst_raw'].index >= start) & 
-                    (station_data['vst_raw'].index <= end))
-            ]
         
         # From vst_raw remove points below 0
-        n_subZero = np.sum(station_data['vst_raw'] < 0)
+        n_subZero = int(np.sum(station_data['vst_raw'] < 0))  # Ensure n_subZero is an integer
         station_data['vst_raw'] = station_data['vst_raw'][station_data['vst_raw'] > 0]
-        print(f"Removed {n_subZero} points below 0")
+        print(f"Removed {n_subZero} points below 0 in vst raw")
 
         # Create vst_raw_feature as a separate feature
         # This will be used as an input feature, independent of the target vst_raw
@@ -289,9 +295,6 @@ def preprocess_data():
         # Fill any remaining NaN values with -1 for the feature
         station_data['vst_raw_feature'] = station_data['vst_raw_feature'].fillna(-1)
         
-
-        # Count points removed during frost periods
-        points_removed_frost = points_before - len(station_data['vst_raw'])
           # Resample temperature data if it exists
         if station_data['temperature'] is not None:
             station_data['temperature'] = station_data['temperature'].resample('15min').ffill().bfill()  # Hold mean temperature constant but divide by 4
@@ -300,139 +303,114 @@ def preprocess_data():
         if station_data['rainfall'] is not None:
             station_data['rainfall'] = station_data['rainfall'].fillna(-1)
 
+        
 
         print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
         print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
-        print(f"  - Total data points removed: {n_spikes + n_flatlines +points_removed_frost}")
-        print(f"Percentage of data points removed: {(n_spikes + n_flatlines +points_removed_frost) / len(All_station_data_original[station_name]['vst_raw']) * 100:.2f}%")
+        print(f"  - Total data points removed: {n_spikes + n_flatlines +points_removed_frost+n_subZero}")
+        print(f"Percentage of data points removed: {(n_spikes + n_flatlines +points_removed_frost+n_subZero) / len(All_station_data_original[station_name]['vst_raw']) * 100:.2f}%")
 
         print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
-        print(f"  - Average flatline duration: {avg_flatline_duration:.2f} points")
-        print(f"  - Average spike intensity: {avg_spike_intensity:.2f}")    
-        print(f"  - Average spike duration: {avg_spike_duration:.2f} points")    
-        print(f"  - Negative to positive spike ratio: {neg_pos_spike_ratio:.2f}")    
+        # print(f"  - Average flatline duration: {avg_flatline_duration:.2f} points")
+        # print(f"  - Average spike intensity: {avg_spike_intensity:.2f}")    
+        # print(f"  - Average spike duration: {avg_spike_duration:.2f} points")    
+        # print(f"  - Negative to positive spike ratio: {neg_pos_spike_ratio:.2f}")    
         
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
     # Save the frost periods
     save_data_Dict(all_frost_periods, filename=save_path / 'frost_periods.pkl')
-    print(f"Saved {len(all_frost_periods)} frost periods to {save_path / 'frost_periods.pkl'}")
   
     return All_station_data, All_station_data_original, all_frost_periods
 
-def create_interactive_station_plot(original_data, station_id):
+def create_interactive_station_plot(processed_data, original_data, station_id, frost_periods):
     """
-    Create an interactive plot showing only the full original vst_raw data.
+    Create an interactive plot showing the processed vst_raw data with frost periods marked,
+    a subplot for temperature data, and a subplot for the original data.
     
     Args:
+        processed_data: Dictionary containing processed station data
         original_data: Dictionary containing original station data
         station_id: ID of the station to plot
+        frost_periods: List of tuples containing (start_time, end_time) for each frost period
     """
-    # Create a simple figure
-    fig = go.Figure()
+    # Create subplots with shared x-axis
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1,
+                        subplot_titles=("Processed VST Raw Data", "Temperature Data", "Original VST Raw Data"))
     
     # Convert to FigureResampler for better performance with large datasets
     fig = FigureResampler(fig)
     
-    # Add original VST raw data trace
+    # Add processed VST raw data trace
     fig.add_trace(
         go.Scattergl(
-            name='VST Raw Data',
+            name='Processed VST Raw Data',
             line=dict(color='blue', width=1),
             hovertemplate='Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
         ),
-        hf_x=original_data[station_id]['vst_raw'].index,
-        hf_y=original_data[station_id]['vst_raw']['Value']
+        hf_x=processed_data[station_id]['vst_raw'].index,
+        hf_y=processed_data[station_id]['vst_raw']['vst_raw'],
+        row=1, col=1
     )
     
+    # Add temperature data trace
+    fig.add_trace(
+        go.Scattergl(
+            name='Temperature',
+            line=dict(color='red', width=1),
+            hovertemplate='Date: %{x}<br>Temperature: %{y:.2f} °C<extra></extra>'
+        ),
+        hf_x=processed_data[station_id]['temperature'].index,
+        hf_y=processed_data[station_id]['temperature']['temperature'],
+        row=2, col=1
+    )
+    
+    # Add original VST raw data trace
+    fig.add_trace(
+        go.Scattergl(
+            name='Original VST Raw Data',
+            line=dict(color='green', width=1),
+            hovertemplate='Date: %{x}<br>Value: %{y:.2f} mm<extra></extra>'
+        ),
+        hf_x=original_data[station_id]['vst_raw'].index,
+        hf_y=original_data[station_id]['vst_raw']['Value'],
+        row=3, col=1
+    )
+    
+    # Add shaded regions for frost periods
+    for start, end in frost_periods:
+        fig.add_shape(
+            type="rect",
+            x0=start, x1=end, y0=0, y1=1, xref="x", yref="paper",
+            fillcolor="lightblue", opacity=0.5, layer="below", line_width=0
+        )
+
     # Update layout
     fig.update_layout(
-        height=600,
+        height=1200,
         width=1200,
-        title_text=f"Station {station_id} - Original VST Raw Data",
+        title_text=f"Station {station_id} - VST Raw Data, Temperature, and Original Data with Frost Periods",
         hovermode='x',
         yaxis_title="Water Level (mm)",
-        xaxis_title="Date"
+        xaxis_title="Date",
+        plot_bgcolor='white',  # Set plot background to white
+        paper_bgcolor='white',  # Set paper background to white
+        xaxis=dict(showgrid=False),  # Remove x-axis grid lines
+        yaxis=dict(showgrid=False)   # Remove y-axis grid lines
     )
     
     return fig
 
 if __name__ == "__main__":
     processed_data, original_data, frost_periods = preprocess_data()
-    station_id = '21006845'  # You can change this to any station ID
+    station_id = '21006846'  # You can change this to any station ID
     
-    # Create figure with secondary y-axis
-    fig = make_subplots(rows=4, cols=1,
-                        subplot_titles=('Original VST Raw Data', 'Processed VST Raw Data with Frost Periods', 'Rainfall'),
-                        vertical_spacing=0.1)
-
-    # Add original VST raw data trace to top subplot
-    fig.add_trace(
-        go.Scatter(
-            x=original_data[station_id]['vst_raw'].index,
-            y=original_data[station_id]['vst_raw']['Value'],
-            name='VST Raw Original',
-            line=dict(color='blue')
-        ),
-        row=1, col=1
-    )
-    # Add processed VST raw data trace to bottom subplot
-    fig.add_trace(
-        go.Scatter(
-            x=processed_data[station_id]['vst_raw'].index,
-            y=processed_data[station_id]['vst_raw']['vst_raw'],
-            name='VST Raw Processed',
-            line=dict(color='green')
-        ),
-        row=2, col=1
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=processed_data[station_id]['rainfall'].index,
-            y=processed_data[station_id]['rainfall']['rainfall'],
-            name='Rainfall',
-            line=dict(color='red')
-        ), 
-        row=3, col=1
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=processed_data[station_id]['temperature'].index,
-            y=processed_data[station_id]['temperature']['temperature'],
-            name='Temperature',
-            line=dict(color='purple')
-        ), 
-        row=4, col=1
-    )
-
-
-    # Update layout
-    fig.update_layout(
-        height=1000,
-        showlegend=True,
-        hovermode='x unified',
-        title_text="VST Raw Data"
-    )
-
-    # Link x-axes of all subplots
-    fig.update_xaxes(matches='x')
-    fig.update_xaxes(range=['2010-01-01', '2025-01-01'])
-
-    # Update y-axis labels
-    fig.update_yaxes(title_text="VST Value", row=1, col=1)
-    fig.update_yaxes(title_text="VST Value", row=2, col=1)
-
-    # Open the plot in browser
-    #plot(fig, filename='station_data_comparison.html')
-
-    # Create interactive plot showing only original vst_raw data
-    interactive_fig = create_interactive_station_plot(original_data, station_id)
+    # Create interactive plot showing processed and original vst_raw data with frost periods
+    interactive_fig = create_interactive_station_plot(processed_data, original_data, station_id, frost_periods)
     
     # Show using Dash (interactive mode)
     interactive_fig.show_dash(mode='inline', port=8050)
