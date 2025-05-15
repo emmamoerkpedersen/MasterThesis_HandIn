@@ -5,7 +5,7 @@ Configuration for the Alternating Forecast Model.
 # Configuration for the alternating LSTM model
 ALTERNATING_CONFIG = {
     # Model architecture
-    'hidden_size': 64,         # Increased from 32 to 64
+    'hidden_size': 128,         # Increased from 32 to 64
     'dropout': 0.25,
     
     # Training parameters
@@ -42,8 +42,8 @@ ALTERNATING_CONFIG = {
     'feature_stations': [],
     
     # Feature engineering settings
-    'use_time_features': False,        # Enable time features (day of week, month, etc.)
-    'use_cumulative_features': False,  # Enable cumulative features (e.g., cumulative rainfall)
+    'use_time_features': True,        # Enable time features (day of week, month, etc.)
+    'use_cumulative_features': True,  # Enable cumulative features (e.g., cumulative rainfall)
     'use_lagged_features': False,     # Don't use lagged features
     
     # Do not include additional stations

@@ -31,6 +31,271 @@ def parse_arguments():
                       help='Which datasets to inject errors into (both, train, validation, or none)')
     return parser.parse_args()
 
+def generate_alternating_predictions(model, val_data, trainer, config):
+    """
+    Generate predictions for validation data using the alternating pattern 
+    (alternating between using original inputs and model's own predictions).
+    
+    Args:
+        model: Trained AlternatingForecastModel instance
+        val_data: Validation DataFrame
+        trainer: AlternatingTrainer instance
+        config: Model configuration with week_steps
+        
+    Returns:
+        DataFrame with original and alternating predictions
+    """
+    print("\nGenerating alternating predictions for validation data...")
+    
+    # Get week_steps from config
+    week_steps = config.get('week_steps', 672)  # Default: 672 steps (1 week of 15-min data)
+    
+    # Prepare validation data for the model
+    x_val, y_val = trainer.prepare_sequences(val_data, is_training=False)
+    
+    # Move to model's device
+    device = next(model.parameters()).device
+    x_val = x_val.to(device)
+    y_val = y_val.to(device)
+    
+    # Set model to evaluation mode
+    model.eval()
+    
+    # Generate standard predictions (without alternating)
+    with torch.no_grad():
+        # Reset states
+        hidden_state, cell_state = None, None
+        
+        # Get predictions using original data
+        standard_outputs, _, _ = model(
+            x_val, 
+            hidden_state, 
+            cell_state,
+            use_predictions=False  # Use original data as input
+        )
+    
+    # Generate alternating predictions
+    with torch.no_grad():
+        # Reset states
+        hidden_state, cell_state = None, None
+        
+        # Get predictions with alternating pattern
+        alternating_outputs, _, _ = model(
+            x_val, 
+            hidden_state, 
+            cell_state,
+            use_predictions=True,  # Enable using model's own predictions
+            alternating_weeks=True  # Use alternating week pattern
+        )
+    
+    # Convert predictions back to original scale
+    standard_pred_np = standard_outputs.cpu().numpy()
+    alternating_pred_np = alternating_outputs.cpu().numpy()
+    
+    # Handle dimensionality if needed
+    if standard_pred_np.ndim == 3:
+        standard_pred_np = standard_pred_np.reshape(standard_pred_np.shape[0] * standard_pred_np.shape[1], -1)
+        alternating_pred_np = alternating_pred_np.reshape(alternating_pred_np.shape[0] * alternating_pred_np.shape[1], -1)
+    
+    # Apply inverse transform
+    standard_pred_original = trainer.target_scaler.inverse_transform(standard_pred_np).flatten()
+    alternating_pred_original = trainer.target_scaler.inverse_transform(alternating_pred_np).flatten()
+    
+    # Create DataFrames with predictions
+    standard_pred_df = pd.DataFrame({
+        'vst_raw': standard_pred_original,
+    }, index=val_data.index[:len(standard_pred_original)])
+    
+    alternating_pred_df = pd.DataFrame({
+        'vst_raw': alternating_pred_original,
+    }, index=val_data.index[:len(alternating_pred_original)])
+    
+    print("Successfully generated standard and alternating predictions")
+    
+    return standard_pred_df, alternating_pred_df
+
+def generate_behavior_visualizations(val_data, predictions, station_id, config, output_path, model=None, trainer=None):
+    """
+    Generate visualizations specific to the alternating forecaster's behavior.
+    
+    Args:
+        val_data: Validation DataFrame
+        predictions: Predicted values (Series or array)
+        station_id: Station identifier
+        config: Model configuration
+        output_path: Output directory path
+        model: AlternatingForecastModel instance (needed for hidden state visualization)
+        trainer: AlternatingTrainer instance (needed for generating alternating predictions)
+        
+    Returns:
+        Dictionary with paths to generated visualizations
+    """
+    try:
+        from experiments.iterative_forecaster.alternating_visualization import (
+            plot_alternating_pattern_performance,
+            plot_error_accumulation,
+            plot_recovery_after_transition,
+            plot_input_flag_impact,
+            plot_hidden_state_evolution
+        )
+        
+        # Create output directories
+        vis_dir = Path(output_path) / "visualizations" / "alternating_behavior"
+        vis_dir.mkdir(parents=True, exist_ok=True)
+        
+        print("\nGenerating behavior visualizations for alternating model...")
+        
+        # Generate visualizations
+        week_steps = config.get('week_steps', 672)  # Default to 672 (1 week of 15-min intervals)
+        
+        # Generate alternating predictions if both model and trainer are provided
+        if model is not None and trainer is not None:
+            try:
+                print("\nGenerating explicit alternating predictions for visualization...")
+                standard_pred_df, alternating_pred_df = generate_alternating_predictions(
+                    model=model,
+                    val_data=val_data,
+                    trainer=trainer,
+                    config=config
+                )
+                
+                # Use alternating predictions for behavior analysis
+                behavior_predictions = alternating_pred_df['vst_raw']
+                
+                # Also create comparative visualization
+                plot_comparison_path = vis_dir / f'prediction_comparison_{station_id}.png'
+                plt.figure(figsize=(14, 8))
+                
+                # Plot the actual values
+                plt.plot(val_data.index, val_data['vst_raw'], 'b-', label='Actual', linewidth=1.5, alpha=0.8)
+                
+                # Plot standard predictions
+                plt.plot(standard_pred_df.index, standard_pred_df['vst_raw'], 'g-', 
+                       label='Standard Predictions', linewidth=1.5, alpha=0.8)
+                
+                # Plot alternating predictions
+                plt.plot(alternating_pred_df.index, alternating_pred_df['vst_raw'], 'r-', 
+                       label='Alternating Predictions', linewidth=1.5, alpha=0.8)
+                
+                # Shade the background differently for original vs prediction weeks
+                week_change_idx = [i * week_steps for i in range(1, (len(val_data) // week_steps) + 1)]
+                week_start_idx = 0
+                
+                for i, change_idx in enumerate(week_change_idx):
+                    if change_idx <= len(val_data):
+                        # Determine if this is an original or prediction-based week
+                        is_original = (i % 2 == 0)
+                        color = 'lightblue' if is_original else 'lightsalmon'
+                        alpha = 0.2
+                        label = 'Original Data Period' if is_original else 'Prediction-based Period'
+                        
+                        # Only add label for the first occurrence of each type
+                        if i < 2:  # Only add labels for the first two weeks
+                            plt.axvspan(val_data.index[week_start_idx], val_data.index[min(change_idx-1, len(val_data)-1)], 
+                                    alpha=alpha, color=color, label=label)
+                        else:
+                            plt.axvspan(val_data.index[week_start_idx], val_data.index[min(change_idx-1, len(val_data)-1)], 
+                                    alpha=alpha, color=color)
+                        
+                        week_start_idx = change_idx
+                
+                plt.title(f'Standard vs Alternating Prediction Comparison - Station {station_id}', fontweight='bold')
+                plt.ylabel('Water Level [mm]', fontweight='bold')
+                plt.xlabel('Date', fontweight='bold')
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+                plt.savefig(plot_comparison_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                print(f"Saved prediction comparison plot to: {plot_comparison_path}")
+                
+            except Exception as e:
+                print(f"Error generating alternating predictions: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                
+                # Fallback to standard predictions if alternating generation fails
+                behavior_predictions = predictions
+        else:
+            # Use standard predictions if model or trainer not provided
+            behavior_predictions = predictions
+        
+        # Plot alternating pattern performance
+        pattern_perf_path = plot_alternating_pattern_performance(
+            test_data=val_data,
+            predictions=behavior_predictions,
+            week_steps=week_steps,
+            output_dir=vis_dir,
+            station_id=station_id
+        )
+        
+        # Plot error accumulation
+        error_accum_path = plot_error_accumulation(
+            test_data=val_data,
+            predictions=behavior_predictions,
+            week_steps=week_steps,
+            output_dir=vis_dir,
+            station_id=station_id
+        )
+        
+        # Plot recovery after transitions
+        recovery_path = plot_recovery_after_transition(
+            test_data=val_data,
+            predictions=behavior_predictions,
+            week_steps=week_steps,
+            output_dir=vis_dir,
+            station_id=station_id,
+            transition_window=48  # 12 hours before/after transitions (at 15-min intervals)
+        )
+        
+        # Plot input flag impact
+        flag_impact_path = plot_input_flag_impact(
+            test_data=val_data,
+            predictions=behavior_predictions,
+            week_steps=week_steps,
+            output_dir=vis_dir,
+            station_id=station_id
+        )
+        
+        # Initialize hidden state path as None
+        hidden_state_path = None
+        
+        # Plot hidden state evolution if model is provided
+        if model is not None:
+            try:
+                hidden_state_path = plot_hidden_state_evolution(
+                    model=model,
+                    test_data=val_data,
+                    week_steps=week_steps,
+                    output_dir=vis_dir,
+                    station_id=station_id,
+                    num_states_to_show=5  # Show top 5 dimensions by variance
+                )
+            except Exception as e:
+                print(f"Error generating hidden state visualization: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        # Return paths to all visualizations
+        vis_paths = {
+            'alternating_pattern': pattern_perf_path,
+            'error_accumulation': error_accum_path,
+            'recovery_pattern': recovery_path,
+            'input_flag_impact': flag_impact_path
+        }
+        
+        if hidden_state_path:
+            vis_paths['hidden_state_evolution'] = hidden_state_path
+        
+        print(f"Behavior visualizations saved to: {vis_dir}")
+        return vis_paths
+        
+    except Exception as e:
+        print(f"Error generating behavior visualizations: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
 def run_alternating_model(args):
     """Run the alternating LSTM model with the specified parameters."""
     # Update configuration with command line arguments
@@ -218,22 +483,22 @@ def run_alternating_model(args):
         anomaly_viz_dir = Path(project_dir) / "results" / "anomaly_detection"
         anomaly_viz_dir.mkdir(parents=True, exist_ok=True)
         
-        png_path, html_path = plot_water_level_anomalies(
-            test_data=val_data,
-            predictions=val_pred_df['vst_raw'],
-            z_scores=z_scores,
-            anomalies=anomalies,
-            threshold=config['threshold'],
-            title=plot_title,
-            output_dir=anomaly_viz_dir,
-            save_png=True,
-            save_html=True,
-            show_plot=False
-        )
+        #png_path, html_path = plot_water_level_anomalies(
+        #    test_data=val_data,
+        #    predictions=val_pred_df['vst_raw'],
+        #    z_scores=z_scores,
+        #    anomalies=anomalies,
+        #    threshold=config['threshold'],
+        #    title=plot_title,
+        #    output_dir=anomaly_viz_dir,
+        #    save_png=True,
+        #    save_html=True,
+        #    show_plot=False
+        #)
         
-        print(f"Anomaly visualization (on corrupted data) saved to:")
-        print(f"PNG: {png_path}")
-        print(f"HTML: {html_path}")
+        #print(f"Anomaly visualization (on corrupted data) saved to:")
+        #print(f"PNG: {png_path}")
+        #print(f"HTML: {html_path}")
         
         # Also calculate anomalies between original data and corrupted data to verify synthetic errors
         original_vs_corrupted_zscores, original_vs_corrupted_anomalies = calculate_z_scores_mad(
@@ -248,22 +513,22 @@ def run_alternating_model(args):
         # Plot these anomalies to verify synthetic error injection
         synthetic_error_plot_title = f"Synthetic Errors Detected - Station {args.station_id} (Error Multiplier: {args.error_multiplier}x)"
         
-        syn_png_path, syn_html_path = plot_water_level_anomalies(
-            test_data=original_val_data,
-            predictions=val_data['vst_raw'],
-            z_scores=original_vs_corrupted_zscores,
-            anomalies=original_vs_corrupted_anomalies,
-            title=synthetic_error_plot_title,
-            output_dir=anomaly_viz_dir,
-            save_png=True,
-            save_html=True,
-            show_plot=False,
-            filename_prefix="synthetic_errors_"
-        )
+        #syn_png_path, syn_html_path = plot_water_level_anomalies(
+        #    test_data=original_val_data,
+        #    predictions=val_data['vst_raw'],
+        #    z_scores=original_vs_corrupted_zscores,
+        #    anomalies=original_vs_corrupted_anomalies,
+        #    title=synthetic_error_plot_title,
+        #    output_dir=anomaly_viz_dir,
+        #    save_png=True,
+        #    save_html=True,
+        #    show_plot=False,
+        #    filename_prefix="synthetic_errors_"
+        #)
         
-        print(f"Synthetic errors visualization saved to:")
-        print(f"PNG: {syn_png_path}")
-        print(f"HTML: {syn_html_path}")
+        #print(f"Synthetic errors visualization saved to:")
+        #print(f"PNG: {syn_png_path}")
+        #print(f"HTML: {syn_html_path}")
     else:
         # Standard anomaly detection against original data
         z_scores, anomalies = calculate_z_scores_mad(
@@ -282,21 +547,22 @@ def run_alternating_model(args):
         anomaly_viz_dir = Path(project_dir) / "results" / "anomaly_detection"
         anomaly_viz_dir.mkdir(parents=True, exist_ok=True)
         
-        png_path, html_path = plot_water_level_anomalies(
-            test_data=val_data,
-            predictions=val_pred_df['vst_raw'],
-            z_scores=z_scores,
-            anomalies=anomalies,
-            title=plot_title,
-            output_dir=anomaly_viz_dir,
-            save_png=True,
-            save_html=True,
-            show_plot=False
-        )
+        #png_path, html_path = plot_water_level_anomalies(
+        #    test_data=val_data,
+        #    predictions=val_pred_df['vst_raw'],
+        #    z_scores=z_scores,
+        #    anomalies=anomalies,
+        #    title=plot_title,
+        #    output_dir=anomaly_viz_dir,
+        #    save_png=True,
+        #    save_html=True,
+        #    show_plot=False
+        #)
         
-        print(f"Anomaly visualization saved to:")
-        print(f"PNG: {png_path}")
-        print(f"HTML: {html_path}")
+        # Comment out or remove the line causing the error (around line 405-407)
+        #print(f"Anomaly visualization saved to:")
+        #print(f"PNG: {png_path}")
+        #print(f"HTML: {html_path}")
     
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics
@@ -362,6 +628,35 @@ def run_alternating_model(args):
     else:
         print("\nNot enough valid data points to calculate metrics")
         metrics = {"mse": float('nan'), "rmse": float('nan'), "mae": float('nan')}
+    
+    # Generate new behavior visualizations
+    behavior_vis_paths = generate_behavior_visualizations(
+        val_data=val_data,
+        predictions=val_pred_df['vst_raw'],
+        station_id=args.station_id,
+        config=config,
+        output_path=project_dir / "results" / "Iterative model results",
+        model=trainer.model,
+        trainer=trainer
+    )
+    
+    # Generate residual plots and other diagnostics
+    from _3_lstm_model.model_diagnostics import generate_all_diagnostics
+    
+    # Create features DataFrame for residual analysis
+    features_df = pd.DataFrame({
+        'temperature': val_data['temperature'],
+        'rainfall': val_data['rainfall']
+    })
+    
+    # Generate all diagnostic plots
+    diagnostic_vis_paths = generate_all_diagnostics(
+        actual=val_data['vst_raw'],
+        predictions=val_pred_df['vst_raw'],
+        output_dir=project_dir / "results" / "Iterative model results" / "diagnostics",
+        station_id=args.station_id,
+        features_df=features_df
+    )
     
     return metrics
 

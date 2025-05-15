@@ -33,6 +33,21 @@ def smoothL1_loss(outputs, targets):
     """
     return nn.functional.smooth_l1_loss(outputs, targets)
 
+@register_objective('huber_loss')
+def huber_loss(outputs, targets):
+    """
+    Huber loss function.
+    """
+    return nn.functional.huber_loss(outputs, targets)
+
+@register_objective('mae_loss')
+def mae_loss(outputs, targets):
+    """
+    Mean Absolute Error loss function.
+    """
+    return nn.functional.l1_loss(outputs, targets)
+
+
 def get_objective_function(name):
     """
     Get an objective function by name.
