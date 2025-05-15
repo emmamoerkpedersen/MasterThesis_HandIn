@@ -223,7 +223,7 @@ def align_data(data):
                 df.index = df.index.tz_localize(None)
 
             # Round timestamps **only** for the vst_raw, vst_edt, vinge data
-            if subkey == 'vst_raw' or subkey == 'vst_edt':
+            if subkey == 'vst_raw' or subkey == 'vst_edt' or subkey == 'vinge':
                 df.index = df.index.round('15min')
 
             # Remove duplicates after rounding (if any)
@@ -284,7 +284,7 @@ def preprocess_data():
         points_before = len(station_data['vst_raw'])
         
         # From vst_raw remove points below 0
-        n_subZero = np.sum(station_data['vst_raw'] < 0)
+        n_subZero = int(np.sum(station_data['vst_raw'] < 0))  # Ensure n_subZero is an integer
         station_data['vst_raw'] = station_data['vst_raw'][station_data['vst_raw'] > 0]
         print(f"Removed {n_subZero} points below 0 in vst raw")
 
