@@ -6,6 +6,8 @@ from pathlib import Path
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import seaborn as sns
 from matplotlib.gridspec import GridSpec
+from sklearn.inspection import permutation_importance
+from sklearn.ensemble import RandomForestRegressor
 
 def analyze_individual_residuals(actual, predictions, output_dir=None, station_id='main', features_df=None):
     """
@@ -406,6 +408,214 @@ def create_error_heatmap(actual, predictions, output_dir=None, station_id='main'
     print(f"Saved error heatmap to: {output_path}")
     return output_path
 
+def create_feature_importance_plot(test_data, predictions, feature_cols, output_dir=None, station_id='main'):
+    """
+    Create a feature importance plot using permutation importance method.
+    
+    Args:
+        test_data: DataFrame containing test data with features and target
+        predictions: Series containing predicted water level values
+        feature_cols: List of feature column names
+        output_dir: Optional output directory path
+        station_id: Station identifier for plot title
+        
+    Returns:
+        Path to the saved PNG file
+    """
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path("Project_Code - CORRECT/results/diagnostics")
+        output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for unique filename
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Extract the actual values and prepare features DataFrame
+    actual = test_data['vst_raw'] if 'vst_raw' in test_data.columns else None
+    if actual is None:
+        print("Warning: 'vst_raw' not found in test_data. Feature importance cannot be calculated.")
+        return None
+    
+    # Keep only the feature columns that exist in the data
+    valid_feature_cols = [col for col in feature_cols if col in test_data.columns]
+    if not valid_feature_cols:
+        print("Warning: No valid feature columns found. Feature importance cannot be calculated.")
+        return None
+    
+    # Create features DataFrame
+    features = test_data[valid_feature_cols]
+    
+    # Handle missing values if any
+    features = features.fillna(method='ffill').fillna(0)
+    
+    # Get unique indices where both actual and predictions have valid values
+    common_idx = features.index.intersection(actual.index).intersection(predictions.index)
+    if len(common_idx) < 10:  # Need enough data for meaningful analysis
+        print("Warning: Not enough common data points for feature importance analysis.")
+        return None
+    
+    # Align data on common indices
+    X = features.loc[common_idx].values
+    y_actual = actual.loc[common_idx].values
+    y_pred = predictions.loc[common_idx].values
+    
+    # Check for NaN or infinite values
+    if np.isnan(X).any() or np.isinf(X).any() or np.isnan(y_actual).any() or np.isinf(y_actual).any():
+        print("Warning: Data contains NaN or infinite values. Cleaning data for analysis.")
+        # Create mask for valid data points
+        valid_mask = ~np.isnan(y_actual) & ~np.isinf(y_actual) & ~np.any(np.isnan(X) | np.isinf(X), axis=1)
+        X = X[valid_mask]
+        y_actual = y_actual[valid_mask]
+        y_pred = y_pred[valid_mask]
+    
+    if len(y_actual) < 10:
+        print("Warning: Not enough valid data points after cleaning for feature importance analysis.")
+        return None
+    
+    # Calculate error between actual and predictions (this will be our target)
+    errors = np.abs(y_actual - y_pred)
+    
+    # Train a simple Random Forest model to predict the errors
+    rf = RandomForestRegressor(n_estimators=50, random_state=42)
+    try:
+        rf.fit(X, errors)
+        
+        # Calculate permutation importance
+        perm_importance = permutation_importance(rf, X, errors, n_repeats=10, random_state=42)
+        
+        # Sort features by importance
+        sorted_idx = perm_importance.importances_mean.argsort()
+        
+        # Get feature names
+        feature_names = [valid_feature_cols[i] for i in sorted_idx]
+        
+        # Plot feature importance
+        plt.figure(figsize=(10, 8))
+        plt.barh(range(len(sorted_idx)), perm_importance.importances_mean[sorted_idx])
+        plt.yticks(range(len(sorted_idx)), [feature_names[i] for i in range(len(sorted_idx))])
+        plt.xlabel('Permutation Importance for Prediction Error')
+        plt.ylabel('Feature')
+        plt.title(f'Feature Importance - Station {station_id}', fontweight='bold')
+        plt.tight_layout()
+        
+        # Save the figure
+        output_path = output_dir / f'feature_importance_{station_id}_{timestamp}.png'
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Saved feature importance plot to: {output_path}")
+        return output_path
+        
+    except Exception as e:
+        print(f"Error calculating feature importance: {e}")
+        return None
+
+def create_correlation_analysis(test_data, predictions, feature_cols, output_dir=None, station_id='main'):
+    """
+    Create correlation analysis plots for features, target, and prediction errors.
+    
+    Args:
+        test_data: DataFrame containing test data with features and target
+        predictions: Series containing predicted water level values
+        feature_cols: List of feature column names
+        output_dir: Optional output directory path
+        station_id: Station identifier for plot title
+        
+    Returns:
+        Path to the saved PNG file
+    """
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path("Project_Code - CORRECT/results/diagnostics")
+        output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for unique filename
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Extract the actual values
+    actual = test_data['vst_raw'] if 'vst_raw' in test_data.columns else None
+    if actual is None:
+        print("Warning: 'vst_raw' not found in test_data. Correlation analysis cannot be performed.")
+        return None
+    
+    # Keep only the feature columns that exist in the data
+    valid_feature_cols = [col for col in feature_cols if col in test_data.columns]
+    if not valid_feature_cols:
+        print("Warning: No valid feature columns found. Correlation analysis cannot be performed.")
+        return None
+    
+    # Create a combined DataFrame with features, actual, predictions, and errors
+    df_corr = test_data[valid_feature_cols].copy()
+    df_corr['Actual'] = actual
+    
+    # Add predictions to the correlation DataFrame
+    prediction_series = pd.Series(predictions, index=test_data.index)
+    df_corr['Predicted'] = prediction_series
+    
+    # Calculate errors
+    df_corr['Error'] = df_corr['Actual'] - df_corr['Predicted']
+    df_corr['Abs_Error'] = df_corr['Error'].abs()
+    
+    # Handle missing values
+    df_corr = df_corr.fillna(method='ffill').fillna(0)
+    
+    # Create correlation matrix
+    corr_matrix = df_corr.corr()
+    
+    # Create a mask for the upper triangle
+    mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+    
+    # Set up the matplotlib figure
+    plt.figure(figsize=(12, 10))
+    
+    # Generate a custom diverging colormap
+    cmap = sns.diverging_palette(220, 10, as_cmap=True)
+    
+    # Draw the heatmap with the mask and correct aspect ratio
+    sns.heatmap(
+        corr_matrix, 
+        mask=mask, 
+        cmap=cmap, 
+        vmax=.3, 
+        center=0,
+        square=True, 
+        linewidths=.5, 
+        cbar_kws={"shrink": .5},
+        annot=True,
+        fmt=".2f"
+    )
+    
+    plt.title(f'Feature Correlation Analysis - Station {station_id}', fontweight='bold')
+    plt.tight_layout()
+    
+    # Save the figure
+    output_path = output_dir / f'correlation_analysis_{station_id}_{timestamp}.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Create a separate correlation plot for errors and features only
+    error_cols = ['Error', 'Abs_Error']
+    error_corr = corr_matrix.loc[error_cols, [col for col in corr_matrix.columns if col not in error_cols]]
+    
+    plt.figure(figsize=(12, 6))
+    sns.heatmap(
+        error_corr,
+        cmap='coolwarm',
+        annot=True,
+        fmt=".2f",
+        linewidths=.5
+    )
+    plt.title(f'Error Correlation with Features - Station {station_id}', fontweight='bold')
+    plt.tight_layout()
+    
+    # Save the error correlation figure
+    error_output_path = output_dir / f'error_correlation_{station_id}_{timestamp}.png'
+    plt.savefig(error_output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"Saved correlation analysis plots to: {output_path} and {error_output_path}")
+    return {'correlation': output_path, 'error_correlation': error_output_path}
+
 def generate_all_diagnostics(actual, predictions, output_dir=None, station_id='main', rainfall=None, features_df=None):
     """
     Generate a simplified set of diagnostic visualizations for a water level prediction model.
@@ -474,6 +684,28 @@ def generate_all_diagnostics(actual, predictions, output_dir=None, station_id='m
             station_id=station_id
         )
         visualization_paths['error_heatmap'] = heatmap_path
+        
+        # 4. Create feature importance plot
+        print("  - Creating feature importance plot...")
+        feature_importance_path = create_feature_importance_plot(
+            test_data=pd.DataFrame({'vst_raw': actual, **features_df}),
+            predictions=predictions,
+            feature_cols=features_df.columns,
+            output_dir=output_dir,
+            station_id=station_id
+        )
+        visualization_paths['feature_importance'] = feature_importance_path
+        
+        # 5. Create correlation analysis plots
+        print("  - Creating correlation analysis plots...")
+        correlation_analysis_paths = create_correlation_analysis(
+            test_data=pd.DataFrame({'vst_raw': actual, **features_df}),
+            predictions=predictions,
+            feature_cols=features_df.columns,
+            output_dir=output_dir,
+            station_id=station_id
+        )
+        visualization_paths['correlation_analysis'] = correlation_analysis_paths
         
         # Success message
         print(f"\nAll diagnostic visualizations saved to: {output_dir}")
