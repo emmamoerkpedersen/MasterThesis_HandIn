@@ -99,7 +99,7 @@ def run_pipeline(
     #########################################################
     station_id = '21006846'
     print(f"\nProcessing data for station {station_id}...")
-    train_data, val_data, test_data = preprocessor.load_and_split_data(project_root, station_id)
+    train_data, val_data, test_data, vinge_data = preprocessor.load_and_split_data(project_root, station_id)
     
     # Store original data for later use
     original_train_data = train_data.copy()
@@ -240,7 +240,8 @@ def run_pipeline(
             model_config, 
             best_val_loss, 
             title_suffix=val_plot_title,
-            synthetic_data=synthetic_data
+            synthetic_data=synthetic_data,
+            vinge_data=vinge_data
         )
         plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
     # Generate test predictions
