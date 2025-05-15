@@ -75,10 +75,10 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
     
     station_id = str(station_id)
     
-    # Create the title with optional suffix
-    title = f'Prediction Analysis for Station {station_id}'
-    if title_suffix:
-        title = f'{title} - {title_suffix}'
+    # # Create the title with optional suffix
+    # title = f'Prediction Analysis for Station {station_id}'
+    # if title_suffix:
+    #     title = f'{title} - {title_suffix}'
     
     # Get the actual test data with its datetime index
     test_actual = test_data['vst_raw']
@@ -357,14 +357,6 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         
         # Update layout
         fig.update_layout(
-            title={
-                'text': title,
-                'y': 0.95,  # Moved down slightly to make room for config
-                'x': 0.5,
-                'xanchor': 'center',
-                'yanchor': 'top',
-                'font': {'size': 24}
-            },
             width=1500,  # Back to reasonable width
             height=1000,  # Keep height
             showlegend=True,
@@ -1670,14 +1662,6 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
         
         # Update layout
         fig.update_layout(
-            title={
-                'text': title,
-                'y': 0.95,
-                'x': 0.5,
-                'xanchor': 'center',
-                'yanchor': 'top',
-                'font': {'size': 24}
-            },
             width=1500,
             height=1000,
             showlegend=True,
