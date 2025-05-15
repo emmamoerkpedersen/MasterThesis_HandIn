@@ -4,11 +4,11 @@ Preprocessing Statistics Summary
 Station: 21006846
 -----------------
 Total Points: 453,919
-Points Removed: 33,696 (7.4%)
+Points Removed: -62,821 (-13.8%)
 Breakdown:
   • Outliers: 6,707
-  • Freezing: 51,019
-  • Flatlines: -24,030
+  • Freezing: 808
+  • Flatlines: -70,336
 
 IQR Statistics:
   • Q1: 465.1
