@@ -767,6 +767,10 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     
     ax.plot(predictions.index, predictions.values, color='#2ca02c', linewidth=0.8, label='Predicted')
     
+    # Add VINGE data if available
+    if vinge_data is not None:
+        ax.plot(vinge_data.index, vinge_data['vinge'].values, 'o', color='#ff7f0e', label='VINGE Data')
+    
     # Clean styling
     if title_suffix:
         title_text = f'Water Level Predictions - Station {station_id} - {title_suffix}'
