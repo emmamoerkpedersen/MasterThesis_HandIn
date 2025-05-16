@@ -7,7 +7,7 @@ import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
 from datetime import datetime
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 # Function to calculate NSE (Nash-Sutcliffe Efficiency)
 def calculate_nse(observed, predicted):
@@ -93,7 +93,6 @@ def calculate_performance_metrics(actual_data, predictions, valid_mask=None):
         return {
             'rmse': np.nan,
             'mae': np.nan,
-            'r2': np.nan,
             'nse': np.nan
         }
     
@@ -106,10 +105,6 @@ def calculate_performance_metrics(actual_data, predictions, valid_mask=None):
         actual_data[valid_mask], 
         predictions[valid_mask]
     )
-    r2 = r2_score(
-        actual_data[valid_mask], 
-        predictions[valid_mask]
-    )
     nse = calculate_nse(
         actual_data[valid_mask], 
         predictions[valid_mask]
@@ -118,7 +113,6 @@ def calculate_performance_metrics(actual_data, predictions, valid_mask=None):
     return {
         'rmse': rmse,
         'mae': mae,
-        'r2': r2,
         'nse': nse
     }
 
@@ -144,8 +138,6 @@ def save_comparison_metrics(output_path, error_frequency, clean_metrics, error_m
         'error_rmse': [error_metrics.get('rmse', np.nan)],
         'clean_mae': [clean_metrics.get('mae', np.nan)],
         'error_mae': [error_metrics.get('mae', np.nan)],
-        'clean_r2': [clean_metrics.get('r2', np.nan)],
-        'error_r2': [error_metrics.get('r2', np.nan)],
         'clean_nse': [clean_metrics.get('nse', np.nan)],
         'error_nse': [error_metrics.get('nse', np.nan)]
     })
@@ -212,7 +204,6 @@ def print_comparison_table(clean_metrics, error_metrics, error_frequency):
         ('val_loss', 'Val Loss', '{:<15.6f}'),
         ('rmse', 'RMSE', '{:<15.2f}'),
         ('mae', 'MAE', '{:<15.2f}'),
-        ('r2', 'R²', '{:<15.4f}'),
         ('nse', 'NSE', '{:<15.4f}')
     ]
     
