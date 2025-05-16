@@ -137,8 +137,8 @@ LSTM_CONFIG = {
     
     'feature_cols': [
       #  'vst_raw_feature',
-        'rainfall',
-        
+        'rainfall', 
+        'temperature'
     ],
     'output_features': ['vst_raw'],
 

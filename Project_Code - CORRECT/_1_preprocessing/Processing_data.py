@@ -69,9 +69,6 @@ def detect_frost_periods(temperature_data, vst_data):
                 if frost_sum < -threshold:
                     extended_end = current_period_end + pd.Timedelta(hours=24)
                     frost_periods.append((current_period_start, extended_end))
-                    # Count and remove data from vst_data during frost periods
-                    points_removed_frost += vst_data[(vst_data.index >= current_period_start) & (vst_data.index <= extended_end)].shape[0]
-                    vst_data = vst_data[~((vst_data.index >= current_period_start) & (vst_data.index <= extended_end))]
                 current_period_start = None
                 current_period_end = None
                 frost_sum = 0
@@ -81,11 +78,21 @@ def detect_frost_periods(temperature_data, vst_data):
         if frost_sum < -threshold:
             extended_end = current_period_end + pd.Timedelta(hours=24)
             frost_periods.append((current_period_start, extended_end))
-            # Count and remove data from vst_data during frost periods
-            points_removed_frost += vst_data[(vst_data.index >= current_period_start) & (vst_data.index <= extended_end)].shape[0]
-            vst_data = vst_data[~((vst_data.index >= current_period_start) & (vst_data.index <= extended_end))]
 
-    return frost_periods, vst_data, points_removed_frost
+    # Merge overlapping frost periods
+    merged_frost_periods = []
+    for start, end in sorted(frost_periods):
+        if not merged_frost_periods or merged_frost_periods[-1][1] < start:
+            merged_frost_periods.append((start, end))
+        else:
+            merged_frost_periods[-1] = (merged_frost_periods[-1][0], max(merged_frost_periods[-1][1], end))
+
+    # Remove data from vst_data during merged frost periods
+    for start, end in merged_frost_periods:
+        points_removed_frost += vst_data[(vst_data.index >= start) & (vst_data.index <= end)].shape[0]
+        vst_data = vst_data[~((vst_data.index >= start) & (vst_data.index <= end))]
+
+    return merged_frost_periods, vst_data, points_removed_frost
 
 def remove_spikes(vst_data):
     """
@@ -112,6 +119,8 @@ def remove_spikes(vst_data):
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 4 * IQR
     
+    if lower_bound < 0:
+        lower_bound = 0
     # Create a mask for valid (non-NaN) values within bounds
     is_spike = (vst_data['vst_raw'] < lower_bound) | (vst_data['vst_raw'] > upper_bound)
     is_not_spike_or_nan = ~is_spike | vst_data['vst_raw'].isna()
@@ -274,20 +283,13 @@ def preprocess_data():
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines, avg_flatline_duration = remove_flatlines(station_data['vst_raw'])
 
-        # Detect freezing periods and remove from vst_raw
-        temp_data = station_data['temperature']
-        frost_periods, station_data['vst_raw'], points_removed_frost = detect_frost_periods(temp_data, station_data['vst_raw'])
-        # Add to the combined list
-        all_frost_periods.extend(frost_periods)
+        # # Detect freezing periods and remove from vst_raw
+        # temp_data = station_data['temperature']
+        # frost_periods, station_data['vst_raw'], points_removed_frost = detect_frost_periods(temp_data, station_data['vst_raw'])
+        # # Add to the combined list
+        # all_frost_periods.extend(frost_periods)
               
-        # Count points before frost period removal
-        points_before = len(station_data['vst_raw'])
-        
-        # From vst_raw remove points below 0
-        n_subZero = int(np.sum(station_data['vst_raw'] < 0))  # Ensure n_subZero is an integer
-        station_data['vst_raw'] = station_data['vst_raw'][station_data['vst_raw'] > 0]
-        print(f"Removed {n_subZero} points below 0 in vst raw")
-
+    
         # Create vst_raw_feature as a separate feature
         # This will be used as an input feature, independent of the target vst_raw
         station_data['vst_raw_feature'] = station_data['vst_raw'].copy()
@@ -307,10 +309,10 @@ def preprocess_data():
 
         print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
         print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
-        print(f"  - Total data points removed: {n_spikes + n_flatlines +points_removed_frost+n_subZero}")
-        print(f"Percentage of data points removed: {(n_spikes + n_flatlines +points_removed_frost+n_subZero) / len(All_station_data_original[station_name]['vst_raw']) * 100:.2f}%")
+        print(f"  - Total data points removed: {n_spikes + n_flatlines }")
+        print(f"Percentage of data points removed: {(n_spikes + n_flatlines ) / len(All_station_data_original[station_name]['vst_raw']) * 100:.2f}%")
 
-        print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
+        #print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
         print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
         print(f"  - Removed {n_spikes} spikes")
         print(f"  - Removed {int(n_flatlines)} flatline points")
