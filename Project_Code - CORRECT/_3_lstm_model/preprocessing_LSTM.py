@@ -242,18 +242,11 @@ class DataPreprocessor:
         if is_training:
             scaled_features, scaled_target = self.feature_scaler.fit_transform(features, target)
         else:
-            # For validation/test, check if the scaler has been fitted
-            if not hasattr(self.feature_scaler, 'feature_scaler') or self.feature_scaler.feature_scaler is None:
-                # If not fitted, we need to fit it first on this data (not ideal but prevents errors)
-                print("Warning: Feature scaler not fitted. Fitting on current data.")
-                scaled_features, scaled_target = self.feature_scaler.fit_transform(features, target)
-            else:
-                scaled_features, scaled_target = self.feature_scaler.transform(features, target)
-            
-        # Handle NaN values in scaled target
-        if np.all(np.isnan(scaled_target)):
-            scaled_target = np.nan_to_num(scaled_target, nan=0)
-            
+            # For validation/test, ensure the scaler has been fitted
+            if not self.feature_scaler.is_fitted:
+                raise RuntimeError("Feature scaler has not been fitted. Ensure training data is processed first.")
+            scaled_features, scaled_target = self.feature_scaler.transform(features, target)
+        
         # Create sequences with overlap
         X, y = self._create_sequences(scaled_features, scaled_target)
         
