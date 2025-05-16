@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
-from experiments.Improved_model_structure.model import LSTMModel
+from experiments.Improved_model_structure.improved_model import LSTMModel
 #from _3_lstm_model.model import LSTMModel
 from tqdm import tqdm
 from _3_lstm_model.objective_functions import get_objective_function
