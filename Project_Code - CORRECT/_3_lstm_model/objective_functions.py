@@ -33,12 +33,6 @@ def smoothL1_loss(outputs, targets):
     """
     return nn.functional.smooth_l1_loss(outputs, targets)
 
-@register_objective('huber_loss')
-def huber_loss(outputs, targets):
-    """
-    Huber loss function.
-    """
-    return nn.functional.huber_loss(outputs, targets)
 
 @register_objective('mae_loss')
 def mae_loss(outputs, targets):
