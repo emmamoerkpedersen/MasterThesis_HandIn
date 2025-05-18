@@ -50,19 +50,19 @@ SYNTHETIC_ERROR_PARAMS = {
         }
     },
     
-    # 'drift': {
-    #     'count_per_year': 0,  # Disabled by default
-    #     # Wider range for drift durations
-    #     'duration_range': [500, 1168],  # Changed from [24, 168]
-    #     # More varied magnitude range
-    #     'magnitude_range': [5, 50],   # Changed from [10, 50]
-    #     'negative_positive_ratio': 0.5,
-    #     'context_aware': {
-    #         'subtle_prob': 0.5,
-    #         'medium_prob': 0.3,
-    #         'obvious_prob': 0.2
-    #     }
-    # },
+     'drift': {
+        'count_per_year': 0,  # Disabled by default
+        # Wider range for drift durations
+        'duration_range': [1168*2, 1168*3],  # Changed from [24, 168]
+        # More varied magnitude range
+        'magnitude_range': [50, 150],   # Changed from [10, 50]
+        'negative_positive_ratio': 0.5,
+        'context_aware': {
+            'subtle_prob': 0.5,
+            'medium_prob': 0.3,
+            'obvious_prob': 0.2
+        }
+    },
     
     # 'flatline': {
     #     'count_per_year': 0,  # Disabled by default
@@ -92,11 +92,11 @@ SYNTHETIC_ERROR_PARAMS = {
         'intensity_range': (4, 10)  # Changed from (2, 4)
     },
     
-    # 'baseline_shift': {
-    #     'count_per_year': 0,  # Disabled by default
-    #     'magnitude_range': (100, 600),  # Changed from (200, 600)
-    #     'negative_positive_ratio': 0.5
-    # },
+    'baseline_shift': {
+        'count_per_year': 0,  # Disabled by default
+        'magnitude_range': (100, 600),  # Changed from (200, 600)
+        'negative_positive_ratio': 0
+    },
     
     # Updated physical limits
     'PHYSICAL_LIMITS': {

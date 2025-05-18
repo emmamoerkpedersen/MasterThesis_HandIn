@@ -57,46 +57,45 @@ def run_preprocessing_diagnostics(project_root, output_path, station_id):
             plot_station_data_overview(station_original_data, station_preprocessed_data, Path(output_path))
             plot_vst_vinge_comparison(station_preprocessed_data, Path(output_path), station_original_data)
             
-            # Generate detailed analysis plot using ALL stations
-            print("Generating detailed error analysis plot...")
+            # Generate detailed analysis plot using data for the current station_id
+            print(f"Generating detailed error analysis plot for station {station_id}...")
             
-            # Create data dictionary for all stations
-            data_dict = {}
-            for current_station_id in original_data.keys():
-                station_data = original_data[current_station_id]
-                data_dict[current_station_id] = {
-                    'vst_raw': pd.DataFrame({
-                        'Date': station_data['vst_raw'].index,
-                        'Value': station_data['vst_raw'].iloc[:, 0]  # First column after Date
-                    }),
-                    'vinge': None
-                }
-                
-                # Add VINGE data if available
-                if 'vinge' in station_data and station_data['vinge'] is not None:
-                    vinge_df = station_data['vinge'].copy()
-                    if 'W.L [cm]' not in vinge_df.columns:
-                        # Try to find a suitable column for VINGE data
-                        value_cols = [col for col in vinge_df.columns if col != 'Date']
-                        if value_cols:
-                            vinge_df['W.L [cm]'] = vinge_df[value_cols[0]]
-                    
-                    data_dict[current_station_id]['vinge'] = pd.DataFrame({
-                        'Date': vinge_df.index,
-                        'W.L [cm]': vinge_df['W.L [cm]']
-                    })
+            current_station_data_for_detailed_plot = {}
+            if station_id in original_data and original_data[station_id] is not None:
+                source_data = original_data[station_id]
+                if 'vst_raw' in source_data and source_data['vst_raw'] is not None:
+                    current_station_data_for_detailed_plot['vst_raw'] = source_data['vst_raw'].copy()
+                else:
+                    print(f"Warning: 'vst_raw' data not found for station {station_id} in original_data for detailed plot.")
+                    current_station_data_for_detailed_plot['vst_raw'] = pd.DataFrame() # Pass empty df
+
+                if 'vinge' in source_data and source_data['vinge'] is not None:
+                    current_station_data_for_detailed_plot['vinge'] = source_data['vinge'].copy()
+                else:
+                    current_station_data_for_detailed_plot['vinge'] = None # create_detailed_plot handles None vinge
+
+            else:
+                print(f"Warning: No original data found for station {station_id} for detailed plot. Passing empty data.")
+                current_station_data_for_detailed_plot['vst_raw'] = pd.DataFrame()
+                current_station_data_for_detailed_plot['vinge'] = None
+
+            # Get time windows (now returns a list for a single station configuration)
+            time_windows_list = get_time_windows()
             
-            # Get time windows and create the detailed plot
-            time_windows_dict = get_time_windows()
-            detailed_plot_path = create_detailed_plot(
-                data_dict=data_dict,
-                time_windows_dict=time_windows_dict,
-                folder=station_id,
-                output_dir=output_path
-            )
+            if not current_station_data_for_detailed_plot['vst_raw'].empty:
+                detailed_plot_path = create_detailed_plot(
+                    station_data=current_station_data_for_detailed_plot, # Pass data for the specific station
+                    time_windows=time_windows_list,                 # Pass the list of time windows
+                    station_id=station_id,                          # Pass the current station_id
+                    output_dir=Path(output_path)                    # Pass the output directory as a Path object
+                )
             
-            if detailed_plot_path:
-                print(f"Detailed analysis plot saved to: {detailed_plot_path}")
+                if detailed_plot_path:
+                    print(f"Detailed analysis plot saved to: {detailed_plot_path}")
+                else:
+                    print(f"Failed to generate detailed analysis plot for station {station_id}.")
+            else:
+                print(f"Skipping detailed analysis plot for station {station_id} due to missing 'vst_raw' data.")
             
             return True
         else:
