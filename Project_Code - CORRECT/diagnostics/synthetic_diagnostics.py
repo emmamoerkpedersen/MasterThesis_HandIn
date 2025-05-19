@@ -2,6 +2,8 @@
 
 import sys
 from pathlib import Path
+import matplotlib.ticker as mticker
+import scipy.stats as stats # Add for linear regression
 
 # Assuming synthetic_diagnostics.py is in Project_Code - CORRECT/diagnostics/
 # Adjust sys.path to allow imports from the project root ('Project_Code - CORRECT')
@@ -65,7 +67,7 @@ def plot_synthetic_errors(original_data: pd.DataFrame,
         'flatline': '#2ca02c',  # Green
         'offset': '#d62728',    # Red
         'drift': '#9467bd',     # Purple
-        'baseline_shift': '#8c564b',  # Brown
+        'baseline shift': '#8c564b',  # Brown
         'noise': '#e377c2'      # Pink
     }
     
@@ -117,7 +119,7 @@ def plot_synthetic_errors(original_data: pd.DataFrame,
             line = ax2.plot(period_data, color=ERROR_COLORS[error_type],
                           alpha=0.9, linewidth=2, zorder=3)[0]
         
-        elif error_type == 'baseline_shift':
+        elif error_type == 'baseline shift':
             ax2.axvline(x=period.start_time, color=ERROR_COLORS[error_type],
                        alpha=0.8, linewidth=2, linestyle='--')
             line = ax2.plot(period_data, color=ERROR_COLORS[error_type],
@@ -176,7 +178,7 @@ def create_interactive_plot(original_data: pd.DataFrame,
         'flatline': '#2ca02c',  # Green
         'offset': '#d62728',    # Red
         'drift': '#9467bd',     # Purple
-        'baseline_shift': '#8c564b',  # Brown
+        'baseline shift': '#8c564b',  # Brown
         'noise': '#e377c2'      # Pink
     }
     
@@ -243,7 +245,7 @@ def create_interactive_plot(original_data: pd.DataFrame,
                 opacity=0.3, line_width=8,
                 row=2, col=1
             )
-        elif error_type == 'baseline_shift':
+        elif error_type == 'baseline shift':
             fig.add_vline(
                 x=period.start_time, line_color=ERROR_COLORS[error_type],
                 opacity=0.8, line_width=2, line_dash='dash',
@@ -338,13 +340,13 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
     plt.rcParams.update({
         'font.family': 'serif',
         'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 18,
-        'axes.titlesize': 22,
-        'axes.labelsize': 20,
-        'xtick.labelsize': 20,
-        'ytick.labelsize': 20,
-        'legend.fontsize': 20,
-        'figure.titlesize': 24
+        'font.size': 24,
+        'axes.titlesize': 29,
+        'axes.labelsize': 27,
+        'xtick.labelsize': 26,
+        'ytick.labelsize': 26,
+        'legend.fontsize': 30, # Increased further
+        'figure.titlesize': 29
     })
     
     # Actual anomaly data (timestamps for station 21006846, except where noted)
@@ -354,14 +356,14 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
             'source_station': '21006846'
         },
         'drift': {
-            'period': None,  # To be updated if found
-            'source_station': '21006846'
+            'period': ('2022-03-01 00:00:00', '2022-06-01 00:00:00'),  # Updated period for drift
+            'source_station': '21006846' # Assuming this is the typical station for comparison
         },
         'offset': {
             'period': ('2008-09-06', '2008-10-10'),
             'source_station': '21006846'
         },
-        'baseline_shift': {
+        'baseline shift': {
             'period': ('2021-07-05', '2021-07-13'),
             'source_station': '21006846'
         },
@@ -370,8 +372,8 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
             'source_station': '21006846' 
         },
         'noise': {
-            'period': ('2017-01-17', '2017-02-17'),
-            'source_station': '21006845' # Note: from a different station, used as example
+            'period': ('2009-06-03', '2009-06-12'), #2009, june 3rd to june 10th
+            'source_station': '21006847' # Note: from a different station, used as example
         }
     }
     
@@ -382,17 +384,17 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
 
     fig, axes = plt.subplots(num_error_types_to_plot, 2, 
                            figsize=(20, 5 * num_error_types_to_plot), 
-                           dpi=300, squeeze=False, sharex=True) # squeeze=False ensures axes is always 2D
+                           dpi=300, squeeze=False)#, sharex=True) # squeeze=False ensures axes is always 2D
     
-    fig.suptitle(f'Synthetic vs. Actual Anomaly Comparison for Station {station_id_for_filename}', fontsize=20, y=1.00)
+    #fig.suptitle(f'Synthetic vs. Actual Anomaly Comparison for Station {station_id_for_filename}', fontsize=20, y=1.00)
 
     zoom_windows = {
         'spike': pd.Timedelta(days=2),    # Shorter window for spikes
         'drift': pd.Timedelta(days=30),   # Longer for drift to show context
-        'offset': pd.Timedelta(days=21),
-        'baseline_shift': pd.Timedelta(days=30),
+        'offset': pd.Timedelta(days=5),
+        'baseline shift': pd.Timedelta(days=20),
         'flatline': pd.Timedelta(days=7),
-        'noise': pd.Timedelta(days=15) 
+        'noise': pd.Timedelta(days=8) 
     }
     
     for idx, data_tuple in enumerate(all_error_data_to_plot):
@@ -400,6 +402,18 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
         
         # --- Plot synthetic anomaly (left column) --- 
         ax_synthetic = axes[idx, 0]
+        
+        # Ensure a minimum visible duration for axvspan, especially for point anomalies
+        min_span_duration = pd.Timedelta(hours=12) # Define a minimum visual span, e.g., 12 hours
+        synthetic_start_for_span = synthetic_period_obj.start_time
+        synthetic_end_for_span = synthetic_period_obj.end_time
+        if (synthetic_end_for_span - synthetic_start_for_span) < min_span_duration:
+            center_time = synthetic_start_for_span + (synthetic_end_for_span - synthetic_start_for_span) / 2
+            synthetic_start_for_span = center_time - min_span_duration / 2
+            synthetic_end_for_span = center_time + min_span_duration / 2
+
+        ax_synthetic.axvspan(synthetic_start_for_span, synthetic_end_for_span, 
+                           color='#ffffcc', alpha=0.5, label='Synthetic Anomaly Period')
         
         window_size_synthetic = zoom_windows.get(error_type_name, pd.Timedelta(days=7))
         window_start_synthetic = synthetic_period_obj.start_time - window_size_synthetic
@@ -413,18 +427,16 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
                         label='Original Segment', color='#1f77b4', linewidth=1.5)
         ax_synthetic.plot(window_modified_synthetic.index, window_modified_synthetic['vst_raw'], 
                         label='With Synthetic Error', color='#d62728', linewidth=1.5, linestyle='--')
-        ax_synthetic.axvspan(synthetic_period_obj.start_time, synthetic_period_obj.end_time, 
-                           color='#ffffcc', alpha=0.5, label='Synthetic Anomaly Period')
         
         title_suffix_synthetic = f" (Duration: {(synthetic_period_obj.end_time - synthetic_period_obj.start_time).days}d)" \
                                  if (synthetic_period_obj.end_time - synthetic_period_obj.start_time).days > 0 else ""
-        ax_synthetic.set_title(f'Synthetic {error_type_name.title()} Error{title_suffix_synthetic}', fontweight='bold')
-        ax_synthetic.set_xlabel('Date', fontweight='bold', labelpad=15)
+        ax_synthetic.set_title(f'Synthetic {error_type_name.title()} {title_suffix_synthetic}', fontweight='bold')
+        ax_synthetic.set_xlabel('') # Remove x-label
+        ax_synthetic.tick_params(axis='x', labelbottom=False, bottom=False) # Remove x-ticks and labels
         ax_synthetic.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=15)
-        ax_synthetic.tick_params(axis='x', rotation=30)
         ax_synthetic.spines['top'].set_visible(False)
-        ax_synthetic.spines['right'].set_visible(False)
-        ax_synthetic.grid(False)
+        ax_synthetic.spines['right'].set_visible(False) # Ensure right spine is also invisible
+        ax_synthetic.grid(False) # Ensure grid is off
 
         # --- Plot actual anomaly example (right column) --- 
         ax_actual = axes[idx, 1]
@@ -473,8 +485,10 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
                         ax_actual.text(0.5, 0.5, f"No suitable data column for 'vst_raw' in station {source_station_id_actual}",
                                        horizontalalignment='center', verticalalignment='center', color='red', transform=ax_actual.transAxes)
                         ax_actual.set_title(f'Real {error_type_name.title()} Example (Data Column Missing)', fontweight='bold')
-                        # Skip further plotting for this subplot if data column is missing
-                        ax_actual.set_xlabel('Date', fontweight='bold', labelpad=10); ax_actual.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10); ax_actual.tick_params(axis='x', rotation=30); ax_actual.grid(False); ax_actual.spines["top"].set_visible(False); ax_actual.spines["right"].set_visible(False)
+                        ax_actual.set_xlabel('') # Remove x-label
+                        ax_actual.tick_params(axis='x', labelbottom=False, bottom=False) # Remove x-ticks and labels
+                        ax_actual.set_ylabel('') # Remove y-label for real plots
+                        ax_actual.grid(False); ax_actual.spines["top"].set_visible(False); ax_actual.spines["right"].set_visible(False)
                         continue # to next error type in the main loop
 
 
@@ -511,16 +525,74 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
                     ax_actual.plot(window_data_actual_context.index, window_data_actual_context['vst_raw'], 
                                  color='#1f77b4', linewidth=1.5, label=f'Actual Data (Station {source_station_id_actual})')
                 else:
-                    ax_actual.text(0.5, 0.4, f'No data for Station {source_station_id_actual}\nin range {valid_start_actual.date()} to {valid_end_actual.date()}', 
+                    ax_actual.text(0.5, 0.4, f'No data for Station {source_station_id_actual}\\nin range {valid_start_actual.date()} to {valid_end_actual.date()}', 
                                     horizontalalignment='center', verticalalignment='center', color='red', transform=ax_actual.transAxes)
 
                 mask_actual_anomaly_in_plot_data = (context_data_for_actual_plot.index >= start_ts_actual) & (context_data_for_actual_plot.index <= end_ts_actual)
                 actual_anomaly_segment = context_data_for_actual_plot[mask_actual_anomaly_in_plot_data]
-                if not actual_anomaly_segment.empty:
-                    ax_actual.plot(actual_anomaly_segment.index, actual_anomaly_segment['vst_raw'], 
-                                 color='#ff7f0e', linewidth=2.0, linestyle='-', label=f'Actual Anomaly Detail (Sta {source_station_id_actual})')
+                # if not actual_anomaly_segment.empty:  # REMOVED ORANGE LINE
+                #     ax_actual.plot(actual_anomaly_segment.index, actual_anomaly_segment['vst_raw'], 
+                #                  color='#ff7f0e', linewidth=2.0, linestyle='-', label=f'Actual Anomaly Detail (Sta {source_station_id_actual})')
 
-                title_actual = f'Real {error_type_name.title()} Example'
+                # --- Add VINGE data plotting specifically for drift error type ---
+                if error_type_name == 'drift':
+                    vinge_df_for_station = all_stations_data_dict.get(source_station_id_actual, {}).get('vinge')
+                    if vinge_df_for_station is not None and not vinge_df_for_station.empty:
+                        # Ensure VINGE index is datetime
+                        if not isinstance(vinge_df_for_station.index, pd.DatetimeIndex):
+                            vinge_df_for_station.index = pd.to_datetime(vinge_df_for_station.index)
+                        
+                        vinge_data_in_window = vinge_df_for_station[
+                            (vinge_df_for_station.index >= valid_start_actual) & 
+                            (vinge_df_for_station.index <= valid_end_actual)
+                        ].copy()
+
+                        if not vinge_data_in_window.empty and 'W.L [cm]' in vinge_data_in_window.columns:
+                            vinge_data_in_window['W.L [cm]'] = pd.to_numeric(vinge_data_in_window['W.L [cm]'], errors='coerce')
+                            vinge_data_in_window.dropna(subset=['W.L [cm]'], inplace=True)
+                            if not vinge_data_in_window.empty:
+                                ax_actual.scatter(vinge_data_in_window.index, vinge_data_in_window['W.L [cm]'],
+                                                  color='green', # Distinct color for VINGE
+                                                  label=f'VINGE(Sta {source_station_id_actual})',
+                                                  s=60, zorder=6, alpha=0.7) 
+                    
+                    # Add VST EDT data for drift plot
+                    vst_edt_df_for_station = all_stations_data_dict.get(source_station_id_actual, {}).get('vst_edt')
+                    if vst_edt_df_for_station is not None and not vst_edt_df_for_station.empty:
+                        if not isinstance(vst_edt_df_for_station.index, pd.DatetimeIndex):
+                            vst_edt_df_for_station.index = pd.to_datetime(vst_edt_df_for_station.index)
+                        
+                        vst_edt_in_window = vst_edt_df_for_station[
+                            (vst_edt_df_for_station.index >= valid_start_actual) & 
+                            (vst_edt_df_for_station.index <= valid_end_actual)
+                        ].copy()
+
+                        # Assuming the VST EDT data column is also 'vst_raw' or needs to be identified
+                        # For consistency, let's assume it might be named 'Value' like in some raw files, or just take the first numeric col
+                        edt_col_name = 'vst_raw' # Default assumption
+                        if 'Value' in vst_edt_in_window.columns and 'vst_raw' not in vst_edt_in_window.columns:
+                            vst_edt_in_window = vst_edt_in_window.rename(columns={'Value': 'vst_raw'})
+                        elif 'vst_raw' not in vst_edt_in_window.columns:
+                            numeric_cols_edt = [col for col in vst_edt_in_window.columns if pd.api.types.is_numeric_dtype(vst_edt_in_window[col])]
+                            if numeric_cols_edt:
+                                edt_col_name = numeric_cols_edt[0]
+                                if edt_col_name != 'vst_raw': # rename if it's not already vst_raw
+                                     vst_edt_in_window = vst_edt_in_window.rename(columns={edt_col_name: 'vst_raw'})
+                            else:
+                                edt_col_name = None # No suitable column found
+                        
+                        if edt_col_name and not vst_edt_in_window.empty and 'vst_raw' in vst_edt_in_window.columns:
+                            vst_edt_in_window['vst_raw'] = pd.to_numeric(vst_edt_in_window['vst_raw'], errors='coerce')
+                            vst_edt_in_window.dropna(subset=['vst_raw'], inplace=True)
+                            if not vst_edt_in_window.empty:
+                                ax_actual.plot(vst_edt_in_window.index, vst_edt_in_window['vst_raw'],
+                                               color='#2ca02c', # Matplotlib green, different from VINGE
+                                               label=f'VST EDT (Sta {source_station_id_actual})',
+                                               linewidth=1.5, linestyle=':', zorder=4)
+
+                # --- End of VINGE data plotting for drift ---
+
+                title_actual = f'Real {error_type_name.title()}'
                 # No need to add (Period from Station X) if source_station_id_actual is same as station_id_for_filename
                 # The legend for data line already clarifies station. If truly different, it will be clear.
                 ax_actual.set_title(title_actual, fontweight='bold')
@@ -532,12 +604,13 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
                         transform=ax_actual.transAxes, fontsize=14, color='#555555')
             ax_actual.set_title(f'Real {error_type_name.title()} Error Example', fontweight='bold')
         
-        ax_actual.set_xlabel('Date', fontweight='bold', labelpad=15)
-        ax_actual.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=15)
-        ax_actual.tick_params(axis='x', rotation=30)
+        ax_actual.set_xlabel('') # Remove x-label
+        ax_actual.tick_params(axis='x', labelbottom=False, bottom=False) # Remove x-ticks and labels
+
+        ax_actual.set_ylabel('') # Remove y-label for real plots
         ax_actual.spines['top'].set_visible(False)
-        ax_actual.spines['right'].set_visible(False)
-        ax_actual.grid(False)
+        ax_actual.spines['right'].set_visible(False) # Ensure right spine is also invisible
+        ax_actual.grid(False) # Ensure grid is off
         
         # Auto-adjust y-limits for each row independently for better visualization
         for ax_col in [ax_synthetic, ax_actual]:
@@ -554,21 +627,51 @@ def plot_synthetic_vs_actual(all_error_data_to_plot: List[tuple],
                         ax_col.set_ylim(y_min_ax - margin_ax, y_max_ax + margin_ax)
     
     # --- Shared Legend --- 
-    handles_labels = {}
-    for ax_row in axes: # Iterate through rows of axes
-        for ax_col in ax_row: # Iterate through columns (synthetic, actual)
-            h, l = ax_col.get_legend_handles_labels()
-            for handle, label in zip(h, l):
-                if label not in handles_labels: # Avoid duplicate labels
-                    handles_labels[label] = handle
-    
-    if handles_labels:
-        fig.legend(handles_labels.values(), handles_labels.keys(), 
-                   loc='lower center', ncol=min(len(handles_labels), 4), # Adjust ncol as needed
-                   bbox_to_anchor=(0.5, -0.05)) # Adjust position below plots
+    # Desired legend entries
+    desired_labels_map = {
+        "VST RAW": None, 
+        "Error modified": None,
+        "Anomaly Period": None,
+        "VINGE": None, # Changed from VINGE Data
+        "VST EDT": None  # Added VST EDT
+    }
+    found_handles_for_labels = {label: None for label in desired_labels_map}
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.98]) # Adjust rect for suptitle and bottom legend (0.03 for legend)
-    fig.subplots_adjust(hspace=0.5) # Increase vertical spacing between subplots
+    for ax_row in axes:
+        for ax_col in ax_row:
+            handles, labels = ax_col.get_legend_handles_labels()
+            for handle, label_text in zip(handles, labels):
+                if "Original Segment" in label_text or "Actual Data (Station" in label_text:
+                    if not found_handles_for_labels["VST RAW"]:
+                        found_handles_for_labels["VST RAW"] = handle
+                elif "With Synthetic Error" in label_text:
+                    if not found_handles_for_labels["Error modified"]:
+                        found_handles_for_labels["Error modified"] = handle
+                elif "Anomaly Period" in label_text:
+                    if not found_handles_for_labels["Anomaly Period"]:
+                        found_handles_for_labels["Anomaly Period"] = handle
+                elif label_text.startswith("VINGE(Sta") : # Match user's new label format for VINGE
+                    if not found_handles_for_labels["VINGE"]:
+                        found_handles_for_labels["VINGE"] = handle
+                elif label_text.startswith("VST EDT (Sta") : # Match VST EDT label
+                    if not found_handles_for_labels["VST EDT"]:
+                        found_handles_for_labels["VST EDT"] = handle
+    
+    # Filter out None handles and create the legend
+    final_handles = []
+    final_labels = []
+    for label, handle in found_handles_for_labels.items():
+        if handle:
+            final_handles.append(handle)
+            final_labels.append(label)
+
+    if final_handles:
+        fig.legend(final_handles, final_labels,
+                   loc='lower center', ncol=len(final_handles),  # Force all items in one row
+                   bbox_to_anchor=(0.5, 0.01))  # Move legend lower
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.98])
+    fig.subplots_adjust(hspace=0.5)
     
     output_filename = f'stacked_synthetic_vs_actual_comparison_{station_id_for_filename}.png'
     output_path_stacked = output_dir / "synthetic" / output_filename # Save inside synthetic subdir
@@ -871,7 +974,7 @@ if __name__ == "__main__":
         traceback.print_exc()
         sys.exit(1)
 
-    error_types_to_visualize = ['spike', 'offset', 'drift', 'noise', 'baseline_shift', 'flatline']
+    error_types_to_visualize = ['spike', 'offset', 'drift', 'noise', 'baseline shift', 'flatline']
     all_plot_data_collected = [] # List to store tuples of (original, modified, error_period_obj, error_type_name)
 
     for error_name in error_types_to_visualize:
@@ -905,7 +1008,7 @@ if __name__ == "__main__":
                 modified_data_with_single_error = error_generator_single.inject_drift_errors(data_to_modify)
             elif error_name == 'noise':
                 modified_data_with_single_error = error_generator_single.inject_noise_errors(data_to_modify)
-            elif error_name == 'baseline_shift':
+            elif error_name == 'baseline shift':
                 modified_data_with_single_error = error_generator_single.inject_baseline_shift_errors(data_to_modify)
             elif error_name == 'flatline':
                 modified_data_with_single_error, _ = error_generator_single.inject_flatline_errors(data_to_modify)
@@ -939,6 +1042,7 @@ if __name__ == "__main__":
     if all_plot_data_collected:
         print(f"\n--- Generating single stacked comparison plot for {len(all_plot_data_collected)} error types... ---")
         try:
+            print(f"all_plot_data_collected: {all_plot_data_collected}")
             stacked_plot_path = plot_synthetic_vs_actual(
                 all_error_data_to_plot=all_plot_data_collected,
                 station_id_for_filename=station_id_to_plot,

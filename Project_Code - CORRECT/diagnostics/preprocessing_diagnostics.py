@@ -10,6 +10,7 @@ from matplotlib.gridspec import GridSpec
 import matplotlib.dates as mdates
 from matplotlib.patches import ConnectionPatch
 from matplotlib.ticker import MaxNLocator
+import matplotlib.cm as cm # Added for colormaps
 
 
 
@@ -28,9 +29,9 @@ def set_plot_style():
         'font.size': 20,
         'axes.titlesize': 1,  # No titles
         'axes.labelsize': 22,
-        'xtick.labelsize': 18,
-        'ytick.labelsize': 18,
-        'legend.fontsize': 20,
+        'xtick.labelsize': 22,
+        'ytick.labelsize': 22,
+        'legend.fontsize': 22,
         'figure.titlesize': 1
     })
     
@@ -1081,50 +1082,74 @@ def plot_vst_vinge_comparison(preprocessed_data: dict, output_dir: Path, origina
             plt.close()
 
 def get_time_windows():
-    """Define time windows for anomaly analysis for a single station.
+    """Define time windows for anomaly analysis for a single station based on actual_anomalies.
     
     Returns:
         list: A list of dictionaries, each defining a time window for analysis.
               Dates are timezone-aware (UTC).
     """
-    return [
-        {
-            "title": "Data gaps",
-            "start_date": pd.to_datetime('1994-01-01').tz_localize('UTC'),
-            "end_date": pd.to_datetime('1995-01-01').tz_localize('UTC'),
-            "y_range": None
+    actual_anomalies = {
+        'spike': {
+            'period': ('2022-11-20', '2022-11-26'), 
+            'source_station': '21006846'
         },
-        {
-            "title": "Linear Interpolation segment",
-            "start_date": pd.to_datetime('1998-01-01').tz_localize('UTC'),
-            "end_date": pd.to_datetime('2002-03-01').tz_localize('UTC'),
-            "y_range": None
+        'drift': {
+            'period': ('2022-03-01 00:00:00', '2022-06-01 00:00:00'),
+            'source_station': '21006846'
         },
-        {
-            "title": "Offset error", # Was "Offset error"
-            "start_date": pd.to_datetime('2007-03-19').tz_localize('UTC'), # Date from Oliver/data_exploration
-            "end_date": pd.to_datetime('2007-03-30').tz_localize('UTC'), # Date from Oliver/data_exploration
-            "y_range": (-7810, -7770) # y_range from Oliver/data_exploration
+        'offset': {
+            'period': ('2008-09-01', '2008-10-15'),
+            'source_station': '21006846'
         },
-        {
-            "title": "Spike error", # Was "Baseline shift" then "Spike error"
-            "start_date": pd.to_datetime('2011-01-01').tz_localize('UTC'), # Date from Oliver/data_exploration
-            "end_date": pd.to_datetime('2011-05-01').tz_localize('UTC'), # Date from Oliver/data_exploration
-            "y_range": None # y_range from Oliver/data_exploration
+        'baseline shift': {
+            'period': ('2021-07-05', '2021-07-13'),
+            'source_station': '21006846'
         },
-        {
-            "title": "Long offset error", # Was "Noise" then "Long offset error"
-            "start_date": pd.to_datetime('2016-08-16').tz_localize('UTC'), # Date from Oliver/data_exploration
-            "end_date": pd.to_datetime('2016-09-02').tz_localize('UTC'), # Date from Oliver/data_exploration
-            "y_range": (22, 26) # y_range from Oliver/data_exploration
+        'missing_data': { 
+            'period': ('2007-03-01', '2008-01-17'), 
+            'source_station': '21006846' 
         },
-        {
-            "title": "Spike fluctuations & flatline", # Was "Flatline" then "Spike fluctuations & flatline"
-            "start_date": pd.to_datetime('2016-12-11').tz_localize('UTC'), # Date from Oliver/data_exploration
-            "end_date": pd.to_datetime('2016-12-23').tz_localize('UTC'), # Date from Oliver/data_exploration
-            "y_range": None # y_range from Oliver/data_exploration
+        'noise': { 
+            'period': ('2009-06-03', '2009-06-12'),
+            'source_station': '21006847'
         }
-    ]
+    }
+
+    processed_anomalies = []
+    for error_type, details in actual_anomalies.items():
+        if error_type == 'noise':
+            continue
+        start_date_str, end_date_str = details['period']
+        processed_anomalies.append({
+            'error_type': error_type,
+            'start_date_str': start_date_str,
+            'end_date_str': end_date_str,
+            'details': details
+        })
+
+    # Sort anomalies by start date
+    processed_anomalies.sort(key=lambda x: pd.to_datetime(x['start_date_str']))
+
+    time_windows = []
+    for anomaly in processed_anomalies:
+        error_type = anomaly['error_type']
+        start_date_str = anomaly['start_date_str']
+        end_date_str = anomaly['end_date_str']
+        
+        title = f"{error_type.replace('_', ' ').title()}"
+        if error_type == 'baseline shift': 
+            title = "Baseline Shift"
+        elif error_type == 'missing_data': 
+            title = "Missing Data"
+
+        time_windows.append({
+            "title": title,
+            "start_date": pd.to_datetime(start_date_str).tz_localize('UTC'),
+            "end_date": pd.to_datetime(end_date_str).tz_localize('UTC'),
+            "y_range": None
+        })
+    
+    return time_windows
 
 def create_detailed_plot(station_data: dict, time_windows: list, station_id: str, output_dir: Path):
     """
@@ -1142,6 +1167,10 @@ def create_detailed_plot(station_data: dict, time_windows: list, station_id: str
         Path: The path to the saved plot file, or None if plotting failed.
     """
     set_plot_style()
+
+    # Define 5 distinct colors from Turbo colormap for subplots
+    # Using linspace from 0.1 to 0.9 to avoid the very dark/light ends for better visibility
+    turbo_subplot_colors = plt.cm.turbo(np.linspace(0.1, 0.9, 5))
 
     # Prepare VST data
     if station_data.get('vst_raw') is None or station_data['vst_raw'].empty:
@@ -1230,11 +1259,6 @@ def create_detailed_plot(station_data: dict, time_windows: list, station_id: str
     ax_main.plot(vst_df.index, vst_df[vst_val_col], 
                 color=thesis_colors[0], label='Sensor Water Level', linewidth=1.2)
     
-    if vinge_df is not None and not vinge_df.empty and vinge_val_col in vinge_df.columns:
-        ax_main.scatter(vinge_df.index, vinge_df[vinge_val_col], 
-                       color=thesis_colors[1], s=30, label='Manual Board Measurements', 
-                       marker='o', edgecolors='white', linewidth=0.5, zorder=5)
-    
     ax_main.legend(fontsize=plt.rcParams['legend.fontsize'], loc='upper right') # Use styled fontsize
 
     locator = mdates.AutoDateLocator(maxticks=12)
@@ -1256,17 +1280,21 @@ def create_detailed_plot(station_data: dict, time_windows: list, station_id: str
         mask_vst = (vst_df.index >= start_date) & (vst_df.index <= end_date)
         window_vst_data = vst_df[mask_vst]
         
-        if vinge_df is not None and not vinge_df.empty and vinge_val_col in vinge_df.columns:
-            mask_vinge = (vinge_df.index >= start_date) & (vinge_df.index <= end_date)
-            board_window_data = vinge_df[mask_vinge]
-            if not board_window_data.empty:
-                 ax.scatter(board_window_data.index, board_window_data[vinge_val_col], 
-                           color=thesis_colors[1], s=40, alpha=0.9, 
-                           edgecolors='white', linewidth=0.5, zorder=5)
+        vinge_plotted_on_subplot = False # Flag to track if VINGE is plotted for legend
+        if window["title"] == "Drift": # Conditional plotting for VINGE data
+            if vinge_df is not None and not vinge_df.empty and vinge_val_col in vinge_df.columns:
+                mask_vinge = (vinge_df.index >= start_date) & (vinge_df.index <= end_date)
+                board_window_data = vinge_df[mask_vinge]
+                if not board_window_data.empty:
+                     ax.scatter(board_window_data.index, board_window_data[vinge_val_col], 
+                               color=thesis_colors[1], s=40, alpha=0.9, 
+                               label='VINGE', # Add label for legend
+                               edgecolors='white', linewidth=0.5, zorder=5)
+                     vinge_plotted_on_subplot = True
         
         if not window_vst_data.empty:
             ax.plot(window_vst_data.index, window_vst_data[vst_val_col], 
-                   color=thesis_colors[(i + 2) % len(thesis_colors)], # Start subplot colors from index 2
+                   color=turbo_subplot_colors[i % 5], # Use Turbo colors
                    linewidth=1.2, alpha=0.9)
             if y_range_cfg is not None:
                 ax.set_ylim(y_range_cfg[0], y_range_cfg[1])
@@ -1278,13 +1306,14 @@ def create_detailed_plot(station_data: dict, time_windows: list, station_id: str
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         
         ax.set_title(title, fontsize=plt.rcParams['axes.labelsize']) # Use styled fontsize
-        ax.tick_params(axis='x', labelsize=10)
+        ax.tick_params(axis='x', labelsize=16, rotation=30) # Increased size and added rotation
+        plt.setp(ax.get_xticklabels(), ha='right', rotation_mode='anchor') # Set horizontal alignment for rotated labels
             
         if i == 0:
             ax.set_ylabel('Water level (mm)')
-    
-    fig.suptitle(f'Detailed Anomaly Analysis: Station {station_id}', 
-                 fontsize=plt.rcParams['figure.titlesize'], fontweight='bold', y=0.99) # Adjusted y for suptitle
+        
+        if vinge_plotted_on_subplot: # Add legend if VINGE was plotted
+            ax.legend(fontsize=plt.rcParams['legend.fontsize'] * 0.8, loc='upper right') # Smaller legend for subplot
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Leave space for suptitle and bottom labels
 
@@ -1300,43 +1329,68 @@ def create_detailed_plot(station_data: dict, time_windows: list, station_id: str
         
         valid_vst_values = window_vst_data[vst_val_col].dropna()
         
+        y_min_eff, y_max_eff = np.nan, np.nan # Effective y_min/y_max for rectangle calculation
+
         if not valid_vst_values.empty:
-            y_min_data = valid_vst_values.min()
-            y_max_data = valid_vst_values.max()
-            
-            y_min_rect = y_range_cfg[0] if y_range_cfg and y_range_cfg[0] is not None else y_min_data
-            y_max_rect = y_range_cfg[1] if y_range_cfg and y_range_cfg[1] is not None else y_max_data
+            y_min_data_for_rect = valid_vst_values.min()
+            y_max_data_for_rect = valid_vst_values.max()
 
-            if np.isfinite(y_min_rect) and np.isfinite(y_max_rect) and y_max_rect > y_min_rect:
-                rect_height = y_max_rect - y_min_rect
-            else: # Fallback if y_range_cfg is None or invalid, and data is flat or empty
-                main_y_min_ax, main_y_max_ax = ax_main.get_ylim()
-                rect_height = (main_y_max_ax - main_y_min_ax) * 0.05 
-                y_min_rect = y_min_data - rect_height / 2 if not valid_vst_values.empty else main_y_min_ax + (main_y_max_ax - main_y_min_ax)/2 - rect_height/2
+            y_min_eff = y_min_data_for_rect
+            y_max_eff = y_max_data_for_rect
 
-
-            x_start_num = mdates.date2num(start_date)
-            x_end_num = mdates.date2num(end_date)
-            x_width_num = x_end_num - x_start_num
-            
-            if x_width_num > 0 and rect_height > 0 :
-                rect = plt.Rectangle(
-                    (x_start_num, y_min_rect), x_width_num, rect_height,
-                    fill=False, color=thesis_colors[(i + 2) % len(thesis_colors)],
-                    linewidth=2.0, transform=ax_main.transData, zorder=10)
-                ax_main.add_patch(rect)
+            if title in ["Offset", "Baseline Shift", "Spike"]:
+                data_span = y_max_data_for_rect - y_min_data_for_rect
+                buffer = 0.0
+                main_y_min_ax_val, main_y_max_ax_val = ax_main.get_ylim()
                 
-                rect_center_x = x_start_num + x_width_num / 2
-                rect_center_y = y_min_rect + rect_height / 2
+                if np.isfinite(data_span) and data_span > 1e-6: # If there's a discernible span
+                    buffer = 0.1 * data_span
+                elif np.isfinite(main_y_min_ax_val) and np.isfinite(main_y_max_ax_val): # Flat data, use main plot relative buffer
+                    buffer = 0.025 * (main_y_max_ax_val - main_y_min_ax_val)
+                else: # Fallback if main plot ylim also not finite (should be rare)
+                    buffer = 0.1 # Small absolute buffer as last resort
                 
-                con = ConnectionPatch(
-                    xyA=(rect_center_x, rect_center_y), coordsA=ax_main.transData,
-                    xyB=(0.5, 1.05), coordsB=ax_sub.transAxes, # Point slightly above the subplot
-                    arrowstyle="->", color=thesis_colors[(i + 2) % len(thesis_colors)],
-                    linewidth=1.5, linestyle=':', connectionstyle="arc3,rad=0.2", zorder=9)
-                fig.add_artist(con)
-            else:
-                print(f"Skipping rectangle/connection for window '{window['title']}' due to zero width/height.")
+                y_min_eff -= buffer
+                y_max_eff += buffer
+        
+        # y_range_cfg is always None due to get_time_windows modification
+        # So y_min_rect and y_max_rect are based on y_min_eff, y_max_eff
+        y_min_rect = y_min_eff 
+        y_max_rect = y_max_eff
+
+        if np.isfinite(y_min_rect) and np.isfinite(y_max_rect) and y_max_rect > y_min_rect:
+            rect_height = y_max_rect - y_min_rect
+        else: # Fallback for empty, flat, or non-finite data after buffering
+            main_y_min_ax, main_y_max_ax = ax_main.get_ylim()
+            rect_height = (main_y_max_ax - main_y_min_ax) * 0.05 
+            
+            # Attempt to center the fallback rectangle
+            mid_val = np.nanmean(valid_vst_values) if not valid_vst_values.empty else (main_y_min_ax + main_y_max_ax) / 2.0
+            if not np.isfinite(mid_val): # Further fallback if mean is not finite
+                mid_val = (main_y_min_ax + main_y_max_ax) / 2.0
+            y_min_rect = mid_val - rect_height / 2.0
+
+
+        x_start_num = mdates.date2num(start_date)
+        x_end_num = mdates.date2num(end_date)
+        x_width_num = x_end_num - x_start_num
+        
+        if x_width_num > 0 and rect_height > 0 :
+            rect = plt.Rectangle(
+                (x_start_num, y_min_rect), x_width_num, rect_height,
+                fill=False, color=turbo_subplot_colors[i % 5], # Use Turbo colors
+                linewidth=2.0, transform=ax_main.transData, zorder=10)
+            ax_main.add_patch(rect)
+            
+            rect_center_x = x_start_num + x_width_num / 2
+            rect_center_y = y_min_rect + rect_height / 2
+            
+            con = ConnectionPatch(
+                xyA=(rect_center_x, rect_center_y), coordsA=ax_main.transData,
+                xyB=(0.5, 1.15), coordsB=ax_sub.transAxes, # Point slightly above the subplot
+                arrowstyle="->", color=turbo_subplot_colors[i % 5], # Use Turbo colors
+                linewidth=1.5, linestyle=':', connectionstyle="arc3,rad=0.2", zorder=9)
+            fig.add_artist(con)
 
 
     diagnostic_plot_dir = output_dir / "diagnostics" / "preprocessing"

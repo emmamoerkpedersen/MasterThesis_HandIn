@@ -653,7 +653,13 @@ class SyntheticErrorGenerator:
             return modified_data
             
         duration_range = noise_config['duration_range']  # hours
-        intensity_range = noise_config['intensity_range']  # multiplier of normal noise level
+        # intensity_range is now used for the noise around the new level, applied to segment_noise_std_abs
+        intensity_range = noise_config.get('intensity_range', (1.0, 1.0)) 
+
+        # New parameters for stepped noise
+        num_sub_segments_range = noise_config.get('num_sub_segments_range', (2, 4))
+        segment_level_offset_range_abs = noise_config.get('segment_level_offset_range_abs', (20, 50))
+        segment_noise_std_abs = noise_config.get('segment_noise_std_abs', 5)
         
         # Calculate years in data and total number of noise periods
         years_in_data = self._calculate_years_in_data(data.index)
@@ -677,32 +683,67 @@ class SyntheticErrorGenerator:
             end_idx = min(idx + duration, len(modified_data))
             
             if self._is_period_available(idx, end_idx):
-                # Store original values
-                original_values = modified_data.iloc[idx:end_idx].copy()
+                # Store original values for the entire noise period for logging
+                original_values_for_log = modified_data.iloc[idx:end_idx].copy()
                 
-                # Add random noise to the middle section
-                if end_idx - idx > 2:  # If there's room for a middle section
-                    noise_level = np.random.uniform(*intensity_range)
-                    local_std = modified_data.iloc[idx:end_idx]['vst_raw'].std()
-                    noise = np.random.normal(0, local_std * noise_level, size=end_idx-idx-2)
-                    modified_data.iloc[idx+1:end_idx-1, 0] += noise
+                num_sub_segments = np.random.randint(num_sub_segments_range[0], num_sub_segments_range[1] + 1)
+                segment_len = (end_idx - idx) // num_sub_segments
                 
-                # Create transition at end (sudden jump back)
-                if end_idx < len(modified_data):
-                    modified_data.iloc[end_idx-1] = float(modified_data.iloc[end_idx].values[0])
-                
+                current_actual_idx = idx
+                period_parameters = {'segments': []}
+
+                for i_segment in range(num_sub_segments):
+                    seg_start_idx = current_actual_idx
+                    seg_end_idx = current_actual_idx + segment_len if i_segment < num_sub_segments - 1 else end_idx
+
+                    if seg_start_idx >= seg_end_idx: # Should not happen if segment_len > 0
+                        continue
+
+                    # Determine the new base level for this segment
+                    # Use the original data's value at the start of the segment as a reference point
+                    reference_value_for_level = data.iloc[seg_start_idx]['vst_raw'] 
+                    if pd.isna(reference_value_for_level):
+                         # Fallback if original data is NaN: use mean of local window or overall mean
+                        local_window_mean = data.iloc[max(0, seg_start_idx-24):min(len(data), seg_start_idx+24)]['vst_raw'].mean()
+                        reference_value_for_level = local_window_mean if pd.notna(local_window_mean) else data['vst_raw'].mean()
+                    
+                    level_offset = np.random.uniform(segment_level_offset_range_abs[0],
+                                                   segment_level_offset_range_abs[1]) * np.random.choice([-1, 1])
+                    new_segment_base_level = reference_value_for_level + level_offset
+
+                    # Add noise around this new base level
+                    current_intensity = np.random.uniform(intensity_range[0], intensity_range[1])
+                    noise_for_segment = np.random.normal(0, 
+                                                         segment_noise_std_abs * current_intensity, 
+                                                         size=(seg_end_idx - seg_start_idx))
+                    
+                    modified_data.iloc[seg_start_idx:seg_end_idx, 0] = new_segment_base_level + noise_for_segment
+                    
+                    period_parameters['segments'].append({
+                        'start_idx': seg_start_idx,
+                        'end_idx': seg_end_idx -1,
+                        'base_level': new_segment_base_level,
+                        'level_offset': level_offset,
+                        'noise_intensity_factor': current_intensity
+                    })
+                    current_actual_idx = seg_end_idx
+
+                # Apply physical limits (optional, but good practice)
+                # This part can be adapted from how physical limits are handled elsewhere
+                # For now, simple clipping as an example:
+                min_limit = self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0)
+                max_limit = self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
+                modified_data.iloc[idx:end_idx, 0] = np.clip(modified_data.iloc[idx:end_idx, 0], min_limit, max_limit)
+
                 # Record error period
                 self.error_periods.append(
                     ErrorPeriod(
                         start_time=modified_data.index[idx],
                         end_time=modified_data.index[end_idx - 1],
                         error_type='noise',
-                        original_values=original_values.values,
+                        original_values=original_values_for_log.values, # Log original values over the whole period
                         modified_values=modified_data.iloc[idx:end_idx].values,
-                        parameters={
-                            'noise_level': noise_level,
-                            'duration': duration
-                        }
+                        parameters=period_parameters
                     )
                 )
                 
@@ -723,7 +764,7 @@ class SyntheticErrorGenerator:
         modified_data = data.copy()
         
         # Get baseline shift parameters from config
-        shift_config = self.config['baseline_shift']
+        shift_config = self.config['baseline shift']
         count_per_year = shift_config.get('count_per_year', 0)
         
         # Calculate years in data and total number of shifts
@@ -757,7 +798,7 @@ class SyntheticErrorGenerator:
                     ErrorPeriod(
                         start_time=modified_data.index[idx],
                         end_time=modified_data.index[idx + 1],
-                        error_type='baseline_shift',
+                        error_type='baseline shift',
                         original_values=original_values.values.flatten(),
                         modified_values=modified_data.iloc[idx:idx+2].values.flatten(),
                         parameters={
@@ -799,7 +840,7 @@ class SyntheticErrorGenerator:
                 return data, pd.DataFrame(index=data.index)
             
             # Default error types ordered by typical duration
-            all_error_types = ['missing_data', 'offset', 'drift', 'baseline_shift', 'flatline', 'spike', 'noise']
+            all_error_types = ['missing_data', 'offset', 'drift', 'baseline shift', 'flatline', 'spike', 'noise']
             
             # Filter error types based on count_per_year > 0 in config
             active_error_types = [
@@ -823,7 +864,7 @@ class SyntheticErrorGenerator:
                         modified_data, _ = self.inject_flatline_errors(modified_data)
                     elif error_type == 'drift':
                         modified_data = self.inject_drift_errors(modified_data)
-                    elif error_type == 'baseline_shift':
+                    elif error_type == 'baseline shift':
                         modified_data = self.inject_baseline_shift_errors(modified_data)
                     elif error_type == 'offset':
                         modified_data, _ = self.inject_offset_errors(modified_data)
