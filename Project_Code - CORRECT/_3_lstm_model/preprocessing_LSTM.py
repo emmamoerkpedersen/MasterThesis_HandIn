@@ -31,11 +31,7 @@ class DataPreprocessor:
             device=self.device
         )
         
-        # Print feature configuration
-        #print(f"Feature configuration:")
-        #print(f"  - Base features: {self.feature_cols}")
-        #print(f"  - Use time features: {self.config.get('use_time_features', False)}")
-       # print(f"  - Use cumulative features: {self.config.get('use_cumulative_features', False)}")
+    
     
     def update_feature_scaler(self):
         """

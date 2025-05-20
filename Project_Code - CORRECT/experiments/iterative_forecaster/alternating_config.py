@@ -10,7 +10,7 @@ ALTERNATING_CONFIG = {
     
     # Training parameters
     'batch_size': (20*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 50,              # More epochs for better convergence
+    'epochs': 5,              # More epochs for better convergence
     'patience': 8,
     'learning_rate': 0.001,
     # Forecasting parameters

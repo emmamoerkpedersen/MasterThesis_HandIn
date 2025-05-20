@@ -13,7 +13,6 @@ current_dir = Path(__file__).resolve().parent
 project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
-from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from _3_lstm_model.objective_functions import get_objective_function
 from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
 
@@ -34,33 +33,17 @@ class AlternatingTrainer:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.preprocessor = preprocessor
         
-        # Filter to use only the 3 required features
-        self.use_features = [
-            'vst_raw_feature',  # Water level (as input feature)
-            'temperature',      # Temperature data
-            'rainfall'          # Rainfall from primary station
-        ]
+        # Initialize feature columns from config
+        self.feature_cols = config['feature_cols'].copy()
         
-        # Ensure our feature columns are in the correct order (water level first)
-        self.feature_cols = []
-        for feature in self.use_features:
-            if feature in preprocessor.feature_cols:
-                self.feature_cols.append(feature)
-            else:
-                # Look for columns containing this feature
-                for col in preprocessor.feature_cols:
-                    if feature in col:
-                        self.feature_cols.append(col)
-                        break
-        
-        # Verify we have the features we need
-        if len(self.feature_cols) < 3:
-            raise ValueError(f"Could not find all required features. Found: {self.feature_cols}")
+        # Add feature station columns dynamically
+        if config.get('feature_stations'):
+            for station in config['feature_stations']:
+                for feature in station['features']:
+                    feature_name = f"feature_station_{station['station_id']}_{feature}"
+                    self.feature_cols.append(feature_name)
         
         print(f"Using features: {self.feature_cols}")
-        
-        # Will be set after loading and feature engineering
-        self.feature_cols = self.feature_cols.copy()
         
         # Initialize model (will be properly initialized after feature engineering)
         self.model = None
@@ -73,6 +56,13 @@ class AlternatingTrainer:
         Custom method to prepare sequences for the alternating model.
         Each feature is scaled individually using its own StandardScaler.
         Scalers are fitted only on training data and reused for validation/test.
+        
+        NaN handling:
+        - Temperature: Forward fill, backward fill, then 30-day aggregation
+        - Rainfall: Fill NaN with -1
+        - vst_raw_feature: Fill NaN with -1
+        - Feature station data: Fill NaN with -1
+        - vst_raw (target): Keep NaN values (handled in loss calculation)
         
         Args:
             df: DataFrame with features and target
@@ -107,7 +97,6 @@ class AlternatingTrainer:
                 scaler = StandardScaler()
                 x_scaled[:, i] = scaler.fit_transform(features_df[feature].values.reshape(-1, 1)).flatten()
                 self.feature_scalers[feature] = scaler
-                print(f"Fitted scaler for {feature} - mean: {scaler.mean_[0]:.2f}, scale: {scaler.scale_[0]:.2f}")
             
             # Fit separate StandardScaler for target
             self.target_scaler = StandardScaler()
@@ -115,8 +104,7 @@ class AlternatingTrainer:
             valid_mask = ~np.isnan(target_df.values.flatten())
             self.target_scaler.fit(target_df.values[valid_mask].reshape(-1, 1))
             
-            print(f"Fitted target scaler on {np.sum(valid_mask)} valid target points")
-            print(f"Target scaling - mean: {self.target_scaler.mean_[0]:.2f}, scale: {self.target_scaler.scale_[0]:.2f}")
+            print(f"Fitted scalers on {np.sum(valid_mask)} valid target points")
             print(f"Scaled features shape: {x_scaled.shape}")
         else:
             # Use previously fitted scalers
@@ -147,6 +135,18 @@ class AlternatingTrainer:
                     y_values[valid_mask].reshape(-1, 1)
                 ).flatten()
         
+        # Print NaN values in final tensors
+        print("\nNaN values in final tensors:")
+        print("--------------------------")
+        for i, feature in enumerate(feature_cols):
+            nan_count = np.isnan(x_scaled[:, i]).sum()
+            if nan_count > 0:
+                print(f"Feature {feature}: {nan_count} NaN values ({nan_count/len(x_scaled)*100:.2f}%)")
+        
+        nan_count = np.isnan(y_scaled).sum()
+        if nan_count > 0:
+            print(f"Target: {nan_count} NaN values ({nan_count/len(y_scaled)*100:.2f}%)")
+        
         # Convert to tensors and add necessary dimensions for LSTM input
         # x shape should be [batch_size, seq_len, num_features]
         # y shape should be [batch_size, seq_len, 1]
@@ -156,9 +156,6 @@ class AlternatingTrainer:
         y_tensor = torch.FloatTensor(y_scaled).unsqueeze(0).unsqueeze(2)  # Add batch and feature dimensions
         
         print(f"Prepared tensors - x_shape: {x_tensor.shape}, y_shape: {y_tensor.shape}")
-        print(f"Final tensor shapes:")
-        print(f"x_tensor: {x_tensor.shape}")
-        print(f"y_tensor: {y_tensor.shape}")
         
         return x_tensor, y_tensor
     
@@ -438,8 +435,21 @@ class AlternatingTrainer:
         if not station_data:
             raise ValueError(f"Station ID {station_id} not found in the data.")
 
-        # Concatenate all station data columns for the main station
-        df = pd.concat(station_data.values(), axis=1)
+        # Initialize DataFrame with only the features specified in config
+        df = pd.DataFrame(index=station_data[list(station_data.keys())[0]].index)
+        
+        # Add only the features specified in config['feature_cols']
+        for feature in self.config['feature_cols']:
+            if feature in station_data:
+                df[feature] = station_data[feature][feature]
+            else:
+                raise ValueError(f"Feature {feature} not found in station data")
+        
+        # Add target column
+        if self.config['output_features'][0] in station_data:
+            df[self.config['output_features'][0]] = station_data[self.config['output_features'][0]][self.config['output_features'][0]]
+        else:
+            raise ValueError(f"Target feature {self.config['output_features'][0]} not found in station data")
         
         # Add feature station data if configured
         if self.config.get('feature_stations'):
@@ -456,10 +466,8 @@ class AlternatingTrainer:
                     if feature not in feature_station_data:
                         raise ValueError(f"Feature {feature} not found in station {feature_station_id}")
                         
-                    feature_data = feature_station_data[feature][feature].rename(
-                        f"feature_station_{feature_station_id}_{feature}"
-                    )
-                    df = pd.concat([df, feature_data], axis=1)
+                    feature_name = f"feature_station_{feature_station_id}_{feature}"
+                    df[feature_name] = feature_station_data[feature][feature]
                     print(f"  - Added {feature} from station {feature_station_id}")
         
         # Print basic feature information
@@ -467,7 +475,7 @@ class AlternatingTrainer:
         print("----------------------")
         print("Using features from:")
         print("  - Primary station:")
-        for feature in self.feature_cols:
+        for feature in self.config['feature_cols']:
             print(f"    * {feature}")
         
         if self.config.get('feature_stations'):
@@ -580,6 +588,16 @@ class AlternatingTrainer:
             # Standard mode: use more data
             val_data = df[(df.index.year >= 2022) & (df.index.year <= 2023)]  # Validation: 2022-2023
             train_data = df[df.index.year < 2022]  # Training: before 2022
+        
+        # Print NaN values in each split after all handling
+        print("\nNaN values in data splits (after handling):")
+        print("----------------------------------------")
+        for split_name, split_data in [("Training", train_data), ("Validation", val_data), ("Test", test_data)]:
+            print(f"\n{split_name} data:")
+            for col in split_data.columns:
+                nan_count = split_data[col].isna().sum()
+                if nan_count > 0:
+                    print(f"  {col}: {nan_count} NaN values ({nan_count/len(split_data)*100:.2f}%)")
         
         print(f"\nSplit Summary:")
         print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")

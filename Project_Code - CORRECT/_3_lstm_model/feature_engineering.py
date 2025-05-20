@@ -105,6 +105,11 @@ class FeatureEngineer:
         """
         Add cumulative rainfall features to better capture long-term patterns.
         
+        NaN handling:
+        - Rainfall: Convert -1 (missing) to 0 before calculating cumulative sums
+        - Feature station rainfall: Convert -1 (missing) to 0 before calculating cumulative sums
+        - Cumulative features: Forward fill, backward fill after calculation
+        
         Features added:
         - 1-month (30-day) cumulative rainfall
         - 3-month (90-day) cumulative rainfall
@@ -162,6 +167,10 @@ class FeatureEngineer:
     def add_lagged_features(self, data, target_col, lags=None, use_ma_features=False, use_roc_features=False):
         """
         Add lagged features to the dataset.
+        
+        NaN handling:
+        - For target variable (vst_raw): Keep NaN values
+        - For lagged features: Forward fill, backward fill
         
         Args:
             data: DataFrame with time series data
