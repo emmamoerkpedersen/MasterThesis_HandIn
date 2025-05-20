@@ -9,26 +9,22 @@ ALTERNATING_CONFIG = {
     'dropout': 0.25,
     
     # Training parameters
-    'batch_size': (20*672)+672,          # Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 20,              # More epochs for better convergence
+    'batch_size': (20*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
+    'epochs': 50,              # More epochs for better convergence
     'patience': 8,
     'learning_rate': 0.001,
-    
-    # Quick mode for faster training with reduced data
-    'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
-  
     # Forecasting parameters
     'week_steps': 672,         # Number of time steps in a week (15-min intervals: 4*24*7 = 672)
-    
-    # Warmup period
     'warmup_length': 672,
-    
     # Anomaly detection parameters
     'threshold': 13.0,          # Threshold for detecting anomalies
     'window_size': 100,        # Window size for MAD calculation
     
+    # Quick mode for faster training with reduced data
+    'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
+
     # Loss function
-    'objective_function': 'smoothL1_loss',  # Using smoothL1 for robustness
+    'objective_function': 'mae_loss',  # Using MAE loss
     
     # Features
     'feature_cols': [
@@ -38,9 +34,17 @@ ALTERNATING_CONFIG = {
     ],
     'output_features': ['vst_raw'],  # Target is water level
     
-    # Empty feature_stations list for compatibility with DataPreprocessor
-    'feature_stations': [],
-    
+
+    'feature_stations': [
+        {
+            'station_id': '21006845',
+            'features': ['vst_raw', 'rainfall']
+        },
+        {
+            'station_id': '21006847',
+            'features': ['vst_raw', 'rainfall']
+        }
+    ],
     # Feature engineering settings
     'use_time_features': True,        # Enable time features (day of week, month, etc.)
     'use_cumulative_features': True,  # Enable cumulative features (e.g., cumulative rainfall)

@@ -456,8 +456,8 @@ class AlternatingTrainer:
         
         # Fill NaN values for basic features
         df.loc[:, 'temperature'] = df['temperature'].ffill().bfill()
-        df.loc[:, 'rainfall'] = df['rainfall'].fillna(0)  # Changed from -1 to 0 for rainfall (more realistic)
-        df.loc[:, 'vst_raw_feature'] = df['vst_raw_feature'].fillna(method='ffill')  # Changed to forward fill
+        df.loc[:, 'rainfall'] = df['rainfall'].fillna(-1) 
+        df.loc[:, 'vst_raw_feature'] = df['vst_raw_feature'].fillna(-1)
         
         # Aggregate temperature to 30 days
         df.loc[:, 'temperature'] = df['temperature'].rolling(window=30, min_periods=1).mean()
@@ -524,19 +524,7 @@ class AlternatingTrainer:
         
         # Store all the feature columns to use
         all_columns = [col for col in df.columns if col not in self.config['output_features']]
-        
-        # Filter out excluded features defined in config
-        excluded_features = self.config.get('excluded_features', [])
-        if excluded_features:
-            excluded_cols = []
-            for col in all_columns:
-                if any(excluded in col for excluded in excluded_features):
-                    excluded_cols.append(col)
-            
-            if excluded_cols:
-                print(f"\nExcluding columns based on config.excluded_features: {excluded_cols}")
-                all_columns = [col for col in all_columns if col not in excluded_cols]
-        
+    
         self.all_feature_cols = all_columns
         
         print(f"\nAll available feature columns ({len(self.all_feature_cols)}): {self.all_feature_cols}")
