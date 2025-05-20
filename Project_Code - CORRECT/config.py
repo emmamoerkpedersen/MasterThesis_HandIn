@@ -144,7 +144,6 @@ LSTM_CONFIG = {
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
-        'vst_raw_feature',
         'rainfall', 
         'temperature'
     ],

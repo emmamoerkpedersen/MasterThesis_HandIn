@@ -22,7 +22,7 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
                           If None, uses default values [0.0, 0.5, 1.0, 1.5, 2.0, 3.0]
     """
     if error_multipliers is None:
-        error_multipliers = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0]
+        error_multipliers = [0.0, 0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 1.5, 2.0, 3.0]
     
     # Set up paths
     project_root = Path(__file__).parents[1]

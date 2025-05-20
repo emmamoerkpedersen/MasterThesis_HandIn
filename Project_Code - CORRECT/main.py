@@ -374,18 +374,4 @@ if __name__ == "__main__":
             import traceback
             traceback.print_exc()
 
-'''
-To run the model with different options:
 
-For standard LSTM:
-python main.py --model_type standard
-
-For iterative forecaster:
-python main.py --model_type iterative
-
-With error injection:
-python main.py --model_type iterative --error_multiplier 2.0
-
-With diagnostics:
-python main.py --model_type iterative --model_diagnostics --advanced_diagnostics
-'''
