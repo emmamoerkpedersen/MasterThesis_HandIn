@@ -411,7 +411,14 @@ class AlternatingTrainer:
     
     def load_data(self, project_root, station_id):
         """
-        Custom data loading function for the alternating model that doesn't rely on feature stations.
+        Custom data loading function for the alternating model that uses both primary station
+        and configured feature stations.
+        
+        NaN handling:
+        - Temperature: Forward fill, backward fill, then 30-day aggregation
+        - Rainfall: Fill NaN with -1
+        - vst_raw_feature: Fill NaN with -1
+        - vst_raw (target): Keep NaN values (handled in loss calculation)
         
         Args:
             project_root: Path to project root
@@ -420,7 +427,7 @@ class AlternatingTrainer:
         Returns:
             train_data, val_data, test_data: DataFrames for training, validation, and testing
         """
-        print(f"\nLoading data for station {station_id} with simplified approach...")
+        print(f"\nLoading data for station {station_id}...")
         
         # Load the preprocessed data
         data_dir = project_root / "data_utils" / "Sample data"
@@ -434,12 +441,41 @@ class AlternatingTrainer:
         # Concatenate all station data columns for the main station
         df = pd.concat(station_data.values(), axis=1)
         
+        # Add feature station data if configured
+        if self.config.get('feature_stations'):
+            print("\nAdding feature station data:")
+            for station in self.config['feature_stations']:
+                feature_station_id = station['station_id']
+                feature_station_data = data.get(feature_station_id)
+                
+                if not feature_station_data:
+                    raise ValueError(f"Feature station ID {feature_station_id} not found in the data.")
+                
+                # Add each requested feature from the feature station
+                for feature in station['features']:
+                    if feature not in feature_station_data:
+                        raise ValueError(f"Feature {feature} not found in station {feature_station_id}")
+                        
+                    feature_data = feature_station_data[feature][feature].rename(
+                        f"feature_station_{feature_station_id}_{feature}"
+                    )
+                    df = pd.concat([df, feature_data], axis=1)
+                    print(f"  - Added {feature} from station {feature_station_id}")
+        
         # Print basic feature information
         print("\nInput Features Summary:")
         print("----------------------")
-        print("Using only the primary station features:")
+        print("Using features from:")
+        print("  - Primary station:")
         for feature in self.feature_cols:
-            print(f"  - {feature}")
+            print(f"    * {feature}")
+        
+        if self.config.get('feature_stations'):
+            print("  - Feature stations:")
+            for station in self.config['feature_stations']:
+                print(f"    * Station {station['station_id']}:")
+                for feature in station['features']:
+                    print(f"      - {feature}")
         
         print("\nFeature engineering settings:")
         print(f"  - Using time features: {self.config.get('use_time_features', False)}")
@@ -454,77 +490,53 @@ class AlternatingTrainer:
         # Cut dataframe to date range
         df = df[(df.index >= start_date) & (df.index <= end_date)]
         
-        # Fill NaN values for basic features
+        # Handle NaN values for input features
+        print("\nHandling NaN values:")
+        print("  - Temperature: Forward fill, backward fill, then 30-day aggregation")
         df.loc[:, 'temperature'] = df['temperature'].ffill().bfill()
-        df.loc[:, 'rainfall'] = df['rainfall'].fillna(-1) 
+        df.loc[:, 'temperature'] = df['temperature'].rolling(window=30, min_periods=1).mean()
+        
+        print("  - Rainfall: Fill NaN with -1")
+        df.loc[:, 'rainfall'] = df['rainfall'].fillna(-1)
+        
+        print("  - vst_raw_feature: Fill NaN with -1")
         df.loc[:, 'vst_raw_feature'] = df['vst_raw_feature'].fillna(-1)
         
-        # Aggregate temperature to 30 days
-        df.loc[:, 'temperature'] = df['temperature'].rolling(window=30, min_periods=1).mean()
-        print(f"  - Aggregated temperature to 30 days")
+        # Fill NaN values for feature station data
+        if self.config.get('feature_stations'):
+            print("  - Feature station data: Fill NaN with -1")
+            for station in self.config['feature_stations']:
+                for feature in station['features']:
+                    col_name = f"feature_station_{station['station_id']}_{feature}"
+                    if col_name in df.columns:
+                        df.loc[:, col_name] = df[col_name].fillna(-1)
         
-        # Add feature engineering if enabled
-        original_feature_count = len(df.columns)
-        feature_count = original_feature_count
+        print("  - Target (vst_raw): Keep NaN values (handled in loss calculation)")
         
+        # Add time-based features if enabled
         if self.config.get('use_time_features', False):
-            print("Adding time-based features...")
-            
-            # Add day of week (0-6)
-            df['day_of_week'] = df.index.dayofweek
-            
-            # Add hour of day (0-23)
-            df['hour_of_day'] = df.index.hour
-            
-            # Add month (1-12)
-            df['month'] = df.index.month
-            
-            # Add quarter (1-4)
-            df['quarter'] = df.index.quarter
-            
-            # Add sin and cos components for cyclical features (day, hour)
-            df['day_sin'] = np.sin(df['day_of_week'] * (2 * np.pi / 7))
-            df['day_cos'] = np.cos(df['day_of_week'] * (2 * np.pi / 7))
-            
-            df['hour_sin'] = np.sin(df['hour_of_day'] * (2 * np.pi / 24))
-            df['hour_cos'] = np.cos(df['hour_of_day'] * (2 * np.pi / 24))
-            
-            feature_count = len(df.columns)
-            print(f"  - Added {feature_count - original_feature_count} time features")
+            print("\nAdding time-based features...")
+            df = self.preprocessor.feature_engineer._add_time_features(df)
+            print(f"  - Added time features: {[col for col in df.columns if col in ['month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos']]}")
         
+        # Add cumulative features if enabled
         if self.config.get('use_cumulative_features', False):
-            print("Adding cumulative features...")
-            
-            # Add 24-hour cumulative rainfall
-            df['rainfall_24h'] = df['rainfall'].rolling(window=24*4, min_periods=1).sum()  # 4 readings per hour
-            
-            # Add 72-hour cumulative rainfall
-            df['rainfall_72h'] = df['rainfall'].rolling(window=72*4, min_periods=1).sum()  
-            
-            # Add 7-day cumulative rainfall
-            df['rainfall_7d'] = df['rainfall'].rolling(window=7*24*4, min_periods=1).sum()
-            
-            print(f"  - Added {len(df.columns) - feature_count} cumulative features")
-            print("  - Avoided water level derived features to prevent error propagation")
-            feature_count = len(df.columns)
+            print("\nAdding cumulative features...")
+            df = self.preprocessor.feature_engineer._add_cumulative_features(df)
+            print(f"  - Added cumulative rainfall features")
         
+        # Add lagged features if enabled
         if self.config.get('use_lagged_features', False) and 'lag_hours' in self.config:
-            print("Adding lagged features...")
-            lag_hours = self.config['lag_hours']
-            
-            for lag in lag_hours:
-                periods = lag * 4  # 4 readings per hour
-                df[f'vst_raw_lag_{lag}h'] = df['vst_raw_feature'].shift(periods)
-                
-            print(f"  - Added {len(df.columns) - feature_count} lagged features")
-        
-        # Fill any NaN values created by feature engineering
-        print("Filling NaN values created by feature engineering...")
-        df = df.fillna(method='ffill').fillna(method='bfill')
+            print("\nAdding lagged features...")
+            df = self.preprocessor.feature_engineer.add_lagged_features(
+                df,
+                target_col=self.config['output_features'][0],
+                lags=self.config['lag_hours']
+            )
+            print(f"  - Added lagged features for hours: {self.config['lag_hours']}")
         
         # Store all the feature columns to use
         all_columns = [col for col in df.columns if col not in self.config['output_features']]
-    
         self.all_feature_cols = all_columns
         
         print(f"\nAll available feature columns ({len(self.all_feature_cols)}): {self.all_feature_cols}")
