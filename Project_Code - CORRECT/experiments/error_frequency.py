@@ -72,7 +72,6 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
         baseline_metrics = {
             'clean_rmse': clean_metrics.get('model', {}).get('rmse', np.nan),
             'clean_mae': clean_metrics.get('model', {}).get('mae', np.nan),
-            'clean_r2': clean_metrics.get('model', {}).get('r2', np.nan),
             'clean_nse': clean_metrics.get('model', {}).get('nse', np.nan),
             'clean_val_loss': clean_metrics.get('model', {}).get('val_loss', np.nan)
         }
@@ -83,7 +82,6 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
         baseline_metrics = {
             'clean_rmse': np.nan,
             'clean_mae': np.nan,
-            'clean_r2': np.nan,
             'clean_nse': np.nan,
             'clean_val_loss': np.nan
         }
@@ -111,11 +109,10 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
             # Create a record for this experiment
             experiment_record = {
                 'error_multiplier': error_mult,
-                'error_rmse': performance_metrics.get('error_model', {}).get('rmse', np.nan),
-                'error_mae': performance_metrics.get('error_model', {}).get('mae', np.nan),
-                'error_r2': performance_metrics.get('error_model', {}).get('r2', np.nan),
-                'error_nse': performance_metrics.get('error_model', {}).get('nse', np.nan),
-                'error_val_loss': performance_metrics.get('error_model', {}).get('val_loss', np.nan),
+                'error_rmse': performance_metrics.get('model', {}).get('rmse', np.nan),
+                'error_mae': performance_metrics.get('model', {}).get('mae', np.nan),
+                'error_nse': performance_metrics.get('model', {}).get('nse', np.nan),
+                'error_val_loss': performance_metrics.get('model', {}).get('val_loss', np.nan),
                 **baseline_metrics  # Add the baseline metrics
             }
             

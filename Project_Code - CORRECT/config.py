@@ -50,26 +50,25 @@ SYNTHETIC_ERROR_PARAMS = {
         }
     },
     
-    # 'drift': {
-    #     'count_per_year': 0,  # Disabled by default
-    #     # Wider range for drift durations
-    #     'duration_range': [500, 1168],  # Changed from [24, 168]
-    #     # More varied magnitude range
-    #     'magnitude_range': [5, 50],   # Changed from [10, 50]
-    #     'negative_positive_ratio': 0.5,
-    #     'context_aware': {
-    #         'subtle_prob': 0.5,
-    #         'medium_prob': 0.3,
-    #         'obvious_prob': 0.2
-    #     }
-    # },
+     'drift': {
+        'count_per_year': 1,  # Disabled by default
+        # Wider range for drift durations
+        'duration_range': [1168*2, 1168*3],  # Changed from [24, 168]
+        # More varied magnitude range
+        'magnitude_range': [50, 150],   # Changed from [10, 50]
+        'negative_positive_ratio': 0.5,
+        'context_aware': {
+            'subtle_prob': 0.5,
+            'medium_prob': 0.3,
+            'obvious_prob': 0.2
+        }
+    },
     
-    # 'flatline': {
-    #     'count_per_year': 0,  # Disabled by default
-    #     # More varied durations
-    #     'duration_range': (10, 200),  # Changed from (20, 200)
-    #     'value_method': 'first_value'
-    # },
+    'flatline': {
+        'count_per_year': 0,  # Explicitly disabled
+        'duration_range': (10, 200),
+        'value_method': 'first_value'
+    },
     
     'offset': {
         'count_per_year': 1,  # Base count: 2 offset periods per year
@@ -88,15 +87,25 @@ SYNTHETIC_ERROR_PARAMS = {
     
     'noise': {
         'count_per_year': 1,  # Base count: 3 noise periods per year
-        'duration_range': (24, 168),
-        'intensity_range': (4, 10)  # Changed from (2, 4)
+        'duration_range': (168, 468),
+        'intensity_range': (4, 10),  # Changed from (2, 4)
+        # New parameters for stepped noise
+        'num_sub_segments_range': (15, 20), # Min and max number of sub-segments (steps)
+        'segment_level_offset_range_abs': (50, 200), # Min/max absolute offset for each new level
+        'segment_noise_std_abs': 1  # Base std for noise around each segment's new level
     },
     
-    # 'baseline_shift': {
-    #     'count_per_year': 0,  # Disabled by default
-    #     'magnitude_range': (100, 600),  # Changed from (200, 600)
-    #     'negative_positive_ratio': 0.5
-    # },
+    'baseline shift': {
+        'count_per_year': 1,  # Disabled by default
+        'magnitude_range': (100, 600),  # Changed from (200, 600)
+        'negative_positive_ratio': 0
+    },
+    
+    'missing_data': {
+        'count_per_year': 0, # Explicitly disabled
+        'min_length': 100,
+        'max_length': 500
+    },
     
     # Updated physical limits
     'PHYSICAL_LIMITS': {
@@ -135,7 +144,7 @@ LSTM_CONFIG = {
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     
     'feature_cols': [
-      #  'vst_raw_feature',
+        'vst_raw_feature',
         'rainfall', 
         'temperature'
     ],

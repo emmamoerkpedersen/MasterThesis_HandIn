@@ -1204,9 +1204,9 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
                 elif 'feature2' in feature or 'feature_station_21006847' in feature:
                     station_label = 'Station 21006847'
                     line_style = ':'
-                    line_color = 'black'  # Red
+                    line_color = 'purple'  # Red
                 else:
-                    station_label = 'Main Station'
+                    station_label = 'Station 21006846'
                     line_style = '-'
                     line_color = 'black'  # Main station in black
                 

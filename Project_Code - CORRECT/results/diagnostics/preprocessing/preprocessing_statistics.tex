@@ -1,0 +1,16 @@
+\begin{table}[htbp]
+\centering
+\caption{Preprocessing Statistics Summary for Stream Water Level Data}
+\label{tab:preprocessing-stats}
+\begin{tabular}{lrrrrrr}
+\toprule
+Station & Total Points & Points Removed & Removal (\%) & Outliers & Freezing & Flatlines \\
+\midrule
+21006846 & 453,919 & -63,705 & -14.0 & 6,707 & 0 & -70,412 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\small
+\item Note: Points Removed represents the total number of data points excluded during preprocessing. Outliers are identified using IQR method (1.5×IQR below Q1 or 4×IQR above Q3). Freezing points are removed during periods of sub-zero temperatures. Flatlines represent sequences of 30 or more identical consecutive values.
+\end{tablenotes}
+\end{table}
