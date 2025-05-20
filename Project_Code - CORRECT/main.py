@@ -140,6 +140,9 @@ def run_pipeline(
                 water_level_cols = ['feature_station_21006845_vst_raw', 'feature_station_21006847_vst_raw']
                 water_level_cols = [col for col in water_level_cols if col in original_train_data.columns]
             
+            # Filter out the target column 'vst_raw' from water_level_cols
+            water_level_cols = [col for col in water_level_cols if col != 'vst_raw']
+            
             print(f"Injecting errors into columns: {water_level_cols}")
             
             # Process training data
