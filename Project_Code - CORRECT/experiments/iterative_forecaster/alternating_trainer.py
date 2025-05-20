@@ -82,27 +82,16 @@ class AlternatingTrainer:
         print(f"\nPreparing sequences:")
         print(f"Input DataFrame shape: {df.shape}")
         
-        # Extract features and target as DataFrames - ONLY use features explicitly listed in config
-        if hasattr(self, 'all_feature_cols'):
-            # Use only the features explicitly defined in config
-            available_features = [col for col in self.all_feature_cols if col in df.columns]
-            filtered_features = [col for col in available_features if col in self.config.get('feature_cols', [])]
-            
-            if len(filtered_features) == 0:
-                # Fallback - look for columns containing the feature names
-                for feature in self.config.get('feature_cols', []):
-                    for col in available_features:
-                        if feature in col:
-                            filtered_features.append(col)
-                            break
-            
-            features_df = df[filtered_features]
-            print(f"Features DataFrame shape: {features_df.shape}")
-        else:
-            features_df = df[self.feature_cols]
-            print(f"Features DataFrame shape: {features_df.shape}")
+        # Get all feature columns except the target
+        feature_cols = [col for col in df.columns if col not in self.config['output_features']]
+        print(f"Using all available features: {len(feature_cols)} features")
+        print(f"Features: {feature_cols}")
         
+        # Extract features and target as DataFrames
+        features_df = df[feature_cols]
         target_df = df[self.config['output_features']]
+        
+        print(f"Features DataFrame shape: {features_df.shape}")
         print(f"Target DataFrame shape: {target_df.shape}")
         
         # Apply scaling
@@ -540,15 +529,13 @@ class AlternatingTrainer:
         self.all_feature_cols = all_columns
         
         print(f"\nAll available feature columns ({len(self.all_feature_cols)}): {self.all_feature_cols}")
-        print(f"Will use only features explicitly listed in config.feature_cols")
         
-        # Initialize the model now that we know all the features
-        # Filter to only use features from config.feature_cols
-        filtered_features_count = len([col for col in self.all_feature_cols if col in self.config.get('feature_cols', [])])
-        print(f"Filtered features count: {filtered_features_count}")
+        # Initialize the model with the correct input size based on all features
+        input_size = len(self.all_feature_cols)
+        print(f"Initializing model with input size: {input_size}")
         
         self.model = AlternatingForecastModel(
-            input_size=filtered_features_count,
+            input_size=input_size,  # Use total number of features
             hidden_size=self.config['hidden_size'],
             output_size=1,  # Always predict 1 time step ahead for water level
             dropout=self.config['dropout'],
