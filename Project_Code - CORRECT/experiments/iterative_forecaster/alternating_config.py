@@ -9,9 +9,9 @@ ALTERNATING_CONFIG = {
     'dropout': 0.25,
     
     # Training parameters
-    'batch_size': (20*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 5,              # More epochs for better convergence
-    'patience': 8,
+    'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
+    'epochs': 50,              # More epochs for better convergence
+    'patience': 15,
     'learning_rate': 0.001,
     # Forecasting parameters
     'week_steps': 672,         # Number of time steps in a week (15-min intervals: 4*24*7 = 672)

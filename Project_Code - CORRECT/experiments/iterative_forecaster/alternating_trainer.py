@@ -219,7 +219,7 @@ class AlternatingTrainer:
         print(f"Batch size: {batch_size}")
         print(f"Number of batches per epoch: {num_batches}")
         
-        epoch_pbar = tqdm(range(epochs), desc="Training Progress", position=0)
+        epoch_pbar = tqdm(range(epochs), desc="Training Progress")
         for epoch in epoch_pbar:
             self.model.train()
             # Only enable debug mode for first batch of first epoch
@@ -228,18 +228,10 @@ class AlternatingTrainer:
             total_train_loss = 0
             batch_losses = []
             
-            train_bar = tqdm(
-                range(num_batches), 
-                desc=f"Epoch {epoch+1}/{epochs}", 
-                position=1, 
-                leave=False,
-                bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'
-            )
-            
             # State resets between epochs
             hidden_state, cell_state = None, None
             
-            for batch_idx in train_bar:
+            for batch_idx in range(num_batches):
                 # Extract batch
                 batch_start = batch_idx * batch_size
                 batch_end = min((batch_idx + 1) * batch_size, total_samples)
@@ -249,7 +241,6 @@ class AlternatingTrainer:
                 x_batch = x_train[:, batch_start:batch_end, :]
                 y_batch = y_train[:, batch_start:batch_end, :]
                 
-          
                 self.optimizer.zero_grad()
                 
                 # Forward pass with alternating pattern
@@ -290,15 +281,6 @@ class AlternatingTrainer:
                     batch_loss = loss.item()
                     total_train_loss += batch_loss
                     batch_losses.append(batch_loss)
-                    
-                    # Update progress bar with loss information
-                    if len(batch_losses) > 0:
-                        avg_loss = sum(batch_losses[-10:]) / min(len(batch_losses), 10)  # Average of last 10 batches
-                        train_bar.set_postfix({
-                            'samples': f"{batch_end}/{total_samples}",
-                            'loss': f"{batch_loss:.6f}",
-                            'avg_loss': f"{avg_loss:.6f}"
-                        })
             
             # Calculate average training loss for the epoch
             avg_train_loss = total_train_loss / max(1, num_batches)
@@ -313,7 +295,6 @@ class AlternatingTrainer:
                 # Reset states
                 hidden_state, cell_state = None, None
                 
-                print(f"\nValidating epoch {epoch+1}...")
                 # Get predictions
                 val_outputs, _, _ = self.model(
                     x_val, 
@@ -321,8 +302,6 @@ class AlternatingTrainer:
                     cell_state,
                     use_predictions=False  # Use original data for validation
                 )
-                
-         
                 
                 mask = ~torch.isnan(y_val)
                 if mask.any():
@@ -339,7 +318,10 @@ class AlternatingTrainer:
                     'best_val_loss': f"{best_val_loss:.6f}"
                 })
                 
-                print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.6f}, Val Loss: {val_loss:.6f}")
+                # Print epoch results
+                print(f"\nEpoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.6f}, Val Loss: {val_loss:.6f}")
+                if val_loss < best_val_loss:
+                    print(f"New best validation loss: {best_val_loss:.6f}")
                 
                 # Check for improvement
                 if val_loss < best_val_loss:
@@ -347,7 +329,6 @@ class AlternatingTrainer:
                     patience_counter = 0
                     best_model_state = self.model.state_dict().copy()
                     best_val_predictions = val_outputs.detach().cpu()
-                    print(f"New best validation loss: {best_val_loss:.6f}")
                 else:
                     patience_counter += 1
                     print(f"Patience: {patience_counter}/{self.config.get('patience', 5)}")

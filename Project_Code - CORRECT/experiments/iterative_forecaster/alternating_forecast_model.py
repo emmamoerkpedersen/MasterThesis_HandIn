@@ -83,12 +83,12 @@ class AlternatingForecastModel(nn.Module):
             # Create weekly mask for alternating pattern
             # 0 for weeks where we use original observations (first week)
             # 1 for weeks where we use model predictions (second week)
-            weekly_mask = torch.ones(seq_len, device=device)  # Default to using predictions
+            weekly_mask = torch.zeros(seq_len, device=device)  # Default to using observations
             
-            # Set first week and every other week to use observations (0)
-            for i in range(0, seq_len, self.week_steps * 2):
+            # Set every other week to use predictions (1)
+            for i in range(self.week_steps, seq_len, self.week_steps * 2):
                 if i + self.week_steps <= seq_len:
-                    weekly_mask[i:i+self.week_steps] = 0
+                    weekly_mask[i:i+self.week_steps] = 1
                     
         elif weekly_mask is None:
             # Default to using original data if no pattern specified
@@ -103,20 +103,20 @@ class AlternatingForecastModel(nn.Module):
         last_switch = 0
         
         for t in range(seq_len):
-            use_original = (weekly_mask[t].item() == 0) or t == 0 or not use_predictions
+            # Determine if we should use original data or prediction
+            use_original = (weekly_mask[t].item() == 0) or not use_predictions
             
             if not use_original and t > 0:
                 n_used_prediction += 1
                 binary_flag = torch.ones(batch_size, 1, device=device)
+                # Use the last prediction as input for the current timestep
                 pred_input = x[:, t, :].clone()
                 pred_input[:, 0] = outputs[:, t-1, 0]  # Water level is always first feature
                 current_input = torch.cat([pred_input, binary_flag], dim=1)
-           
             else:
                 n_used_original += 1
                 binary_flag = torch.zeros(batch_size, 1, device=device)
                 current_input = torch.cat([x[:, t, :], binary_flag], dim=1)
-      
             
             # Process through LSTM cell
             hidden_state, cell_state = self.lstm_cell(current_input, (hidden_state, cell_state))
@@ -124,9 +124,26 @@ class AlternatingForecastModel(nn.Module):
             # Apply dropout to hidden state
             final_hidden = self.dropout(hidden_state)
             
-            # Generate prediction for current timestep
+            # Generate prediction for current timestep only
             outputs[:, t, :] = self.output_layer(final_hidden)
+            
+            # Print debug information for first batch of first epoch
+            if self.debug_mode and t % 1000 == 0:
+                print(f"\nTimestep {t}:")
+                print(f"Using {'original' if use_original else 'prediction'} data")
+                print(f"Current input shape: {current_input.shape}")
+                print(f"Output shape: {outputs[:, t, :].shape}")
+                if t > 0:
+                    print(f"Previous prediction: {outputs[:, t-1, 0].mean().item():.2f}")
+                print(f"Current prediction: {outputs[:, t, 0].mean().item():.2f}")
         
+        if self.debug_mode:
+            print(f"\nFinal statistics:")
+            print(f"Total timesteps: {seq_len}")
+            print(f"Used original data: {n_used_original} times")
+            print(f"Used predictions: {n_used_prediction} times")
+            print(f"Original data percentage: {n_used_original/seq_len*100:.1f}%")
+            print(f"Predictions percentage: {n_used_prediction/seq_len*100:.1f}%")
     
         return outputs, hidden_state, cell_state
     
