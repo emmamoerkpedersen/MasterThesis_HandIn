@@ -71,6 +71,8 @@ class AlternatingTrainer:
     def prepare_sequences(self, df, is_training=True):
         """
         Custom method to prepare sequences for the alternating model.
+        Each feature is scaled individually using its own StandardScaler.
+        Scalers are fitted only on training data and reused for validation/test.
         
         Args:
             df: DataFrame with features and target
@@ -96,29 +98,38 @@ class AlternatingTrainer:
         
         # Apply scaling
         if is_training:
-            # Fit StandardScaler for features
-            feature_scaler = StandardScaler()
-            x_scaled = feature_scaler.fit_transform(features_df)
+            # Initialize dictionary to store feature scalers
+            self.feature_scalers = {}
+            
+            # Scale each feature individually
+            x_scaled = np.zeros_like(features_df.values)
+            for i, feature in enumerate(feature_cols):
+                scaler = StandardScaler()
+                x_scaled[:, i] = scaler.fit_transform(features_df[feature].values.reshape(-1, 1)).flatten()
+                self.feature_scalers[feature] = scaler
+                print(f"Fitted scaler for {feature} - mean: {scaler.mean_[0]:.2f}, scale: {scaler.scale_[0]:.2f}")
             
             # Fit separate StandardScaler for target
-            target_scaler = StandardScaler()
+            self.target_scaler = StandardScaler()
             # Handle NaN values in target
             valid_mask = ~np.isnan(target_df.values.flatten())
-            target_scaler.fit(target_df.values[valid_mask].reshape(-1, 1))
+            self.target_scaler.fit(target_df.values[valid_mask].reshape(-1, 1))
             
-            # Store scalers for later use
-            self.feature_scaler = feature_scaler
-            self.target_scaler = target_scaler
-            
-            print(f"Fitted scalers on {np.sum(valid_mask)} valid target points")
-            print(f"Target scaling - mean: {target_scaler.mean_[0]:.2f}, scale: {target_scaler.scale_[0]:.2f}")
+            print(f"Fitted target scaler on {np.sum(valid_mask)} valid target points")
+            print(f"Target scaling - mean: {self.target_scaler.mean_[0]:.2f}, scale: {self.target_scaler.scale_[0]:.2f}")
             print(f"Scaled features shape: {x_scaled.shape}")
         else:
             # Use previously fitted scalers
-            if not hasattr(self, 'feature_scaler') or not hasattr(self, 'target_scaler'):
+            if not hasattr(self, 'feature_scalers') or not hasattr(self, 'target_scaler'):
                 raise ValueError("Scalers not fitted. Call with is_training=True first.")
             
-            x_scaled = self.feature_scaler.transform(features_df)
+            # Scale each feature using its fitted scaler
+            x_scaled = np.zeros_like(features_df.values)
+            for i, feature in enumerate(feature_cols):
+                x_scaled[:, i] = self.feature_scalers[feature].transform(
+                    features_df[feature].values.reshape(-1, 1)
+                ).flatten()
+            
             print(f"Scaled features shape: {x_scaled.shape}")
         
         # Scale the target
