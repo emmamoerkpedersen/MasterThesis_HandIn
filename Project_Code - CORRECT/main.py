@@ -58,7 +58,7 @@ from _3_lstm_model.model import LSTMModel
 
 # # EMMA HUSK AT BRUGE GAMLE MODEL OG TRÆNIN GOGSÅ!!!
 # from experiments.Improved_model_structure.train_model import LSTM_Trainer
-# from experiments.Improved_model_structure.model import LSTMModel
+#from experiments.Improved_model_structure.improved_model import LSTMModel
 
 def run_pipeline(
     project_root: Path,

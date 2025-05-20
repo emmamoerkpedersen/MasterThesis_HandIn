@@ -116,7 +116,7 @@ PHYSICAL_LIMITS = {
 # LSTM Configuration
 LSTM_CONFIG = {
     'hidden_size': 128,         
-    'num_layers': 1,                       
+    'num_layers': 3,                       
     'dropout': 0.25,  # N/A for standard model as we only have one layer             
     'batch_size': 1,
     'sequence_length': 70080,     
@@ -124,14 +124,13 @@ LSTM_CONFIG = {
     'patience': 5,            
     'learning_rate': 0.001,    
 
-    'warmup_length': 0,        # No warmup for standard model
+    'warmup_length': 150,        # No warmup for standard model
         
 
-    # 'smoothL1_loss', 'mse_loss', ...
-    'objective_function': 'mse_loss',  # Changed to MSE for better stability
-    'use_time_features': False,  
-    'use_cumulative_features': False, 
-    # Add lag features for better prediction
+    # 'smoothL1_loss', 'mse_loss', 'mae_loss
+    'objective_function': 'mae_loss',  # Changed to MSE for better stability
+    'use_time_features': True,  
+    'use_cumulative_features': True, 
     'use_lagged_features': False,
     'lag_hours': [72, 144, 288],  # Lag periods in hours
     

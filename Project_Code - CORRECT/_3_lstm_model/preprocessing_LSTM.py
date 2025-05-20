@@ -123,7 +123,7 @@ class DataPreprocessor:
         # Cut dataframe
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         vinge_data = vinge_data[(vinge_data.index >= start_date) & (vinge_data.index <= end_date)]
-        # # Fill NaN in vst_raw_feature, and vst_raw_feature_station_21006845 and 46 with -1
+        # Fill NaN in vst_raw_feature, and vst_raw_feature_station_21006845 and 46 with -1
         data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
 
