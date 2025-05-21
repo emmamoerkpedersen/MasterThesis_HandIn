@@ -986,7 +986,7 @@ def plot_convergence(history, station_id, title=None):
     print(f"Saved convergence plot to: {output_path}")
     plt.close()
 
-def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_show=1):
+def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_show=3):
     """
     Create a publication-quality plot of engineered features, organized by station.
     Each station has its own subplot showing its rainfall-related features.

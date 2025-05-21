@@ -106,7 +106,7 @@ def run_pipeline(
     
     # Generate diagnostics if enabled
     if model_diagnostics:
-        setup_basic_diagnostics(original_train_data, preprocessor.feature_cols, output_path)
+        setup_basic_diagnostics(original_train_data, preprocessor.feature_cols, output_path, years_to_show=10)
     
     if preprocess_diagnostics:
         run_preprocessing_diagnostics(project_root, output_path, station_id)

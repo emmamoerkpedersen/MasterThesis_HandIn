@@ -73,6 +73,9 @@ def train_model(trainer, train_data, val_data, model_config):
     print("\nTraining Results:")
     print(f"Best validation loss: {min(history['val_loss']):.6f}")
     print(f"Final validation loss: {history['val_loss'][-1]:.6f}")
+    if 'smoothed_val_loss' in history:
+        print(f"Best smoothed validation loss: {min(history['smoothed_val_loss']):.6f}")
+        print(f"Final smoothed validation loss: {history['smoothed_val_loss'][-1]:.6f}")
     
     return history, val_predictions, val_targets
 

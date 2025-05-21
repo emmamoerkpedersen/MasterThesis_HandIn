@@ -135,7 +135,7 @@ def run_synthetic_diagnostics(split_datasets, stations_results, output_path):
         traceback.print_exc()
         return None
 
-def setup_basic_diagnostics(train_data, feature_cols, output_path):
+def setup_basic_diagnostics(train_data, feature_cols, output_path, years_to_show=3):
     """
     Set up basic diagnostics such as feature plots.
     
@@ -143,13 +143,14 @@ def setup_basic_diagnostics(train_data, feature_cols, output_path):
         train_data: Training data DataFrame
         feature_cols: List of feature column names
         output_path: Output directory path
+        years_to_show: Number of most recent years to display (default: 3)
     """
     try:
         from _3_lstm_model.model_plots import plot_features_stacked_plots
         
         feature_plot_dir = Path(output_path) / "feature_plots"
         feature_plot_dir.mkdir(parents=True, exist_ok=True)
-        plot_features_stacked_plots(train_data, feature_cols, output_dir=feature_plot_dir, years_to_show=3)
+        plot_features_stacked_plots(train_data, feature_cols, output_dir=feature_plot_dir, years_to_show=years_to_show)
         print(f"Generated feature plots in {feature_plot_dir}")
     except Exception as e:
         print(f"Error setting up basic diagnostics: {str(e)}")
