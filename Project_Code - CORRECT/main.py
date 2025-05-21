@@ -70,7 +70,6 @@ def run_pipeline(
     model_diagnostics: bool = False,
     advanced_diagnostics: bool = False,
     error_multiplier: float = 1.0,
-    model_type: str = 'standard'
 ) -> dict:
     """
     Run the complete error detection and imputation pipeline using yearly windows.
@@ -85,7 +84,6 @@ def run_pipeline(
         model_diagnostics (bool): Whether to generate basic model plots (prediction plots)
         advanced_diagnostics (bool): Whether to generate advanced model diagnostics
         error_multiplier (float): Multiplier for error counts per year (1.0 = base counts)
-        model_type (str): Type of model to use (only 'standard' supported now)
     
     Returns:
         dict: Dictionary containing performance metrics
@@ -323,8 +321,7 @@ if __name__ == "__main__":
                       help='Generate advanced model diagnostics')
     parser.add_argument('--no_diagnostics', action='store_true',
                       help='Disable all diagnostics plots')
-    parser.add_argument('--model_type', type=str, choices=['standard'], default='standard',
-                      help='Type of model to use. Currently only standard LSTM is supported')
+   
     
     args = parser.parse_args()
     
@@ -373,7 +370,6 @@ if __name__ == "__main__":
                 model_diagnostics=use_model_diagnostics,
                 advanced_diagnostics=use_advanced_diagnostics,
                 error_multiplier=args.error_multiplier if args.error_multiplier is not None else 1.0,
-                model_type=args.model_type
             )
 
             print("\nModel run completed!")
