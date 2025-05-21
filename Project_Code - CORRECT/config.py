@@ -142,19 +142,18 @@ LSTM_CONFIG = {
     'use_cumulative_features': False, 
     
     'feature_cols': [
-        'rainfall', 
-        'temperature'
+        'rainfall'
     ],
     'output_features': ['vst_raw'],
 
     'feature_stations': [
-        # {
-        #     'station_id': '21006845',
-        #     'features': ['vst_raw', 'rainfall']
-        # },
-        # {
-        #     'station_id': '21006847',
-        #     'features': ['vst_raw', 'rainfall']
-        # }
+        {
+            'station_id': '21006845',
+            'features': ['vst_raw', 'rainfall']
+        },
+        {
+            'station_id': '21006847',
+            'features': ['vst_raw', 'rainfall'] # temperature same as target station, so only included once
+        }
     ]
 }
