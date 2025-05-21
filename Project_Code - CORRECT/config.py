@@ -130,7 +130,7 @@ LSTM_CONFIG = {
     'batch_size': 1,
     'sequence_length': 70080,     
     'epochs': 50,
-    'patience': 5,            
+    'patience': 10,            
     'learning_rate': 0.001,    
 
     'warmup_length': 150,        # No warmup for standard model
