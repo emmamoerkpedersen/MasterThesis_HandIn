@@ -125,7 +125,7 @@ PHYSICAL_LIMITS = {
 # LSTM Configuration
 LSTM_CONFIG = {
     'hidden_size': 128,         
-    'num_layers': 3,                       
+    'num_layers': 2,                       
     'dropout': 0.25,  # N/A for standard model as we only have one layer             
     'batch_size': 1,
     'sequence_length': 70080,     
@@ -137,11 +137,9 @@ LSTM_CONFIG = {
         
 
     # 'smoothL1_loss', 'mse_loss', 'mae_loss
-    'objective_function': 'mae_loss',  # Changed to MSE for better stability
-    'use_time_features': True,  
-    'use_cumulative_features': True, 
-    'use_lagged_features': False,
-    'lag_hours': [72, 144, 288],  # Lag periods in hours
+    'objective_function': 'mse_loss',  # Changed to MSE for better stability
+    'use_time_features': False,  
+    'use_cumulative_features': False, 
     
     'feature_cols': [
         'rainfall', 
@@ -150,13 +148,13 @@ LSTM_CONFIG = {
     'output_features': ['vst_raw'],
 
     'feature_stations': [
-        {
-            'station_id': '21006845',
-            'features': ['vst_raw', 'rainfall']
-        },
-        {
-            'station_id': '21006847',
-            'features': ['vst_raw', 'rainfall']
-        }
+        # {
+        #     'station_id': '21006845',
+        #     'features': ['vst_raw', 'rainfall']
+        # },
+        # {
+        #     'station_id': '21006847',
+        #     'features': ['vst_raw', 'rainfall']
+        # }
     ]
 }

@@ -108,9 +108,6 @@ class DataPreprocessor:
         print("\nFeature engineering settings:")
         print(f"  - Using time features: {self.config.get('use_time_features', False)}")
         print(f"  - Using cumulative features: {self.config.get('use_cumulative_features', False)}")
-        print(f"  - Using lagged features: {self.config.get('use_lagged_features', False)}")
-        if self.config.get('use_lagged_features', False):
-            print(f"    * Lag hours: {self.config.get('lag_hours', [])}")
         print("----------------------\n")
 
         # Start_date is first rainfall not nan, End_date is last vst_raw not nan
@@ -120,12 +117,12 @@ class DataPreprocessor:
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         vinge_data = vinge_data[(vinge_data.index >= start_date) & (vinge_data.index <= end_date)]
         # Fill NaN in vst_raw_feature, and vst_raw_feature_station_21006845 and 46 with -1
-        data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
+        # data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
+        # data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         
-        #Aggregate temperature to 30 days = 2880 steps
-        data.loc[:, 'temperature'] = data['temperature'].rolling(window=2880, min_periods=1).mean()
-        print(f"  - Aggregated temperature to 30 days")
+        # #Aggregate temperature to 30 days = 2880 steps
+        # data.loc[:, 'temperature'] = data['temperature'].rolling(window=2880, min_periods=1).mean()
+        # print(f"  - Aggregated temperature to 30 days")
 
         # Add cumulative rainfall features if enabled in config
         if self.config.get('use_cumulative_features', False):
@@ -143,34 +140,6 @@ class DataPreprocessor:
             # Update the feature scaler with the new feature columns
             self.update_feature_scaler()
 
-
-        # Add lagged features if enabled in config
-        if self.config.get('use_lagged_features', False):
-            lags = self.config.get('lag_hours', [1, 2, 3, 6, 12, 24])
-            
-            print(f"Feature engineering configuration:")
-            print(f"  - Using lag features: {lags}")
-            
-            # Only use the simplified lag features approach
-            data = self.feature_engineer.add_lagged_features(
-                data, 
-                target_col=self.output_features,
-                lags=lags
-            )
-            
-            # Add any custom features specified in the config
-            if self.config.get('custom_features', None):
-                print(f"  - Adding custom features")
-                data = self.feature_engineer.add_custom_features(
-                    data,
-                    target_col=self.output_features,
-                    feature_specs=self.config['custom_features']
-                )
-            
-            # Update feature columns
-            self.feature_cols = self.feature_engineer.feature_cols.copy()
-            print(f"Total features after engineering: {len(self.feature_cols)}")
-            self.update_feature_scaler()
             
         feature_cols = self.feature_cols
         target_feature = self.output_features
@@ -211,15 +180,6 @@ class DataPreprocessor:
         if self.config.get('use_cumulative_features', False):
             data = self._add_cumulative_features(data)
             
-        # Add lagged features if enabled
-        if self.config.get('use_lagged_features', False):
-            lags = self.config.get('lag_hours', [1, 2, 3, 6, 12, 24])
-            data = self.feature_engineer.add_lagged_features(data, 
-                                                           target_col=self.output_features,
-                                                           lags=lags)
-            # Update feature columns with new lagged features
-            self.feature_cols = self.feature_engineer.feature_cols.copy()
-            self.update_feature_scaler()
         
         # Get the most up-to-date feature columns from self.feature_cols
         feature_cols = self.feature_cols
