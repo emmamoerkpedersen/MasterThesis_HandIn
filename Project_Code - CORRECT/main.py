@@ -210,11 +210,17 @@ def run_pipeline(
     # Process validation predictions
     val_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
     
-    
     # Set plot titles
     val_plot_title = "Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data"
-    test_plot_title = "Model Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Model Trained on Clean Data"
+    #test_plot_title = "Model Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Model Trained on Clean Data"
     best_val_loss = min(history['val_loss'])
+    
+    # Calculate metrics on validation set
+    metrics = calculate_performance_metrics(original_val_data['vst_raw'].values, val_predictions_df['vst_raw'].values, ~np.isnan(original_val_data['vst_raw'].values))
+    metrics['val_loss'] = min(history['val_loss'])
+    print_metrics_table(metrics)
+
+
     
     # Generate validation plots
     if model_diagnostics:
@@ -247,10 +253,11 @@ def run_pipeline(
             vinge_data=vinge_data
         )
         plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
+    
     # Generate test predictions
-    print("\nMaking predictions on test set...")
-    test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
-    test_predictions_df = process_test_predictions(test_predictions, original_test_data, model_config)
+    # print("\nMaking predictions on test set...")
+    # test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
+    # test_predictions_df = process_test_predictions(test_predictions, original_test_data, model_config)
     
     # Plot test results with model config
     # if model_diagnostics:
@@ -263,36 +270,36 @@ def run_pipeline(
     #         synthetic_data=None  # No synthetic errors in test data
     #     )
     
-    test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
+    # test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
     
-    # Ensure predictions are properly shaped
-    test_predictions_reshaped = np.array(test_predictions).flatten()
-    if len(test_predictions_reshaped) != len(original_test_data):
-        if len(test_predictions_reshaped) > len(original_test_data):
-            test_predictions_reshaped = test_predictions_reshaped[:len(original_test_data)]
-        else:
-            padding = np.full(len(original_test_data) - len(test_predictions_reshaped), np.nan)
-            test_predictions_reshaped = np.concatenate([test_predictions_reshaped, padding])
+    # # Ensure predictions are properly shaped
+    # test_predictions_reshaped = np.array(test_predictions).flatten()
+    # if len(test_predictions_reshaped) != len(original_test_data):
+    #     if len(test_predictions_reshaped) > len(original_test_data):
+    #         test_predictions_reshaped = test_predictions_reshaped[:len(original_test_data)]
+    #     else:
+    #         padding = np.full(len(original_test_data) - len(test_predictions_reshaped), np.nan)
+    #         test_predictions_reshaped = np.concatenate([test_predictions_reshaped, padding])
     
     # Calculate final metrics
-    predictions_nan_mask = ~np.isnan(test_predictions_reshaped)
-    valid_mask = test_data_nan_mask & predictions_nan_mask
-    metrics = calculate_performance_metrics(original_test_data['vst_raw'].values, test_predictions_reshaped, valid_mask)
-    metrics['val_loss'] = min(history['val_loss'])
-    print_metrics_table(metrics)
+    # predictions_nan_mask = ~np.isnan(test_predictions_reshaped)
+    # valid_mask = test_data_nan_mask & predictions_nan_mask
+    # metrics = calculate_performance_metrics(original_test_data['vst_raw'].values, test_predictions_reshaped, valid_mask)
+    # metrics['val_loss'] = min(history['val_loss'])
+    # print_metrics_table(metrics)
     
-    # Generate advanced diagnostics if enabled
-    if advanced_diagnostics:
-        print("\nGenerating advanced diagnostic visualizations...")
-        predictions_series = pd.Series(
-            test_predictions_reshaped, 
-            index=original_test_data.index[:len(test_predictions_reshaped)]
-        )
-        all_visualization_paths = run_advanced_diagnostics(
-            original_test_data, predictions_series, station_id, output_path, is_comparative=False
-        )
-    else:
-        print("Skipping advanced diagnostics visualizations")
+    # # Generate advanced diagnostics if enabled
+    # if advanced_diagnostics:
+    #     print("\nGenerating advanced diagnostic visualizations...")
+    #     predictions_series = pd.Series(
+    #         test_predictions_reshaped, 
+    #         index=original_test_data.index[:len(test_predictions_reshaped)]
+    #     )
+    #     all_visualization_paths = run_advanced_diagnostics(
+    #         original_test_data, predictions_series, station_id, output_path, is_comparative=False
+    #     )
+    # else:
+    #     print("Skipping advanced diagnostics visualizations")
     
     return {'model': metrics}
 
