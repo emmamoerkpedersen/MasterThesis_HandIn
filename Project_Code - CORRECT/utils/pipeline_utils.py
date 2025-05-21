@@ -171,17 +171,34 @@ def print_metrics_table(metrics, title="Model Performance Metrics"):
         title: Title for the metrics table
     """
     print(f"\n{title}:")
-    print("-" * 50)
-    print(f"{'Metric':<15} {'Value':<15}")
-    print("-" * 50)
+    print("-" * 80)
     
+    # Print metric names as header
+    metric_names = []
+    for metric_name in metrics.keys():
+        if metric_name == 'val_loss':
+            metric_names.append('Val Loss')
+        else:
+            metric_names.append(metric_name.upper())
+    
+    # Print header
+    header = " | ".join(f"{name:<15}" for name in metric_names)
+    print(header)
+    print("-" * 80)
+    
+    # Print values
+    values = []
     for metric_name, metric_value in metrics.items():
         if metric_name == 'val_loss':
-            print(f"{'Val Loss':<15} {metric_value:<15.6f}")
+            values.append(f"{metric_value:<15.6f}")
         elif metric_name in ['rmse', 'mae']:
-            print(f"{metric_name.upper():<15} {metric_value:<15.2f}")
+            values.append(f"{metric_value:<15.2f}")
         else:
-            print(f"{metric_name.upper():<15} {metric_value:<15.4f}")
+            values.append(f"{metric_value:<15.4f}")
+    
+    # Print values row
+    print(" | ".join(values))
+    print("-" * 80)
 
 def print_comparison_table(clean_metrics, error_metrics, error_frequency):
     """
