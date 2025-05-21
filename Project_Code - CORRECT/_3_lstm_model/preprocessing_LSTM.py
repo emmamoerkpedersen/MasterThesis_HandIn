@@ -123,8 +123,8 @@ class DataPreprocessor:
         data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
         data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
         
-        #Aggregate temperature to 30 days
-        data.loc[:, 'temperature'] = data['temperature'].rolling(window=30, min_periods=1).mean()
+        #Aggregate temperature to 30 days = 2880 steps
+        data.loc[:, 'temperature'] = data['temperature'].rolling(window=2880, min_periods=1).mean()
         print(f"  - Aggregated temperature to 30 days")
 
         # Add cumulative rainfall features if enabled in config

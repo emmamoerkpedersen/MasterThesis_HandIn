@@ -137,22 +137,28 @@ class FeatureEngineer:
         
         # Calculate cumulative rainfall for different windows
         # Using rolling windows with different sizes
-        data.loc[:, 'rainfall_30day'] = rainfall_fixed.rolling(window=30, min_periods=1).sum()
-        data.loc[:, 'rainfall_180day'] = rainfall_fixed.rolling(window=180, min_periods=1).sum()
-        data.loc[:, 'rainfall_365day'] = rainfall_fixed.rolling(window=365, min_periods=1).sum()
-        
+        data.loc[:, 'rainfall_1day'] = rainfall_fixed.rolling(window=1*24*4, min_periods=1).sum()
+        data.loc[:, 'rainfall_15day'] = rainfall_fixed.rolling(window=15*24*4, min_periods=1).sum()
+        data.loc[:, 'rainfall_30day'] = rainfall_fixed.rolling(window=30*24*4, min_periods=1).sum()
+        data.loc[:, 'rainfall_180day'] = rainfall_fixed.rolling(window=180*24*4, min_periods=1).sum()
+        data.loc[:, 'rainfall_365day'] = rainfall_fixed.rolling(window=365*24*4, min_periods=1).sum()
+
         # Calculate cumulative rainfall for feature stations as well
-        data.loc[:, 'feature1_rain_30day'] = feature_1_rain.rolling(window=30, min_periods=1).sum()
-        data.loc[:, 'feature2_rain_30day'] = feature_2_rain.rolling(window=30, min_periods=1).sum()
-        data.loc[:, 'feature1_rain_180day'] = feature_1_rain.rolling(window=180, min_periods=1).sum()
-        data.loc[:, 'feature2_rain_180day'] = feature_2_rain.rolling(window=180, min_periods=1).sum()
-        data.loc[:, 'feature1_rain_365day'] = feature_1_rain.rolling(window=365, min_periods=1).sum()
-        data.loc[:, 'feature2_rain_365day'] = feature_2_rain.rolling(window=365, min_periods=1).sum()
+        data.loc[:, 'feature1_rain_1day'] = feature_1_rain.rolling(window=1*24*4, min_periods=1).sum()
+        data.loc[:, 'feature2_rain_1day'] = feature_2_rain.rolling(window=1*24*4, min_periods=1).sum()
+        data.loc[:, 'feature1_rain_15day'] = feature_1_rain.rolling(window=15*24*4, min_periods=1).sum()
+        data.loc[:, 'feature2_rain_15day'] = feature_2_rain.rolling(window=15*24*4, min_periods=1).sum()
+        data.loc[:, 'feature1_rain_30day'] = feature_1_rain.rolling(window=30*24*4, min_periods=1).sum()
+        data.loc[:, 'feature2_rain_30day'] = feature_2_rain.rolling(window=30*24*4, min_periods=1).sum()
+        data.loc[:, 'feature1_rain_180day'] = feature_1_rain.rolling(window=180*24*4, min_periods=1).sum()
+        data.loc[:, 'feature2_rain_180day'] = feature_2_rain.rolling(window=180*24*4, min_periods=1).sum()
+        data.loc[:, 'feature1_rain_365day'] = feature_1_rain.rolling(window=365*24*4, min_periods=1).sum()
+        data.loc[:, 'feature2_rain_365day'] = feature_2_rain.rolling(window=365*24*4, min_periods=1).sum()
 
         # Fill potential NaN values created by rolling operations with forward fill then backward fill
         cumulative_cols = [
-            'rainfall_30day', 'rainfall_180day', 'rainfall_365day',
-            'feature1_rain_30day', 'feature2_rain_30day', 'feature1_rain_180day', 'feature2_rain_180day', 'feature1_rain_365day', 'feature2_rain_365day'
+            'rainfall_1day', 'rainfall_15day', 'rainfall_30day', 'rainfall_180day', 'rainfall_365day',
+            'feature1_rain_1day', 'feature2_rain_1day', 'feature1_rain_15day', 'feature2_rain_15day', 'feature1_rain_30day', 'feature2_rain_30day', 'feature1_rain_180day', 'feature2_rain_180day', 'feature1_rain_365day', 'feature2_rain_365day'
         ]
         
         for col in cumulative_cols:
