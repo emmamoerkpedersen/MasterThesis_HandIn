@@ -133,23 +133,23 @@ LSTM_CONFIG = {
     'patience': 10,            
     'learning_rate': 0.001,    
 
-    'warmup_length': 150,        # No warmup for standard model
+    'warmup_length': 350,        # No warmup for standard model
         
 
     # 'smoothL1_loss', 'mse_loss', 'mae_loss
-    'objective_function': 'mse_loss',  # Changed to MSE for better stability
-    'use_time_features': False,  
-    'use_cumulative_features': False, 
+    'objective_function': 'smoothL1_loss',  # Changed to MSE for better stability
+    'use_time_features': True,  
+    'use_cumulative_features': True, 
     
     'feature_cols': [
-        'rainfall'
+        'rainfall', 'temperature'
     ],
     'output_features': ['vst_raw'],
 
     'feature_stations': [
         {
             'station_id': '21006845',
-            'features': ['vst_raw', 'rainfall']
+            'features': ['vst_raw', 'rainfall', 'temperature']
         },
         {
             'station_id': '21006847',

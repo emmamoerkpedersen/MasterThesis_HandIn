@@ -50,7 +50,7 @@ def detect_frost_periods(temperature_data, vst_data):
     current_period_start = None
     current_period_end = None
     points_removed_frost = 0  # Initialize counter for removed points
-    threshold = 35
+    threshold = 150
 
     for idx in range(len(temperature_data)):
         current_time = temperature_data.index[idx]
@@ -283,7 +283,7 @@ def preprocess_data():
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines, avg_flatline_duration = remove_flatlines(station_data['vst_raw'])
 
-        # # Detect freezing periods and remove from vst_raw
+        # # # Detect freezing periods and remove from vst_raw
         # temp_data = station_data['temperature']
         # frost_periods, station_data['vst_raw'], points_removed_frost = detect_frost_periods(temp_data, station_data['vst_raw'])
         # # Add to the combined list
