@@ -840,7 +840,7 @@ class SyntheticErrorGenerator:
                 return data, pd.DataFrame(index=data.index)
             
             # Default error types ordered by typical duration
-            all_error_types = ['missing_data', 'offset', 'drift', 'baseline shift', 'flatline', 'spike', 'noise']
+            all_error_types = ['missing_data', 'offset', 'drift', 'flatline', 'spike', 'noise']
             
             # Filter error types based on count_per_year > 0 in config
             active_error_types = [
