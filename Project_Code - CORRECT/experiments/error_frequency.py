@@ -22,7 +22,7 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
                           If None, uses default values [0.0, 0.5, 1.0, 1.5, 2.0, 3.0]
     """
     if error_multipliers is None:
-        error_multipliers = [0.0, 0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 1.5, 2.0, 3.0]
+        error_multipliers = [0.0, 0.001, 0.05, 0.1, 0.5, 1.0, 1.5, 3.0]
     
     # Set up paths
     project_root = Path(__file__).parents[1]
@@ -168,30 +168,36 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
         
         print("\nSummary of Results:")
         print(f"{'='*80}")
-        print(final_results[['error_multiplier', 'clean_rmse', 'error_rmse', 'clean_mae', 'error_mae', 'clean_nse', 'error_nse']])
         
-        # Calculate percentage degradation if not already done
-        if 'rmse_pct_increase' not in final_results.columns:
-            final_results['rmse_pct_increase'] = ((final_results['error_rmse'] - final_results['clean_rmse']) / final_results['clean_rmse']) * 100
-        if 'mae_pct_increase' not in final_results.columns:
-            final_results['mae_pct_increase'] = ((final_results['error_mae'] - final_results['clean_mae']) / final_results['clean_mae']) * 100
-        if 'nse_pct_decrease' not in final_results.columns:
-            final_results['nse_pct_decrease'] = ((final_results['clean_nse'] - final_results['error_nse']) / final_results['clean_nse']) * 100
+        # Create baseline row first
+        baseline_row = pd.DataFrame([{
+            'error_multiplier': 0.0,
+            'error_rmse': baseline_metrics['clean_rmse'],
+            'error_mae': baseline_metrics['clean_mae'],
+            'error_nse': baseline_metrics['clean_nse'],
+            'error_val_loss': baseline_metrics['clean_val_loss']
+        }])
+        
+        # Combine baseline with other results and sort
+        display_results = pd.concat([baseline_row, final_results], ignore_index=True)
+        display_results = display_results.sort_values('error_multiplier')
+        
+        # Display only the error metrics (not clean metrics)
+        print(display_results[['error_multiplier', 'error_rmse', 'error_mae', 'error_nse', 'error_val_loss']])
         
         print("\nPerformance Degradation:")
         print(f"{'='*80}")
-        print(final_results[['error_multiplier', 'rmse_pct_increase', 'mae_pct_increase', 'nse_pct_decrease']])
+        print(display_results[['error_multiplier', 'rmse_pct_increase', 'mae_pct_increase', 'nse_pct_decrease']])
         
         # Create plots to visualize the relationship between error multiplier and model performance
         plt.figure(figsize=(15, 10))
         
         # Sort results by error multiplier for smooth plots
-        final_results = final_results.sort_values('error_multiplier')
+        display_results = display_results.sort_values('error_multiplier')
         
         # Plot 1: Absolute metrics by multiplier
         plt.subplot(2, 2, 1)
-        plt.plot(final_results['error_multiplier'], final_results['clean_rmse'], 'o-', label='Clean Model RMSE')
-        plt.plot(final_results['error_multiplier'], final_results['error_rmse'], 'o-', label='Error Model RMSE')
+        plt.plot(display_results['error_multiplier'], display_results['error_rmse'], 'o-', label='Error Model RMSE')
         plt.title('RMSE vs Error Multiplier')
         plt.xlabel('Error Multiplier')
         plt.ylabel('RMSE (mm)')
@@ -199,8 +205,7 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
         plt.legend()
         
         plt.subplot(2, 2, 2)
-        plt.plot(final_results['error_multiplier'], final_results['clean_mae'], 'o-', label='Clean Model MAE')
-        plt.plot(final_results['error_multiplier'], final_results['error_mae'], 'o-', label='Error Model MAE')
+        plt.plot(display_results['error_multiplier'], display_results['error_mae'], 'o-', label='Error Model MAE')
         plt.title('MAE vs Error Multiplier')
         plt.xlabel('Error Multiplier')
         plt.ylabel('MAE (mm)')
@@ -209,8 +214,8 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
         
         # Plot 2: Percentage changes by multiplier
         plt.subplot(2, 2, 3)
-        plt.plot(final_results['error_multiplier'], final_results['rmse_pct_increase'], 'o-', label='RMSE % Increase')
-        plt.plot(final_results['error_multiplier'], final_results['mae_pct_increase'], 'o-', label='MAE % Increase')
+        plt.plot(display_results['error_multiplier'], display_results['rmse_pct_increase'], 'o-', label='RMSE % Increase')
+        plt.plot(display_results['error_multiplier'], display_results['mae_pct_increase'], 'o-', label='MAE % Increase')
         plt.title('Error Metrics % Increase vs Error Multiplier')
         plt.xlabel('Error Multiplier')
         plt.ylabel('Percentage Increase (%)')
@@ -219,8 +224,7 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
         
         # Plot 3: NSE by multiplier
         plt.subplot(2, 2, 4)
-        plt.plot(final_results['error_multiplier'], final_results['clean_nse'], 'o-', label='Clean Model NSE')
-        plt.plot(final_results['error_multiplier'], final_results['error_nse'], 'o-', label='Error Model NSE')
+        plt.plot(display_results['error_multiplier'], display_results['error_nse'], 'o-', label='Error Model NSE')
         plt.title('NSE vs Error Multiplier')
         plt.xlabel('Error Multiplier')
         plt.ylabel('NSE')
@@ -235,7 +239,7 @@ def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
         
         # Create a summary HTML file
         try:
-            create_summary_html(final_results, output_path, compare_plots_dir)
+            create_summary_html(display_results, output_path, compare_plots_dir)
             print(f"\nCreated summary HTML file at: {output_path / 'error_multiplier_summary.html'}")
         except Exception as e:
             print(f"\nError creating summary HTML: {e}")
@@ -285,15 +289,10 @@ def create_summary_html(results_df, output_path, plots_dir):
         <table>
             <tr>
                 <th>Error Multiplier</th>
-                <th>Clean RMSE</th>
                 <th>Error RMSE</th>
-                <th>RMSE % Increase</th>
-                <th>Clean MAE</th>
                 <th>Error MAE</th>
-                <th>MAE % Increase</th>
-                <th>Clean NSE</th>
                 <th>Error NSE</th>
-                <th>NSE % Decrease</th>
+                <th>Error Val Loss</th>
             </tr>
             {table_rows}
         </table>
@@ -317,15 +316,10 @@ def create_summary_html(results_df, output_path, plots_dir):
         table_rows += f"""
         <tr>
             <td>{row['error_multiplier']:.3f}</td>
-            <td>{row['clean_rmse']:.4f}</td>
             <td>{row['error_rmse']:.4f}</td>
-            <td>{row.get('rmse_pct_increase', np.nan):.2f}%</td>
-            <td>{row['clean_mae']:.4f}</td>
             <td>{row['error_mae']:.4f}</td>
-            <td>{row.get('mae_pct_increase', np.nan):.2f}%</td>
-            <td>{row['clean_nse']:.4f}</td>
             <td>{row['error_nse']:.4f}</td>
-            <td>{row.get('nse_pct_decrease', np.nan):.2f}%</td>
+            <td>{row['error_val_loss']:.4f}</td>
         </tr>
         """
     
