@@ -265,12 +265,8 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of spikes
         years_in_data = self._calculate_years_in_data(data.index)
-        n_spikes = round(count_per_year * years_in_data)
-        
-        # If no spikes to inject, return original data
-        if n_spikes == 0:
-            print("No spikes to inject")
-            return modified_data
+        # Ensure at least 1 spike if count_per_year > 0
+        n_spikes = max(1, round(count_per_year * years_in_data))
         
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_spikes} spikes randomly across entire dataset...")
@@ -534,13 +530,8 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of offsets
         years_in_data = self._calculate_years_in_data(data.index)
-        # Use round() instead of int() to properly handle partial years
-        n_offsets = round(count_per_year * years_in_data)
-        
-        # If no offsets to inject, return original data
-        if n_offsets == 0:
-            print("No offsets to inject")
-            return modified_data, offset_periods
+        # Ensure at least 1 offset if count_per_year > 0
+        n_offsets = max(1, round(count_per_year * years_in_data))
         
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_offsets} offset periods randomly across entire dataset...")
@@ -663,7 +654,8 @@ class SyntheticErrorGenerator:
         
         # Calculate years in data and total number of noise periods
         years_in_data = self._calculate_years_in_data(data.index)
-        n_noise_periods = round(count_per_year * years_in_data)
+        # Ensure at least 1 noise period if count_per_year > 0
+        n_noise_periods = max(1, round(count_per_year * years_in_data))
         
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_noise_periods} noise periods randomly across entire dataset...")
@@ -767,9 +759,15 @@ class SyntheticErrorGenerator:
         shift_config = self.config['baseline shift']
         count_per_year = shift_config.get('count_per_year', 0)
         
+        # If count_per_year is 0, don't inject any baseline shifts
+        if count_per_year == 0:
+            print("Baseline shift injection disabled (count_per_year = 0)")
+            return modified_data
+        
         # Calculate years in data and total number of shifts
         years_in_data = self._calculate_years_in_data(data.index)
-        n_shifts = max(1, int(count_per_year * years_in_data))
+        # Ensure at least 1 baseline shift if count_per_year > 0
+        n_shifts = max(1, round(count_per_year * years_in_data))
         
         print(f"Attempting to inject {n_shifts} baseline shifts randomly across entire dataset...")
         
