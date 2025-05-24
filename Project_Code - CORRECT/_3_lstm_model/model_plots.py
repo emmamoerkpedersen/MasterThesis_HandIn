@@ -701,7 +701,7 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     
     # Create figure with good dimensions for publication
     # Adjusted height for better space utilization
-    fig = plt.figure(figsize=(12, 8.5), dpi=300)
+    fig = plt.figure(figsize=(12, 3), dpi=300)  # Changed from (12, 8.5) to (12, 3)
     
     # Create a larger figure to accommodate the config text and metrics
     # Add a third row for metrics if available
@@ -1025,319 +1025,173 @@ def plot_features_stacked_plots(data, feature_cols, output_dir=None, years_to_sh
         else:
             print(f"Warning: No data in the last {years_to_show} years. Using all available data.")
     
-    # Organize features by station and type
-    station_features = {
-        'Station 21006846': [],
-        'Station 21006845': [],
-        'Station 21006847': []
-    }
-    
-    # Special groups for separate plotting
-    temperature_features = []
-    water_level_features = []
-    time_features = []
-    
-    # Group features by station and type
-    for feature in feature_cols:
-        # Check for special feature types
-        if any(x in feature for x in ['sin', 'cos']):
-            time_features.append(feature)
-            continue
-        elif 'temperature' in feature.lower() or 'temp' in feature.lower():
-            temperature_features.append(feature)
-            continue
-        elif 'vst_raw' in feature.lower() or 'water_level' in feature.lower():
-            water_level_features.append(feature)
-            continue
-            
-        # Identify station-specific rainfall features
-        if 'feature_station_21006845' in feature or 'feature1' in feature:
-            station_features['Station 21006845'].append(feature)
-        elif 'feature_station_21006847' in feature or 'feature2' in feature:
-            station_features['Station 21006847'].append(feature)
-        else:
-            station_features['Station 21006846'].append(feature)
-    
-    # Add special feature groups if they have features
-    special_groups = {}
-    if time_features:
-        special_groups['Time Features'] = time_features
-    if temperature_features:
-        special_groups['Temperature'] = temperature_features
-    if water_level_features:
-        special_groups['Water Level'] = water_level_features
-    
-    # Remove empty stations
-    station_features = {k: v for k, v in station_features.items() if v}
-    
-    # Combine all groups for plotting
-    all_plot_groups = {**station_features, **special_groups}
-    
-    # If no features, show message and return
-    if not all_plot_groups:
-        print("No features found for plotting.")
-        return None
-    
-    # Set high-quality styling for matplotlib
+    # Set publication-quality styling
     plt.rcParams.update({
         'font.family': 'serif',
         'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 24,
-        'axes.titlesize': 24,
-        'axes.labelsize': 24,
-        'xtick.labelsize': 24,
-        'ytick.labelsize': 24,
-        'legend.fontsize': 20,
-        'figure.titlesize': 24,
-        'figure.dpi': 300,
-        'savefig.dpi': 300,
-        'savefig.bbox': 'tight',
-        'savefig.pad_inches': 0.1
+        'font.size': 14,
+        'axes.titlesize': 20,
+        'axes.labelsize': 16,
+        'xtick.labelsize': 14,
+        'ytick.labelsize': 14,
+        'legend.fontsize': 14,
+        'figure.titlesize': 20
     })
-    
-    # Number of subplots needed
-    n_plots = len(all_plot_groups)
-    
-    # Adjust height based on number of plots
-    fig_height = min(4 * n_plots, 24)  # Cap height at 16 inches
-    
-    # Create figure with subplots (one per group)
-    fig, axes = plt.subplots(
-        n_plots, 
-        1, 
-        figsize=(14, fig_height), 
-        dpi=300,
-        gridspec_kw={'height_ratios': [1] * n_plots}
-    )
-    
-    # Handle the case where there's only one group
-    if n_plots == 1:
-        axes = [axes]
-    
-    # Define a color palette for different feature types
-    colors = {
-        # Viridis-inspired colors for rainfall features
-        '30day': '#440154',    # Deep purple for 30-day features
-        '180day': '#21918c',   # Teal for 180-day features
-        '365day': '#fde725',   # Yellow for 365-day features
-        'rainfall': '#5ec962', # Green for direct rainfall
-        
-        # Keep other colors the same
-        'temperature': '#d62728',  # Red for temperature
-        'water_level': '#1f77b4',  # Blue for water level
-        'month_sin': '#ffb703', # Yellow for month sin
-        'month_cos': '#fd9e02', # Gold for month cos
-        'day_sin': '#06d6a0',   # Green for day sin
-        'day_cos': '#118ab2',   # Blue-green for day cos
-        'default': '#073b4c'    # Dark teal for other features
+
+    # Define colors for different feature types
+    short_window_colors = {
+        '90hour': '#fde725',    # Yellow for longest window (90h)
+        '48hour': '#22a884',    # Green for second longest (48h)
+        '7hour': '#414487',     # Blue for 7h
+        '1hour': '#440154'      # Purple for shortest window (1h)
     }
     
-    # Plot each group's features
-    for i, (group_name, features) in enumerate(all_plot_groups.items()):
-        ax = axes[i]
+    long_window_colors = {
+        '1year': '#fde725',     # Yellow for longest window (1y)
+        '6months': '#22a884',   # Green for second longest (6m)
+        '3months': '#414487',   # Blue for 3m
+        '1month': '#440154'     # Purple for shortest window (1m)
+    }
+    
+    temp_colors = {
+        '45': '#ff1a1a',  # Bright red
+        '47': '#990000'   # Dark red
+    }
+
+    # Create figure with 8 subplots stacked vertically
+    fig = plt.figure(figsize=(14, 24))  # Increased height to accommodate 8 plots
+    gs = GridSpec(8, 1, height_ratios=[1]*8, hspace=0.2)  # Reduced hspace for tighter spacing
+
+    # 1-3. Short-window precipitation features (3 plots, one per station)
+    stations = ['46', '45', '47']
+    windows = ['1hour', '7hour', '48hour', '90hour']
+    
+    for i, station in enumerate(stations):
+        ax = fig.add_subplot(gs[i])
+        for window in windows:
+            column = f'station_{station}_rain_{window}'
+            if column in data.columns:
+                ax.plot(data.index, data[column],
+                       label=f'{window} cumulative',
+                       linewidth=0.8,
+                       alpha=0.9,
+                       color=short_window_colors[window])
         
-        # Handle different types of feature groups
-        if group_name == 'Time Features':
-            # Group time features by type
-            sin_features = sorted([f for f in features if 'sin' in f])
-            cos_features = sorted([f for f in features if 'cos' in f])
-            
-            # Define line styles
-            line_styles = {
-                'sin': '-',
-                'cos': '--'
-            }
-            
-            # Plot each sin/cos pair
-            for sin_f, cos_f in zip(sin_features, cos_features):
-                feature_type = 'month' if 'month' in sin_f else 'day'
-                
-                # Format labels nicely
-                sin_label = f"{'Month' if 'month' in sin_f else 'Day of Year'} (sin)"
-                cos_label = f"{'Month' if 'month' in cos_f else 'Day of Year'} (cos)"
-                
-                # Plot sin curve
-                ax.plot(
-                    data.index, 
-                    data[sin_f], 
-                    label=sin_label,
-                    color=colors[f'{feature_type}_sin'],
-                    linestyle=line_styles['sin'],
-                    linewidth=0.8,
-                    alpha=0.9
-                )
-                
-                # Plot corresponding cos curve
-                ax.plot(
-                    data.index, 
-                    data[cos_f], 
-                    label=cos_label,
-                    color=colors[f'{feature_type}_cos'],
-                    linestyle=line_styles['cos'],
-                    linewidth=0.8,
-                    alpha=0.8
-                )
-            
-            # Add horizontal line at 0 for reference in time features
-            ax.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
-                
-        elif group_name == 'Temperature':
-            # Plot each temperature feature
-            for feature in features:
-                ax.plot(
-                    data.index, 
-                    data[feature], 
-                    label='Temperature',
-                    color=colors['temperature'],
-                    linewidth=0.8,
-                    alpha=0.9
-                )
-                
-        elif group_name == 'Water Level':
-            # Plot each water level feature with the main station in black
-            for j, feature in enumerate(features):
-                station_label = 'Main Station'
-                if 'feature1' in feature or 'feature_station_21006845' in feature:
-                    station_label = 'Station 21006845'
-                    line_style = '--'
-                    line_color = '#1f77b4'  # Blue 
-                elif 'feature2' in feature or 'feature_station_21006847' in feature:
-                    station_label = 'Station 21006847'
-                    line_style = ':'
-                    line_color = 'purple'  # Red
-                else:
-                    station_label = 'Station 21006846'
-                    line_style = '-'
-                    line_color = 'black'  # Main station in black
-                
-                ax.plot(
-                    data.index, 
-                    data[feature], 
-                    label=f'{station_label}',
-                    color=line_color,
-                    linewidth=0.8 if station_label != 'Main Station' else 1.2,  # Make main station slightly thicker
-                    alpha=0.9,
-                    linestyle=line_style
-                )
-                
-        else:  # Regular station features (rainfall and cumulative rainfall)
-            # Group features by type for better organization
-            feature_groups = {}
-            
-            for feature in features:
-                # Determine feature type
-                if '30day' in feature:
-                    feature_type = '30day'
-                elif '180day' in feature:
-                    feature_type = '180day'
-                elif '365day' in feature:
-                    feature_type = '365day'
-                elif 'rainfall' in feature.lower():
-                    feature_type = 'rainfall'
-                else:
-                    feature_type = 'default'
-                
-                
-                if feature_type not in feature_groups:
-                    feature_groups[feature_type] = []
-                feature_groups[feature_type].append(feature)
-            
-            # Plot each feature group - but only add legend for the first station to avoid duplicates
-            for feature_type, feats in feature_groups.items():
-                # Create friendly label based on feature type
-                if feature_type == '30day':
-                    label = "30-Day Cum. Rainfall"
-                elif feature_type == '180day':
-                    label = "180-Day Cum. Rainfall"
-                elif feature_type == '365day':
-                    label = "365-Day Cum. Rainfall"
-                elif feature_type == 'rainfall':
-                    label = "Rainfall"
-                else:
-                    # For unknown feature types, use the raw name
-                    label = feats[0].replace('_', ' ').replace('feature station', '').title()
-                
-                # Determine if this is the main station (21006846) to decide whether to add legend
-                is_main_station = group_name == 'Station 21006846'
-                
-                for feat in feats:
-                    ax.plot(
-                        data.index, 
-                        data[feat], 
-                        label=label if is_main_station else "_nolegend_",  # Only add to legend for main station
-                        color=colors[feature_type],
-                        linewidth=0.8,
-                        alpha=0.9
-                    )
-        
-        # Set title and format axes
-        ax.set_title(group_name, fontweight='bold', pad=10)
+        ax.set_ylabel('Precipitation (mm)', fontweight='bold', labelpad=10)
+        ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='upper right')
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.grid(False)
-        
-        # Format x-axis dates
-        if years_to_show <= 4:
-            # For shorter time ranges, show more detailed x-ticks (monthly)
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # Quarterly
-            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
-        else:
-            # For longer time ranges, use quarterly ticks
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))  # Semi-annually
-            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
-        
-        # Only show x-axis label on bottom subplot
-        if i == n_plots - 1:
-            ax.set_xlabel('Date', fontweight='bold', labelpad=10)
-        else:
-            # Hide x-tick labels for all but the bottom subplot
-            plt.setp(ax.get_xticklabels(), visible=False)
-        
-        # Set y-label based on group/feature types
-        if group_name == 'Time Features':
-            ax.set_ylabel('Value', fontweight='bold', labelpad=10)
-        elif group_name == 'Temperature':
-            ax.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
-        elif group_name == 'Water Level':
-            ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
-        elif any('rainfall' in f.lower() for f in features):
-            ax.set_ylabel('Rainfall (mm)', fontweight='bold', labelpad=10)
-        else:
-            ax.set_ylabel('Value', fontweight='bold', labelpad=10)
-        
-        # Add proper legends with distinct entries - only for certain plot types
-        handles, labels = ax.get_legend_handles_labels()
-        
-        # Only add legend if there are actual legend entries
-        if handles:
-            by_label = dict(zip(labels, handles))
-            # Do not show the "30-Day Cumulative Rainfall" type labels for non-main stations
-            if "Station 21006845" in group_name or "Station 21006847" in group_name:
-                # Skip legend for non-main rainfall stations
-                pass
-            else:
-                ax.legend(
-                    by_label.values(), 
-                    by_label.keys(),
-                    loc='upper right', 
-                    frameon=True, 
-                    framealpha=0.9, 
-                    edgecolor='#cccccc',
-                    ncol=2 if group_name == 'Time Features' else 1
-                )
+        plt.setp(ax.get_xticklabels(), visible=False)  # Hide x-axis labels
+
+    # 4-6. Long-window precipitation features (3 plots, one per station)
+    windows = ['1month', '3months', '6months', '1year']
     
+    for i, station in enumerate(stations):
+        ax = fig.add_subplot(gs[i+3])
+        for window in windows:
+            column = f'station_{station}_rain_{window}'
+            if column in data.columns:
+                ax.plot(data.index, data[column],
+                       label=f'{window} cumulative',
+                       linewidth=0.8,
+                       alpha=0.9,
+                       drawstyle='steps-post',
+                       color=long_window_colors[window])
+        
+        ax.set_ylabel('Precipitation (mm)', fontweight='bold', labelpad=10)
+        ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='upper right')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.grid(False)
+        plt.setp(ax.get_xticklabels(), visible=False)  # Hide x-axis labels
+
+    # 7. Temperature features
+    ax = fig.add_subplot(gs[6])
+    temp_columns = [col for col in data.columns if 'temperature' in col.lower()]
+    for col in temp_columns:
+        if "45" in col:
+            station = "'45"
+            color = temp_colors['45']
+        else:
+            station = "'47"
+            color = temp_colors['47']
+        
+        ax.plot(data.index, data[col],
+               label=f'Temperature Station {station}',
+               linewidth=0.8,
+               alpha=0.9,
+               color=color)
+    
+    ax.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
+    ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='upper right')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(False)
+    plt.setp(ax.get_xticklabels(), visible=False)  # Hide x-axis labels
+
+    # 8. Time-based features (bottom subplot)
+    ax = fig.add_subplot(gs[7])
+    
+    # Plot month features
+    if 'month_sin' in data.columns:
+        ax.plot(data.index, data['month_sin'],
+               label='Month (sin)',
+               linewidth=0.8,
+               alpha=0.9,
+               color='#fde725')  # Yellow from Viridis
+    if 'month_cos' in data.columns:
+        ax.plot(data.index, data['month_cos'],
+               label='Month (cos)',
+               linewidth=0.8,
+               alpha=0.9,
+               linestyle=':',  # Stippled line
+               color='#fde725')  # Yellow from Viridis
+    
+    # Plot day of year features
+    if 'day_of_year_sin' in data.columns:
+        ax.plot(data.index, data['day_of_year_sin'],
+               label='Day of Year (sin)',
+               linewidth=0.8,
+               alpha=0.9,
+               color='#22a884')  # Green from Viridis
+    if 'day_of_year_cos' in data.columns:
+        ax.plot(data.index, data['day_of_year_cos'],
+               label='Day of Year (cos)',
+               linewidth=0.8,
+               alpha=0.9,
+               linestyle=':',  # Stippled line
+               color='#22a884')  # Green from Viridis
+    
+    ax.set_xlabel('Date', fontweight='bold', labelpad=10)  # Only show x-label on bottom subplot
+    ax.set_ylabel('Value', fontweight='bold', labelpad=10)
+    ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', ncol=2, loc='upper right')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(False)
+    
+    # Add horizontal line at 0 for reference in time features plot
+    ax.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
+
+    # Format x-axis dates only for the bottom subplot
+    if years_to_show <= 4:
+        # For shorter time ranges, show more detailed x-ticks (monthly)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # Quarterly
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    else:
+        # For longer time ranges, use quarterly ticks
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))  # Semi-annually
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
     # Adjust spacing between subplots
-    plt.tight_layout()
-    fig.subplots_adjust(hspace=0.3)
-    
-    # Removed the main title as requested
-    
-    # Save the figure with high resolution
-    output_path = output_dir / f'station_features_{timestamp}.png'
+    plt.subplots_adjust(hspace=0.05)  # Reduce vertical space between subplots
+
+    # Save the figure
+    output_path = output_dir / f'station_features_stacked_{timestamp}.png'
     plt.savefig(output_path, bbox_inches='tight', facecolor='white')
-    print(f"Saved station features plot to: {output_path}")
+    print(f"Saved stacked features plot to: {output_path}")
     
     # Close the figure to free memory
     plt.close(fig)
@@ -1759,3 +1613,507 @@ def plot_anomalies(test_data, test_predictions, anomalies, station_id, model_con
             webbrowser.open('file://' + str(absolute_path))
         
     return png_path
+
+
+
+def plot_feature_importance(feature_names, importance_scores, station_id, output_dir=None, title_suffix=None):
+    """
+    Create a publication-quality plot of feature importance scores.
+    
+    Args:
+        feature_names: List of feature names
+        importance_scores: List or array of importance scores corresponding to features
+        station_id: ID of the station being analyzed
+        output_dir: Optional output directory path
+        title_suffix: Optional suffix to add to the plot title
+    
+    Returns:
+        Path to the saved PNG file
+    """
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+    elif isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for unique filename
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Set publication-quality styling
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 12,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'figure.titlesize': 18
+    })
+    
+    # Create figure with extra space at the bottom for legend
+    fig, ax = plt.subplots(figsize=(6, 4), dpi=300)  # Reduced figure size
+    
+    # Ensure importance_scores is a 1D numpy array
+    importance_scores = np.asarray(importance_scores).flatten()
+    feature_names = np.asarray(feature_names)
+    
+    # Sort features by importance
+    sorted_indices = np.argsort(importance_scores)
+    sorted_scores = importance_scores[sorted_indices]
+    sorted_names = feature_names[sorted_indices]
+    
+    # Filter features based on importance threshold and limit to top 10
+    importance_threshold = 0.1  # Increased threshold
+    mask = sorted_scores >= importance_threshold
+    sorted_scores = sorted_scores[mask]
+    sorted_names = sorted_names[mask]
+    
+    # Take only top 10 features
+    if len(sorted_scores) > 10:
+        sorted_scores = sorted_scores[-10:]
+        sorted_names = sorted_names[-10:]
+    
+    positions = np.arange(len(sorted_scores))
+    
+    # Create color palette using blues
+    colors = {
+        # Blues from light to dark
+        'rainfall': '#08519c',     # Dark blue
+        'water_level': '#6baed6',  # Medium blue
+        'temperature': '#020406',  # Dark
+        'time': '#f0f5fa',        # Very light blue
+        'default': '#c6dbef'      # Light blue
+    }
+    
+    # Create a legend mapping for feature types
+    legend_elements = [
+        plt.Rectangle((0,0),1,1, facecolor=colors['water_level'], label='Water Level'),
+        plt.Rectangle((0,0),1,1, facecolor=colors['rainfall'], label='Precipitation'),
+        plt.Rectangle((0,0),1,1, facecolor=colors['temperature'], label='Temperature'),
+        plt.Rectangle((0,0),1,1, facecolor=colors['time'], label='Time')
+    ]
+    
+    # Assign colors based on feature names
+    feature_colors = []
+    for feature in sorted_names:
+        feature_lower = str(feature).lower()
+        if 'rain' in feature_lower or 'precipitation' in feature_lower:
+            feature_colors.append(colors['rainfall'])
+        elif any(x in feature_lower for x in ['temperature']):
+            feature_colors.append(colors['temperature'])
+        elif any(x in feature_lower for x in ['water', 'level', 'vst']):
+            feature_colors.append(colors['water_level'])
+        elif any(x in feature_lower for x in ['sin', 'cos', 'month', 'day']):
+            feature_colors.append(colors['time'])
+        else:
+            feature_colors.append(colors['default'])
+    
+    # Create horizontal bar plot
+    bars = ax.barh(positions, sorted_scores, align='center', color=feature_colors)
+    
+    # Set x-axis to log scale
+    ax.set_xscale('log')
+    
+    # Add legend at the bottom right
+    ax.legend(handles=legend_elements, 
+             loc='lower right',
+             bbox_to_anchor=(1.0, 0.02),
+             frameon=True,
+             facecolor='white',
+             edgecolor='#cccccc',
+             ncol=2)
+    
+    plt.subplots_adjust(bottom=0.2, top=0.95, right=0.85)  # Adjusted margins
+    
+    ax.set_xlabel('Importance Score', fontweight='bold', labelpad=5)
+    ax.set_ylabel('Features', fontweight='bold', labelpad=5)
+    
+    # Format feature names for better readability
+    formatted_features = []
+    for feature in sorted_names:
+        feature_str = str(feature)
+        
+        # Handle time features
+        if 'month_sin' in feature_str:
+            formatted = 'Month sine'
+        elif 'month_cos' in feature_str:
+            formatted = 'Month cos'
+        elif 'day_of_year_sin' in feature_str:
+            formatted = 'DoY sine'
+        elif 'day_of_year_cos' in feature_str:
+            formatted = 'DoY cos'
+        else:
+            # Always try to extract station number for station-specific features
+            station = ""
+            if 'station_45' in feature_str or "21006845" in feature_str:
+                station = "'45"
+            elif 'station_46' in feature_str or "21006846" in feature_str:
+                station = "'46"
+            elif 'station_47' in feature_str or "21006847" in feature_str:
+                station = "'47"
+            
+            # Handle different feature types
+            if 'vst_raw' in feature_str:
+                formatted = f"vst raw {station}"
+            elif 'temperature' in feature_str:
+                formatted = f"Temp {station}"
+            elif 'rain' in feature_str or 'precipitation' in feature_str:
+                # Handle derived rainfall features
+                if any(window in feature_str for window in ['1hour', '7hour', '48hour', '90hour', '1month', '3months', '6months', '1year']):
+                    time_window = ''
+                    if '1hour' in feature_str:
+                        time_window = '1h'
+                    elif '7hour' in feature_str:
+                        time_window = '7h'
+                    elif '48hour' in feature_str:
+                        time_window = '48h'
+                    elif '90hour' in feature_str:
+                        time_window = '90h'
+                    elif '1month' in feature_str:
+                        time_window = '1M'
+                    elif '3months' in feature_str:
+                        time_window = '3M'
+                    elif '6months' in feature_str:
+                        time_window = '6M'
+                    elif '1year' in feature_str:
+                        time_window = '1Y'
+                    formatted = f"Prec {time_window} {station}"
+                else:
+                    formatted = f"Prec {station}"
+            else:
+                formatted = feature_str.replace('_', ' ').title()
+        
+        formatted_features.append(formatted)
+    
+    # Set y-tick labels with formatted feature names
+    ax.set_yticks(positions)
+    ax.set_yticklabels(formatted_features)
+    
+    # Add value labels on the bars
+    for i, bar in enumerate(bars):
+        width = bar.get_width()
+        ax.text(width, bar.get_y() + bar.get_height()/2,
+                f'{width:.3f}',
+                ha='left', va='center', fontsize=8)  # Reduced font size
+    
+    # Remove top and right spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # Save the figure
+    output_path = output_dir / f'feature_importance_station_{station_id}_{timestamp}.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+    print(f"Saved feature importance plot to: {output_path}")
+    
+    # Close the figure to free memory
+    plt.close()
+    
+    return output_path
+
+def create_individual_feature_plots(data, output_dir=None):
+    """
+    Create individual plots for different feature groups that can be stacked later.
+    
+    Args:
+        data: DataFrame containing feature data
+        output_dir: Optional output directory path
+    
+    Returns:
+        Dictionary of paths to the saved PNG files
+    """
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/feature_plots"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+    elif isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for unique filenames
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Set publication-quality styling
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 14,
+        'axes.titlesize': 20,
+        'axes.labelsize': 16,
+        'xtick.labelsize': 14,
+        'ytick.labelsize': 14,
+        'legend.fontsize': 14,
+        'figure.titlesize': 20
+    })
+    
+    # Define Viridis colors for precipitation plots
+    short_window_colors = {
+        '90hour': '#fde725',    # Yellow for longest window (90h)
+        '48hour': '#22a884',    # Green for second longest (48h)
+        '7hour': '#414487',     # Blue for 7h
+        '1hour': '#440154'      # Purple for shortest window (1h)
+    }
+    
+    long_window_colors = {
+        '1year': '#fde725',     # Yellow for longest window (1y)
+        '6months': '#22a884',   # Green for second longest (6m)
+        '3months': '#414487',   # Blue for 3m
+        '1month': '#440154'     # Purple for shortest window (1m)
+    }
+    
+    # Define temperature colors (two shades of red)
+    temp_colors = {
+        '45': '#ff1a1a',  # Bright red
+        '47': '#990000'   # Dark red
+    }
+    
+    output_paths = {}
+    
+    # 1. Short-window precipitation features for each station
+    stations = ['46', '45', '47']
+    windows = ['1hour', '7hour', '48hour', '90hour']
+    
+    for station in stations:
+        fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+        
+        for window in windows:
+            column = f'station_{station}_rain_{window}'
+            if column in data.columns:
+                ax.plot(data.index, data[column], 
+                       label=f'{window} cumulative',
+                       linewidth=0.8,
+                       alpha=0.9,
+                       color=short_window_colors[window])
+        
+        ax.set_xlabel('Date', fontweight='bold', labelpad=10)
+        ax.set_ylabel('Precipitation (mm)', fontweight='bold', labelpad=10)
+        ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='upper right')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        plt.tight_layout()
+        path = output_dir / f'short_precip_station_{station}_{timestamp}.png'
+        plt.savefig(path, bbox_inches='tight', facecolor='white')
+        output_paths[f'short_precip_{station}'] = path
+        plt.close()
+    
+    # 2. Long-window precipitation features for each station
+    windows = ['1month', '3months', '6months', '1year']
+    
+    for station in stations:
+        fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+        
+        for window in windows:
+            column = f'station_{station}_rain_{window}'
+            if column in data.columns:
+                ax.plot(data.index, data[column], 
+                       label=f'{window} cumulative',
+                       linewidth=0.8,
+                       alpha=0.9,
+                       drawstyle='steps-post',
+                       color=long_window_colors[window])
+        
+        ax.set_xlabel('Date', fontweight='bold', labelpad=10)
+        ax.set_ylabel('Precipitation (mm)', fontweight='bold', labelpad=10)
+        ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='upper right')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        plt.tight_layout()
+        path = output_dir / f'long_precip_station_{station}_{timestamp}.png'
+        plt.savefig(path, bbox_inches='tight', facecolor='white')
+        output_paths[f'long_precip_{station}'] = path
+        plt.close()
+    
+    # 3. Temperature features for all stations
+    fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+    
+    # Plot temperature for each station if available
+    temp_columns = [col for col in data.columns if 'temperature' in col.lower()]
+    for col in temp_columns:
+        if "45" in col:
+            station = "'45"
+            color = temp_colors['45']
+        else:
+            station = "'47"
+            color = temp_colors['47']
+            
+        ax.plot(data.index, data[col], 
+               label=f'Temperature Station {station}',
+               linewidth=0.8,
+               alpha=0.9,
+               color=color)
+    
+    ax.set_xlabel('Date', fontweight='bold', labelpad=10)
+    ax.set_ylabel('Temperature (°C)', fontweight='bold', labelpad=10)
+    ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', loc='upper right')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    plt.tight_layout()
+    path = output_dir / f'temperature_{timestamp}.png'
+    plt.savefig(path, bbox_inches='tight', facecolor='white')
+    output_paths['temperature'] = path
+    plt.close()
+    
+    # 4. Time-based features (sine and cosine curves)
+    fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+    
+    # Plot month features
+    if 'month_sin' in data.columns:
+        ax.plot(data.index, data['month_sin'], 
+               label='Month (sin)',
+               linewidth=0.8,
+               alpha=0.9,
+               color='#fde725')  # Yellow from Viridis
+    if 'month_cos' in data.columns:
+        ax.plot(data.index, data['month_cos'], 
+               label='Month (cos)',
+               linewidth=0.8,
+               alpha=0.9,
+               linestyle=':',  # Stippled line
+               color='#fde725')  # Yellow from Viridis
+    
+    # Plot day of year features
+    if 'day_of_year_sin' in data.columns:
+        ax.plot(data.index, data['day_of_year_sin'], 
+               label='Day of Year (sin)',
+               linewidth=0.8,
+               alpha=0.9,
+               color='#22a884')  # Green from Viridis
+    if 'day_of_year_cos' in data.columns:
+        ax.plot(data.index, data['day_of_year_cos'], 
+               label='Day of Year (cos)',
+               linewidth=0.8,
+               alpha=0.9,
+               linestyle=':',  # Stippled line
+               color='#22a884')  # Green from Viridis
+    
+    ax.set_xlabel('Date', fontweight='bold', labelpad=10)
+    ax.set_ylabel('Value', fontweight='bold', labelpad=10)
+    ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', ncol=2, loc='upper right')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # Add horizontal line at 0 for reference
+    ax.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
+    
+    plt.tight_layout()
+    path = output_dir / f'time_features_{timestamp}.png'
+    plt.savefig(path, bbox_inches='tight', facecolor='white')
+    output_paths['time_features'] = path
+    plt.close()
+    
+    return output_paths
+
+def plot_feature_correlation(data, output_dir=None):
+    """
+    Create a correlation plot for specified features.
+    
+    Args:
+        data: DataFrame containing the features
+        output_dir: Optional output directory path
+    
+    Returns:
+        Path to the saved PNG file
+    """
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+    elif isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for unique filename
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Set publication-quality styling
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 16,  # Increased from 12
+        'axes.titlesize': 24,  # Increased from 16
+        'axes.labelsize': 20,  # Increased from 14
+        'xtick.labelsize': 16,  # Increased from 12
+        'ytick.labelsize': 16,  # Increased from 12
+        'legend.fontsize': 16,  # Increased from 12
+        'figure.titlesize': 24  # Increased from 18
+    })
+    
+    # Select features for correlation analysis
+    features = [
+        'vst_raw',
+        'feature_station_21006845_vst_raw',
+        'feature_station_21006847_vst_raw',
+        'station_46_rain_1hour',
+        'station_46_rain_7hour',
+        'station_46_rain_48hour',
+        'station_46_rain_90hour',
+        'station_46_rain_1month',
+        'station_46_rain_3months',
+        'station_46_rain_6months',
+        'station_46_rain_1year'
+    ]
+    
+    # Create correlation matrix
+    corr_matrix = data[features].corr()
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(14, 12), dpi=300)  # Increased figure size
+    
+    # Create custom diverging colormap from red (1) through white (0) to blue (-1)
+    cmap = LinearSegmentedColormap.from_list('custom_cmap', ['#00008B', '#ffffff', '#8B0000'])
+    
+    # Plot correlation matrix
+    im = ax.imshow(corr_matrix, cmap=cmap, vmin=-1, vmax=1)
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.ax.set_ylabel('Correlation Coefficient', rotation=-90, va='bottom', fontsize=20)  # Increased font size
+    
+    # Format feature names for better readability
+    feature_names = [
+        'VST Raw',
+        'VST Raw 45',
+        'VST Raw 47',
+        'Precip 1h',
+        'Precip 7h',
+        'Precip 48h',
+        'Precip 90h',
+        'Precip 1M',
+        'Precip 3M',
+        'Precip 6M',
+        'Precip 1Y'
+    ]
+    
+    # Set ticks and labels
+    ax.set_xticks(np.arange(len(features)))
+    ax.set_yticks(np.arange(len(features)))
+    ax.set_xticklabels(feature_names, rotation=45, ha='right', fontsize=16)  # Increased font size
+    ax.set_yticklabels(feature_names, fontsize=16)  # Increased font size
+    
+    # Add correlation values in each cell
+    for i in range(len(features)):
+        for j in range(len(features)):
+            text = ax.text(j, i, f'{corr_matrix.iloc[i, j]:.2f}',
+                         ha='center', va='center', color='black', fontsize=16)  # Increased font size
+    
+    # Add title
+    plt.title('Feature Correlation Matrix', pad=20, fontsize=24)  # Increased font size
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save figure
+    output_path = output_dir / f'feature_correlation_{timestamp}.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+    print(f"Saved correlation plot to: {output_path}")
+    
+    # Close figure
+    plt.close()
+    
+    return output_path

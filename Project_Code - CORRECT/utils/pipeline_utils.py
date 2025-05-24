@@ -8,6 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+import torch
 
 # Function to calculate NSE (Nash-Sutcliffe Efficiency)
 def calculate_nse(observed, predicted):
@@ -271,3 +272,98 @@ def prepare_features_df(test_data):
             print(f"Using {temp_cols[0]} for temperature analysis")
     
     return features_df 
+
+def calculate_feature_importance(model, data, preprocessor):
+    """
+    Calculate feature importance using SHAP (SHapley Additive exPlanations).
+    This provides a more robust and theoretically sound approach to feature attribution.
+    
+    Args:
+        model: Trained LSTM model
+        data: Input data
+        preprocessor: Data preprocessor instance
+    
+    Returns:
+        feature_names: List of feature names
+        importance_scores: Array of importance scores
+    """
+    try:
+        import shap
+        
+        # Put model in evaluation mode
+        model.eval()
+        
+        # Debug prints
+        print(f"Data shape: {data.shape}")
+        print(f"Feature columns: {preprocessor.feature_cols}")
+        
+        # Convert data to numpy arrays and get valid indices
+        X_full = data[preprocessor.feature_cols].values
+        y_full = data['vst_raw'].values
+        
+        # Create mask and ensure it's a 1D boolean array
+        valid_mask = ~np.isnan(y_full)
+        valid_mask = valid_mask.ravel()  # Ensure 1D
+        
+        # Filter data using boolean indexing
+        X = X_full[valid_mask]
+        y_true = y_full[valid_mask]
+        
+        # Convert to PyTorch tensor
+        X_tensor = torch.FloatTensor(X)
+        
+        # Create a wrapper function for the model that returns numpy array
+        def model_wrapper(x):
+            with torch.no_grad():
+                x_tensor = torch.FloatTensor(x)
+                output = model(x_tensor)
+                if isinstance(output, tuple):
+                    output = output[0]
+                return output.numpy()
+        
+        # Select a subset of background samples for computational efficiency
+        background_size = min(100, len(X))  # Use at most 100 background samples
+        background_indices = np.random.choice(len(X), background_size, replace=False)
+        background_data = X[background_indices]
+        
+        print("Creating SHAP explainer...")
+        # Create KernelExplainer with background data
+        explainer = shap.KernelExplainer(model_wrapper, background_data)
+        
+        # Calculate SHAP values for a subset of data points
+        sample_size = min(1000, len(X))  # Use at most 1000 samples for SHAP calculation
+        sample_indices = np.random.choice(len(X), sample_size, replace=False)
+        sample_data = X[sample_indices]
+        
+        print("Calculating SHAP values...")
+        shap_values = explainer.shap_values(sample_data)
+        
+        # Calculate feature importance as mean absolute SHAP values
+        # Ensure we get a 1D array of importance scores
+        importance_scores = np.abs(shap_values).mean(0).flatten()
+        
+        print("\nFeature Importance Scores:")
+        print("-" * 50)
+        # Print individual feature importances
+        for feature, importance in zip(preprocessor.feature_cols, importance_scores):
+            print(f"{feature:35s}: {importance:.6f}")
+        print("-" * 50)
+        
+        # Normalize importance scores to be between 0 and 1
+        if np.max(importance_scores) > 0:
+            importance_scores = importance_scores / np.max(importance_scores)
+            
+        # Final verification of array shape
+        print(f"\nFinal importance scores shape: {importance_scores.shape}")
+        print("Normalized importance scores:")
+        for feature, importance in zip(preprocessor.feature_cols, importance_scores):
+            print(f"{feature:35s}: {importance:.6f}")
+        
+        return preprocessor.feature_cols, importance_scores
+        
+    except Exception as e:
+        print(f"Error in calculate_feature_importance: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        traceback.print_exc()
+        raise 

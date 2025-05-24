@@ -11,7 +11,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import torch
 
 # Add the parent directory to Python path to allow imports from experiments
 sys.path.append(str(Path(__file__).parent))
@@ -24,7 +23,8 @@ from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
 from utils.pipeline_utils import (
     calculate_nse, prepare_prediction_dataframe, 
     calculate_performance_metrics, save_comparison_metrics,
-    print_metrics_table, print_comparison_table, prepare_features_df
+    print_metrics_table, print_comparison_table, prepare_features_df,
+    calculate_feature_importance
 )
 
 # Error handling utilities
@@ -47,7 +47,7 @@ from utils.model_utils import (
 
 # Model infrastructure
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence
+from _3_lstm_model.model_plots import create_full_plot, plot_convergence, plot_feature_importance, create_individual_feature_plots, plot_feature_correlation
 from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
 
 # Experiment modules
@@ -103,6 +103,16 @@ def run_pipeline(
     original_train_data = train_data.copy()
     original_val_data = val_data.copy()
     original_test_data = test_data.copy()
+    
+    # Create correlation plot
+    print("\nGenerating correlation plot...")
+    correlation_plot_path = plot_feature_correlation(original_train_data)
+    print(f"Correlation plot saved to: {correlation_plot_path}")
+    
+    # Create feature plots
+    # print("\nGenerating feature plots...")
+    # feature_plots = create_individual_feature_plots(original_train_data)
+    # print(f"Feature plots saved to: {list(feature_plots.values())}")
     
     # Generate diagnostics if enabled
     if model_diagnostics:
@@ -205,6 +215,20 @@ def run_pipeline(
     history, val_predictions, val_targets = train_model(trainer, training_data, validation_data, model_config)
     save_model(model, 'final_model.pth')
     
+    # Calculate and plot feature importance
+    print("\nCalculating feature importance...")
+    try:
+        feature_names, importance_scores = calculate_feature_importance(model, validation_data, preprocessor)
+        plot_feature_importance(
+            feature_names=feature_names,
+            importance_scores=importance_scores,
+            station_id=station_id,
+            title_suffix="SHAP Values"
+        )
+        print("Feature importance plot created successfully.")
+    except Exception as e:
+        print(f"Warning: Could not calculate feature importance: {str(e)}")
+    
     # Process validation predictions
     val_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
     
@@ -253,51 +277,51 @@ def run_pipeline(
         plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
     
     # Generate test predictions
-    # print("\nMaking predictions on test set...")
-    # test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
-    # test_predictions_df = process_test_predictions(test_predictions, original_test_data, model_config)
+    print("\nMaking predictions on test set...")
+    test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
+    test_predictions_df = process_test_predictions(test_predictions, original_test_data, model_config)
     
-    # Plot test results with model config
-    # if model_diagnostics:
-    #     create_full_plot(
-    #         original_test_data, 
-    #         test_predictions_df, 
-    #         str(station_id), 
-    #         model_config, 
-    #         title_suffix=test_plot_title,
-    #         synthetic_data=None  # No synthetic errors in test data
-    #     )
+    #Plot test results with model config
+    if model_diagnostics:
+        create_full_plot(
+            original_test_data, 
+            test_predictions_df, 
+            str(station_id), 
+            model_config, 
+            title_suffix=test_plot_title,
+            synthetic_data=None  # No synthetic errors in test data
+        )
     
-    # test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
+    test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
     
-    # # Ensure predictions are properly shaped
-    # test_predictions_reshaped = np.array(test_predictions).flatten()
-    # if len(test_predictions_reshaped) != len(original_test_data):
-    #     if len(test_predictions_reshaped) > len(original_test_data):
-    #         test_predictions_reshaped = test_predictions_reshaped[:len(original_test_data)]
-    #     else:
-    #         padding = np.full(len(original_test_data) - len(test_predictions_reshaped), np.nan)
-    #         test_predictions_reshaped = np.concatenate([test_predictions_reshaped, padding])
+    # Ensure predictions are properly shaped
+    test_predictions_reshaped = np.array(test_predictions).flatten()
+    if len(test_predictions_reshaped) != len(original_test_data):
+        if len(test_predictions_reshaped) > len(original_test_data):
+            test_predictions_reshaped = test_predictions_reshaped[:len(original_test_data)]
+        else:
+            padding = np.full(len(original_test_data) - len(test_predictions_reshaped), np.nan)
+            test_predictions_reshaped = np.concatenate([test_predictions_reshaped, padding])
     
-    # Calculate final metrics
-    # predictions_nan_mask = ~np.isnan(test_predictions_reshaped)
-    # valid_mask = test_data_nan_mask & predictions_nan_mask
-    # metrics = calculate_performance_metrics(original_test_data['vst_raw'].values, test_predictions_reshaped, valid_mask)
-    # metrics['val_loss'] = min(history['val_loss'])
-    # print_metrics_table(metrics)
+    #Calculate final metrics
+    predictions_nan_mask = ~np.isnan(test_predictions_reshaped)
+    valid_mask = test_data_nan_mask & predictions_nan_mask
+    metrics = calculate_performance_metrics(original_test_data['vst_raw'].values, test_predictions_reshaped, valid_mask)
+    metrics['val_loss'] = min(history['val_loss'])
+    print_metrics_table(metrics)
     
-    # # Generate advanced diagnostics if enabled
-    # if advanced_diagnostics:
-    #     print("\nGenerating advanced diagnostic visualizations...")
-    #     predictions_series = pd.Series(
-    #         test_predictions_reshaped, 
-    #         index=original_test_data.index[:len(test_predictions_reshaped)]
-    #     )
-    #     all_visualization_paths = run_advanced_diagnostics(
-    #         original_test_data, predictions_series, station_id, output_path, is_comparative=False
-    #     )
-    # else:
-    #     print("Skipping advanced diagnostics visualizations")
+    # Generate advanced diagnostics if enabled
+    if advanced_diagnostics:
+        print("\nGenerating advanced diagnostic visualizations...")
+        predictions_series = pd.Series(
+            test_predictions_reshaped, 
+            index=original_test_data.index[:len(test_predictions_reshaped)]
+        )
+        all_visualization_paths = run_advanced_diagnostics(
+            original_test_data, predictions_series, station_id, output_path, is_comparative=False
+        )
+    else:
+        print("Skipping advanced diagnostics visualizations")
     
     return {'model': metrics}
 
