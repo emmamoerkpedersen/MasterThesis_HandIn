@@ -255,12 +255,25 @@ def preprocess_data():
     print("Loading raw station data...")
     All_station_data_original = load_all_station_data()
 
+    # Count missing values in vst_raw for each station
+    print("\nMissing values in VST raw data before processing:")
+    for station_name, station_data in All_station_data_original.items():
+        if station_data['vst_raw'] is not None:
+            missing_count = station_data['vst_raw'].isna().sum().iloc[0]  # Get count for the first column
+            total_count = len(station_data['vst_raw'])
+            print(f"Station {station_name}:")
+            print(f"  - Total missing values: {missing_count}")
+            print(f"  - Total data points: {total_count}")
+            print(f"  - Percentage missing: {(missing_count/total_count)*100:.2f}%")
+        else:
+            print(f"Station {station_name}: No VST raw data available")
+
     # Save the original data before any processing
     # Use absolute path from project root
     save_path = Path(__file__).parent.parent / "data_utils" / "Sample data"
     save_path.mkdir(parents=True, exist_ok=True)
     
-    print(f"Saving original data to {save_path}")
+    print(f"\nSaving original data to {save_path}")
     save_data_Dict(All_station_data_original, filename=save_path / 'original_data.pkl')
 
     print("Processing data...")
