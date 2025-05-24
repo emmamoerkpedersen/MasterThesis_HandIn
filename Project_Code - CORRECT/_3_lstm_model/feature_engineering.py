@@ -125,56 +125,56 @@ class FeatureEngineer:
         data = data.copy()
         
         # First, convert rainfall -1 values (missing) to 0 for cumulative calculations
-        rainfall_fixed = data['rainfall'].copy()
-        rainfall_fixed[rainfall_fixed == -1] = 0
+        station_46_rain = data['rainfall'].copy()
+        station_46_rain[station_46_rain == -1] = 0
         
         # Similarly for feature stations
-        feature_1_rain = data['feature_station_21006845_rainfall'].copy()
-        feature_1_rain[feature_1_rain == -1] = 0
+        station_45_rain = data['feature_station_21006845_rainfall'].copy()
+        station_45_rain[station_45_rain == -1] = 0
         
-        feature_2_rain = data['feature_station_21006847_rainfall'].copy()
-        feature_2_rain[feature_2_rain == -1] = 0
+        feature_47_rain = data['feature_station_21006847_rainfall'].copy()
+        feature_47_rain[feature_47_rain == -1] = 0
         
         # Calculate cumulative rainfall for different windows
         # Using rolling windows with different sizes
         # Short windows
-        data.loc[:, 'rainfall_1hour'] = rainfall_fixed.rolling(window=1*4, min_periods=1).sum()
-        data.loc[:, 'rainfall_7hour'] = rainfall_fixed.rolling(window=7*4, min_periods=1).sum()
-        data.loc[:, 'rainfall_48hour'] = rainfall_fixed.rolling(window=48*4, min_periods=1).sum()
-        data.loc[:, 'rainfall_90hour'] = rainfall_fixed.rolling(window=90*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_1hour'] = station_46_rain.rolling(window=1*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_7hour'] = station_46_rain.rolling(window=7*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_48hour'] = station_46_rain.rolling(window=48*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_90hour'] = station_46_rain.rolling(window=90*4, min_periods=1).sum()
         # Longer windows
-        # data.loc[:, 'rainfall_1month'] = rainfall_fixed.rolling(window=30*24*4, min_periods=1).sum()
-        # data.loc[:, 'rainfall_3months'] = rainfall_fixed.rolling(window=90*24*4, min_periods=1).sum()
-        # data.loc[:, 'rainfall_6months'] = rainfall_fixed.rolling(window=180*24*4, min_periods=1).sum()
-        # data.loc[:, 'rainfall_1year'] = rainfall_fixed.rolling(window=365*24*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_1month'] = station_46_rain.rolling(window=30*24*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_3months'] = station_46_rain.rolling(window=90*24*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_6months'] = station_46_rain.rolling(window=180*24*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_1year'] = station_46_rain.rolling(window=365*24*4, min_periods=1).sum()
 
         # Calculate cumulative rainfall for feature stations as well
         # Short windows
-        data.loc[:, 'feature1_rain_1hour'] = feature_1_rain.rolling(window=1*4, min_periods=1).sum()
-        data.loc[:, 'feature2_rain_1hour'] = feature_2_rain.rolling(window=1*4, min_periods=1).sum()
-        data.loc[:, 'feature1_rain_7hour'] = feature_1_rain.rolling(window=7*4, min_periods=1).sum()
-        data.loc[:, 'feature2_rain_7hour'] = feature_2_rain.rolling(window=7*4, min_periods=1).sum()
-        data.loc[:, 'feature1_rain_48hour'] = feature_1_rain.rolling(window=48*4, min_periods=1).sum()
-        data.loc[:, 'feature2_rain_48hour'] = feature_2_rain.rolling(window=48*4, min_periods=1).sum()
-        data.loc[:, 'feature1_rain_90hour'] = feature_1_rain.rolling(window=90*4, min_periods=1).sum()
-        data.loc[:, 'feature2_rain_90hour'] = feature_2_rain.rolling(window=90*4, min_periods=1).sum()
+        data.loc[:, 'station_45_rain_1hour'] = station_45_rain.rolling(window=1*4, min_periods=1).sum()
+        data.loc[:, 'station_47_rain_1hour'] = feature_47_rain.rolling(window=1*4, min_periods=1).sum()
+        data.loc[:, 'station_45_rain_7hour'] = station_45_rain.rolling(window=7*4, min_periods=1).sum()
+        data.loc[:, 'station_47_rain_7hour'] = feature_47_rain.rolling(window=7*4, min_periods=1).sum()
+        data.loc[:, 'station_45_rain_48hour'] = station_45_rain.rolling(window=48*4, min_periods=1).sum()
+        data.loc[:, 'station_47_rain_48hour'] = feature_47_rain.rolling(window=48*4, min_periods=1).sum()
+        data.loc[:, 'station_45_rain_90hour'] = station_45_rain.rolling(window=90*4, min_periods=1).sum()
+        data.loc[:, 'station_47_rain_90hour'] = feature_47_rain.rolling(window=90*4, min_periods=1).sum()
        
         # # Longer windows
-        # data.loc[:, 'feature1_rain_1month'] = feature_1_rain.rolling(window=30*24*4, min_periods=1).sum()
-        # data.loc[:, 'feature2_rain_1month'] = feature_2_rain.rolling(window=30*24*4, min_periods=1).sum()
-        # data.loc[:, 'feature1_rain_3months'] = feature_1_rain.rolling(window=90*24*4, min_periods=1).sum()
-        # data.loc[:, 'feature2_rain_3months'] = feature_2_rain.rolling(window=90*24*4, min_periods=1).sum()
-        # data.loc[:, 'feature1_rain_6months'] = feature_1_rain.rolling(window=180*24*4, min_periods=1).sum()
-        # data.loc[:, 'feature2_rain_6months'] = feature_2_rain.rolling(window=180*24*4, min_periods=1).sum()
-        # data.loc[:, 'feature1_rain_1year'] = feature_1_rain.rolling(window=365*24*4, min_periods=1).sum()
-        # data.loc[:, 'feature2_rain_1year'] = feature_2_rain.rolling(window=365*24*4, min_periods=1).sum()
+        data.loc[:, 'station_45_rain_1month'] = station_45_rain.rolling(window=30*24*4, min_periods=1).sum()
+        data.loc[:, 'station_47_rain_1month'] = feature_47_rain.rolling(window=30*24*4, min_periods=1).sum()
+        data.loc[:, 'station_45_rain_3months'] = station_45_rain.rolling(window=90*24*4, min_periods=1).sum()
+        data.loc[:, 'station_47_rain_3months'] = feature_47_rain.rolling(window=90*24*4, min_periods=1).sum()
+        data.loc[:, 'station_45_rain_6months'] = station_45_rain.rolling(window=180*24*4, min_periods=1).sum()
+        data.loc[:, 'station_47_rain_6months'] = feature_47_rain.rolling(window=180*24*4, min_periods=1).sum()
+        data.loc[:, 'station_45_rain_1year'] = station_45_rain.rolling(window=365*24*4, min_periods=1).sum()
+        data.loc[:, 'station_47_rain_1year'] = feature_47_rain.rolling(window=365*24*4, min_periods=1).sum()
 
         # Fill potential NaN values created by rolling operations with forward fill then backward fill
         cumulative_cols = [
-            'rainfall_1hour', 'rainfall_7hour', 'rainfall_48hour', 'rainfall_90hour',
-            #'rainfall_1month', 'rainfall_3months', 'rainfall_6months', 'rainfall_1year',
-            'feature1_rain_1hour', 'feature2_rain_1hour', 'feature1_rain_7hour', 'feature2_rain_7hour', 'feature1_rain_48hour', 'feature2_rain_48hour', 'feature1_rain_90hour', 'feature2_rain_90hour',
-            #'feature1_rain_1month', 'feature2_rain_1month', 'feature1_rain_3months', 'feature2_rain_3months', 'feature1_rain_6months', 'feature2_rain_6months', 'feature1_rain_1year', 'feature2_rain_1year'
+            'station_46_rain_1hour', 'station_46_rain_7hour', 'station_46_rain_48hour', 'station_46_rain_90hour',
+            'station_46_rain_1month', 'station_46_rain_3months', 'station_46_rain_6months', 'station_46_rain_1year',
+            'station_45_rain_1hour', 'station_47_rain_1hour', 'station_45_rain_7hour', 'station_47_rain_7hour', 'station_45_rain_48hour', 'station_47_rain_48hour', 'station_45_rain_90hour', 'station_47_rain_90hour',
+            'station_45_rain_1month', 'station_47_rain_1month', 'station_45_rain_3months', 'station_47_rain_3months', 'station_45_rain_6months', 'station_47_rain_6months', 'station_45_rain_1year', 'station_47_rain_1year'
         ]
         
         for col in cumulative_cols:
