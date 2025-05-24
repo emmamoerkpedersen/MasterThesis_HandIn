@@ -3,14 +3,15 @@ Configuration for the Alternating Forecast Model.
 """
 
 # Configuration for the alternating LSTM model
+# Current: Experiment 3 (Time Features)
 ALTERNATING_CONFIG = {
     # Model architecture
-    'hidden_size': 128,         # Increased from 32 to 64
+    'hidden_size': 64,         # Increased from 32 to 64
     'dropout': 0.25,
     
     # Training parameters
     'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 50,              # More epochs for better convergence
+    'epochs': 100,              # More epochs for better convergence
     'patience': 15,
     'learning_rate': 0.001,
     # Forecasting parameters
@@ -36,18 +37,18 @@ ALTERNATING_CONFIG = {
     
 
     'feature_stations': [
-        {
-            'station_id': '21006845',
-            'features': ['vst_raw', 'rainfall']
-        },
-        {
-            'station_id': '21006847',
-            'features': ['vst_raw', 'rainfall']
-        }
+        #{
+        #    'station_id': '21006845',
+        #    'features': ['vst_raw', 'rainfall']
+        #},
+        #{
+        #    'station_id': '21006847',
+        #    'features': ['vst_raw', 'rainfall']
+        #}
     ],
-    # Feature engineering settings
-    'use_time_features': True,        # Enable time features (day of week, month, etc.)
-    'use_cumulative_features': True,  # Enable cumulative features (e.g., cumulative rainfall)
+    # Feature engineering settings - EXPERIMENT 3: TIME FEATURES
+    'use_time_features': True,        # ENABLED: month_sin, month_cos, day_of_year_sin, day_of_year_cos
+    'use_cumulative_features': False, # FOR EXP 4: Enable cumulative rainfall features
     'use_lagged_features': False,     # Don't use lagged features
     
     # Do not include additional stations

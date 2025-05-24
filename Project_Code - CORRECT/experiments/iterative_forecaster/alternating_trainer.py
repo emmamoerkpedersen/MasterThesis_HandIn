@@ -33,6 +33,21 @@ class AlternatingTrainer:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.preprocessor = preprocessor
         
+        # Print device information
+        print(f"\n🖥️  Device Information:")
+        print(f"   Using device: {self.device}")
+        if torch.cuda.is_available():
+            print(f"   GPU: {torch.cuda.get_device_name(0)}")
+            print(f"   CUDA version: {torch.version.cuda}")
+            print(f"   PyTorch version: {torch.__version__}")
+            print(f"   GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            # Clear CUDA cache at initialization
+            torch.cuda.empty_cache()
+            print(f"   CUDA cache cleared")
+        else:
+            print(f"   CUDA not available, using CPU")
+        print("="*50)
+        
         # Initialize feature columns from config
         self.feature_cols = config['feature_cols'].copy()
         
@@ -340,6 +355,15 @@ class AlternatingTrainer:
         if best_model_state:
             self.model.load_state_dict(best_model_state)
         
+        # Clean up CUDA memory if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            memory_allocated = torch.cuda.memory_allocated() / 1024**3
+            memory_reserved = torch.cuda.memory_reserved() / 1024**3
+            print(f"\n🖥️  GPU Memory after training:")
+            print(f"   Allocated: {memory_allocated:.2f} GB")
+            print(f"   Reserved: {memory_reserved:.2f} GB")
+        
         return history, best_val_predictions, y_val.cpu()
     
     def predict(self, test_df, num_steps=None, use_predictions=True):
@@ -544,7 +568,8 @@ class AlternatingTrainer:
         
         # Initialize optimizer after model creation
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.config.get('learning_rate'))
-        
+        #Print features in the model
+        print(f"\nFeatures in the model: {df.columns}")
         print(f"\nTotal features after engineering: {len(df.columns)}")
         
         # Split data based on years
@@ -556,14 +581,14 @@ class AlternatingTrainer:
             print("Using reduced dataset: 3 years training, 1 year validation")
             
             # Use only 2021 for validation in quick mode
-            val_data = df[(df.index.year == 2021)]
+            val_data = df[(df.index.year == 2022)]
             
-            # Use only 2018-2020 for training in quick mode (3 years)
-            train_data = df[(df.index.year >= 2018) & (df.index.year <= 2020)]
+            # Use only 2018-2020 for training in quick mode (4 years)
+            train_data = df[(df.index.year >= 2018) & (df.index.year <= 2021)]
             
             print("Quick mode data ranges:")
-            print(f"  - Training: 2018-2020 (3 years)")
-            print(f"  - Validation: 2021 (1 year)")
+            print(f"  - Training: 2018-2021 (4 years)")
+            print(f"  - Validation: 2022 (1 year)")
             print(f"  - Test: 2024 (unchanged)")
         else:
             # Standard mode: use more data
