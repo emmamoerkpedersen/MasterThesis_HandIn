@@ -29,7 +29,38 @@ def parse_arguments():
     parser.add_argument('--quick_mode', action='store_true', help='Enable quick mode with reduced data (3 years training, 1 year validation)')
     parser.add_argument('--error_type', type=str, default='both', choices=['both', 'train', 'validation', 'none'],
                       help='Which datasets to inject errors into (both, train, validation, or none)')
+    parser.add_argument('--experiment', type=str, default='0', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
     return parser.parse_args()
+
+def setup_experiment_directories(project_dir, experiment_name):
+    """
+    Create experiment-specific directory structure.
+    
+    Args:
+        project_dir: Project root directory
+        experiment_name: Name/number of the experiment
+        
+    Returns:
+        dict: Dictionary with paths to experiment directories
+    """
+    # Base experiment directory under Iterative model results
+    exp_dir = Path(project_dir) / "results" / "Iterative model results" / f"experiment_{experiment_name}"
+    
+    # Create subdirectories
+    directories = {
+        'base': exp_dir,
+        'diagnostics': exp_dir / "diagnostics",
+        'visualizations': exp_dir / "visualizations",
+        'anomaly_detection': exp_dir / "anomaly_detection",
+        'behavior_analysis': exp_dir / "visualizations" / "alternating_behavior"
+    }
+    
+    # Create all directories
+    for dir_path in directories.values():
+        dir_path.mkdir(parents=True, exist_ok=True)
+    
+    print(f"\nExperiment directories created under: {exp_dir}")
+    return directories
 
 def generate_alternating_predictions(model, val_data, trainer, config):
     """
@@ -298,6 +329,9 @@ def generate_behavior_visualizations(val_data, predictions, station_id, config, 
 
 def run_alternating_model(args):
     """Run the alternating LSTM model with the specified parameters."""
+    # Setup experiment directories
+    exp_dirs = setup_experiment_directories(project_dir, args.experiment)
+    
     # Update configuration with command line arguments
     config = ALTERNATING_CONFIG.copy()
     config.update({
@@ -421,10 +455,12 @@ def run_alternating_model(args):
     
     # Generate plots
     print("\nGenerating visualizations...")
+    print(f"All plots will be saved to experiment directory: {exp_dirs['base']}")
     
     # Training convergence plot
     plot_convergence(history, str(args.station_id), 
-                     title=f"Training and Validation Loss - Station {args.station_id}")
+                     title=f"Training and Validation Loss - Station {args.station_id}",
+                     output_dir=exp_dirs['visualizations'])
     
     # Define visualization title including error info if applicable
     viz_title_suffix = "Validation Predictions"
@@ -447,7 +483,8 @@ def run_alternating_model(args):
             config, 
             min(history['val_loss']), 
             title_suffix=viz_title_suffix,
-            synthetic_data=synthetic_data  # Pass synthetic data to show corrupted values
+            synthetic_data=synthetic_data,  # Pass synthetic data to show corrupted values
+            output_dir=exp_dirs['visualizations']
         )
     else:
         # Standard plot with just the validation data and predictions
@@ -457,7 +494,8 @@ def run_alternating_model(args):
             str(args.station_id), 
             config, 
             min(history['val_loss']), 
-            title_suffix=viz_title_suffix
+            title_suffix=viz_title_suffix,
+            output_dir=exp_dirs['visualizations']
         )
     
     # Calculate anomalies for the validation set
@@ -480,8 +518,7 @@ def run_alternating_model(args):
         plot_title += f" (Data with Synthetic Errors {args.error_multiplier}x)"
         
         # Create output directory
-        anomaly_viz_dir = Path(project_dir) / "results" / "anomaly_detection"
-        anomaly_viz_dir.mkdir(parents=True, exist_ok=True)
+        anomaly_viz_dir = exp_dirs['anomaly_detection']
         
         #png_path, html_path = plot_water_level_anomalies(
         #    test_data=val_data,
@@ -544,8 +581,7 @@ def run_alternating_model(args):
         plot_title = f"Water Level Forecasting with Anomaly Detection - Station {args.station_id}"
         
         # Create output directory
-        anomaly_viz_dir = Path(project_dir) / "results" / "anomaly_detection"
-        anomaly_viz_dir.mkdir(parents=True, exist_ok=True)
+        anomaly_viz_dir = exp_dirs['anomaly_detection']
         
         #png_path, html_path = plot_water_level_anomalies(
         #    test_data=val_data,
@@ -630,16 +666,16 @@ def run_alternating_model(args):
         metrics = {"mse": float('nan'), "rmse": float('nan'), "mae": float('nan')}
     
     # Generate new behavior visualizations
-    behavior_vis_paths = generate_behavior_visualizations(
-        val_data=val_data,
-        predictions=val_pred_df['vst_raw'],
-        station_id=args.station_id,
-        config=config,
-        output_path=project_dir / "results" / "Iterative model results",
-        model=trainer.model,
-        trainer=trainer
-    )
-    
+    #behavior_vis_paths = generate_behavior_visualizations(
+    #    val_data=val_data,
+    #    predictions=val_pred_df['vst_raw'],
+    #    station_id=args.station_id,
+    #    config=config,
+    #    output_path=project_dir / "results" / "Iterative model results",
+    #    model=trainer.model,
+    #    trainer=trainer
+    #)
+
     # Generate residual plots and other diagnostics
     from _3_lstm_model.model_diagnostics import generate_all_diagnostics
     
@@ -653,7 +689,7 @@ def run_alternating_model(args):
     diagnostic_vis_paths = generate_all_diagnostics(
         actual=val_data['vst_raw'],
         predictions=val_pred_df['vst_raw'],
-        output_dir=project_dir / "results" / "Iterative model results" / "diagnostics",
+        output_dir=exp_dirs['diagnostics'],
         station_id=args.station_id,
         features_df=features_df
     )
@@ -663,4 +699,11 @@ def run_alternating_model(args):
 if __name__ == "__main__":
     args = parse_arguments()
     metrics = run_alternating_model(args)
-    print("\nModel run completed successfully!") 
+    print(f"\n{'='*60}")
+    print(f"EXPERIMENT {args.experiment} COMPLETED SUCCESSFULLY!")
+    print(f"{'='*60}")
+    print(f"Results saved to: {Path(project_dir) / 'results' / 'Iterative model results' / f'experiment_{args.experiment}'}")
+    print(f"  - Diagnostics: {Path(project_dir) / 'results' / 'Iterative model results' / f'experiment_{args.experiment}' / 'diagnostics'}")
+    print(f"  - Anomaly Detection: {Path(project_dir) / 'results' / 'Iterative model results' / f'experiment_{args.experiment}' / 'anomaly_detection'}")
+    print(f"  - Visualizations: {Path(project_dir) / 'results' / 'Iterative model results' / f'experiment_{args.experiment}' / 'visualizations'}")
+    print(f"{'='*60}") 

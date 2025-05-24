@@ -27,10 +27,10 @@ class AlternatingForecastModel(nn.Module):
         self.output_size = output_size
         self.debug_mode = True  # Add debug mode flag
         
-        print(f"\nModel initialization:")
-        print(f"Input size: {input_size}")
-        print(f"Hidden size: {hidden_size}")
-        print(f"Output size: {output_size}")
+        #print(f"\nModel initialization:")
+        #print(f"Input size: {input_size}")
+        #print(f"Hidden size: {hidden_size}")
+        #print(f"Output size: {output_size}")
         
         # Single LSTM cell that takes input + binary flag
         self.lstm_cell = nn.LSTMCell(input_size + 1, hidden_size)  # +1 for binary flag
@@ -89,11 +89,11 @@ class AlternatingForecastModel(nn.Module):
                 if i + self.week_steps <= seq_len:
                     weekly_mask[i:i+self.week_steps] = 1
             
-            print("\nInitial weekly mask setup:")
-            print(f"Total sequence length: {seq_len}")
-            print(f"Week steps: {self.week_steps}")
-            print(f"Number of weeks where predictions will be used: {weekly_mask.sum() / self.week_steps:.0f}")
-            print(f"use_predictions flag value: {use_predictions}")
+            #print("\nInitial weekly mask setup:")
+            #print(f"Total sequence length: {seq_len}")
+            #print(f"Week steps: {self.week_steps}")
+            #print(f"Number of weeks where predictions will be used: {weekly_mask.sum() / self.week_steps:.0f}")
+            #print(f"use_predictions flag value: {use_predictions}")
                     
         elif weekly_mask is None:
             weekly_mask = torch.zeros(seq_len, device=device)
@@ -112,7 +112,7 @@ class AlternatingForecastModel(nn.Module):
             
             current_data_type = 'original' if use_original else 'prediction'
             if current_data_type != last_data_type:
-                print(f"\nSwitching at timestep {t} to using {current_data_type} data")
+                #print(f"\nSwitching at timestep {t} to using {current_data_type} data")
                 last_data_type = current_data_type
             
             if not use_original and t > 0:
@@ -137,21 +137,22 @@ class AlternatingForecastModel(nn.Module):
             outputs[:, t, :] = self.output_layer(final_hidden)
             
             # Print debug information for first batch of first epoch
-            if self.debug_mode and t % 672 == 0:
-                print(f"\nTimestep {t}:")
-                print(f"Using {'original' if use_original else 'prediction'} data")
-                print(f"Current input shape: {current_input.shape}")
-                print(f"Output shape: {outputs[:, t, :].shape}")
-                if t > 0:
-                    print(f"Previous prediction: {outputs[:, t-1, 0].mean().item():.2f}")
-                print(f"Current prediction: {outputs[:, t, 0].mean().item():.2f}")
+            #if self.debug_mode and t % 672 == 0:
+                #print(f"\nTimestep {t}:")
+                #print(f"Using {'original' if use_original else 'prediction'} data")
+                #print(f"Current input shape: {current_input.shape}")
+                #print(f"Output shape: {outputs[:, t, :].shape}")
+                #if t > 0:
+                #    print(f"Previous prediction: {outputs[:, t-1, 0].mean().item():.2f}")
+                #    print(f"Current prediction: {outputs[:, t, 0].mean().item():.2f}")
+                
         
-        print(f"\nFinal usage statistics:")
-        print(f"Total timesteps: {seq_len}")
-        print(f"Used original data: {n_used_original} times")
-        print(f"Used predictions: {n_used_prediction} times")
-        print(f"Original data percentage: {n_used_original/seq_len*100:.1f}%")
-        print(f"Predictions percentage: {n_used_prediction/seq_len*100:.1f}%")
+        #print(f"\nFinal usage statistics:")
+        #print(f"Total timesteps: {seq_len}")
+        #print(f"Used original data: {n_used_original} times")
+        #print(f"Used predictions: {n_used_prediction} times")
+        #print(f"Original data percentage: {n_used_original/seq_len*100:.1f}%")
+        #print(f"Predictions percentage: {n_used_prediction/seq_len*100:.1f}%")
     
         return outputs, hidden_state, cell_state
     

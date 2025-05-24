@@ -52,7 +52,7 @@ def set_plot_style():
     plt.rcParams['axes.edgecolor'] = '#cccccc'
     plt.rcParams['axes.linewidth'] = 1.0
 
-def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None, show_config=False, synthetic_data=None, vinge_data=None):
+def create_full_plot(test_data, test_predictions, station_id, model_config=None, best_val_loss=None, create_html=True, open_browser=True, metrics=None, title_suffix=None, show_config=False, synthetic_data=None, vinge_data=None, output_dir=None):
     """
     Create an interactive plot with aligned datetime indices, rainfall data, and model configuration.
     
@@ -69,9 +69,13 @@ def create_full_plot(test_data, test_predictions, station_id, model_config=None,
         show_config: Whether to show model configuration (default: False)
         synthetic_data: Optional DataFrame containing data with synthetic errors
         vinge_data: Optional DataFrame containing manual board (VINGE) measurements
+        output_dir: Optional output directory. If None, uses default location.
     """
-    # Ensure output directory exists using relative path
-    output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
+    # Use provided output_dir or default location
+    if output_dir is None:
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
+    else:
+        output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     station_id = str(station_id)
@@ -934,7 +938,7 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
     
     return output_path
 
-def plot_convergence(history, station_id, title=None):
+def plot_convergence(history, station_id, title=None, output_dir=None):
     """
     Plot training and validation loss over epochs, with learning rate changes.
     
@@ -942,9 +946,13 @@ def plot_convergence(history, station_id, title=None):
         history: Dictionary containing training history
         station_id: ID of the station
         title: Optional plot title
+        output_dir: Optional output directory. If None, uses default location.
     """
-    # Ensure output directory exists using relative path
-    output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
+    # Use provided output_dir or default location
+    if output_dir is None:
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm"))
+    else:
+        output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Create figure with subplots - one for loss, one for learning rate
