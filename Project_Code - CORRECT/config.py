@@ -9,30 +9,6 @@ PHYSICAL_LIMITS = {
     'max_rate_of_change': 50  # Maximum change per hour
 }
 
-# Error Detection Parameters
-DETECTION_PARAMS = {
-    'spike': {
-        'window_size': 24,
-        'threshold': 3.0
-    },
-    'gap': {
-        'max_gap_hours': 1
-    },
-    'flatline': {
-        'min_duration': 2,
-        'max_duration': 48
-    }
-}
-
-# Imputation Parameters
-IMPUTATION_PARAMS = {
-    'linear': {
-        'max_gap': 24  # hours
-    },
-    'statistical': {
-        'window_size': 168  # hours (1 week)
-    }
-}
 
 # Synthetic Error Generation Parameters
 SYNTHETIC_ERROR_PARAMS = {
@@ -54,36 +30,39 @@ SYNTHETIC_ERROR_PARAMS = {
     'offset': {
         'count_per_year': 1,
         'magnitude_range': (30, 700),  # Absolute value
-        'negative_positiv_ratio': 0.5,
-        'min_duration': 24,  # 15-min intervals (6 hours)
-        'max_duration': 1920  # 15-min intervals (120 hours)
+        'duration_range': (24, 1920),  # 15-min intervals (6-120 hours)
+        'negative_positiv_ratio': 0.5
     },
     
     'drift': {
         'count_per_year': 1,
-        'duration_range': [1168*2, 1168*3],  # 15-min intervals (24.3-36.5 days)
         'magnitude_range': [50, 150],  # Absolute value
+        'duration_range': [1168*2, 1168*3],  # 15-min intervals (24.3-36.5 days)
         'negative_positive_ratio': 0.5
     },
     
     'noise': {
         'count_per_year': 1,
+        'magnitude_range': (50, 200),  # Absolute value for segment offsets
         'duration_range': (168, 468),  # 15-min intervals (42-117 hours)
+        'negative_positive_ratio': 0.5,  # For segment direction
         'intensity_range': (4, 10),  # Multiplier for base noise
         'num_sub_segments_range': (15, 20),  # Number of steps in noise period
-        'segment_level_offset_range_abs': (50, 200),  # Absolute value
         'segment_noise_std_abs': 1  # Base standard deviation
     },
     
     # Disabled error types
     'flatline': {
         'count_per_year': 0,
+        'magnitude_range': (0, 0),  # Not applicable for flatline
         'duration_range': (10, 200),
+        'negative_positive_ratio': 0.5,
         'value_method': 'first_value'
     },
     
     'missing_data': {
         'count_per_year': 0,
+        'magnitude_range': (0, 0),  # Not applicable for missing data
         'min_length': 100,
         'max_length': 500
     },
