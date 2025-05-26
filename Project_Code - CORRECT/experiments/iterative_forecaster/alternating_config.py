@@ -20,6 +20,7 @@ ALTERNATING_CONFIG = {
     'threshold': 15.0,          # Increased from 5.0 - less sensitive to model prediction errors
     'window_size': 1500,        # Window size for MAD calculation
     
+    'week_steps': 672,
     # Quick mode for faster training with reduced data
     'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
 
