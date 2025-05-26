@@ -63,8 +63,7 @@ class SyntheticErrorGenerator:
         self.config = config or SYNTHETIC_ERROR_PARAMS
         self.error_periods = []
         self.used_indices = set()  # Track all used indices
-        self.use_context_aware = self.config.get('use_context_aware', False)  # New toggle
-    
+
     def _calculate_years_in_data(self, time_index):
         """
         Calculate approximately how many years of data are in the time index.
@@ -113,50 +112,7 @@ class SyntheticErrorGenerator:
     def _mark_period_used(self, start_idx: int, end_idx: int):
         """Mark a period as used to prevent overlaps."""
         self.used_indices.update(range(start_idx, end_idx))
-    
-    def _calculate_local_variation(self, data: pd.DataFrame, window: int = 96) -> Tuple[pd.Series, pd.Series]:
-        """Calculate local statistics to determine context-appropriate magnitudes."""
-        if not self.use_context_aware:
-            return None, None
-        
-        # Make sure we're working with the 'Value' column
-        values = data['vst_raw']
-        
-        # Calculate rolling statistics
-        local_std = values.rolling(window=window, center=True).std()
-        local_range = values.rolling(window=window, center=True).max() - values.rolling(window=window, center=True).min()
-        
-        # Fill NaN values with the mean of non-NaN values
-        local_std = local_std.fillna(local_std.mean())
-        local_range = local_range.fillna(local_range.mean())
-        
-        return local_std, local_range
-    
-    def _generate_magnitude(self, current_value: float, local_stats: Tuple[pd.Series, pd.Series], base_range: Tuple[float, float]) -> float:
-        """Generate magnitude based on either local variation or base range."""
-        if self.use_context_aware and local_stats[0] is not None:
-            local_std, local_range = local_stats
-            # Get the current local statistics (most recent values)
-            current_std = float(local_std.iloc[-1])
-            current_range = float(local_range.iloc[-1])
-            
-            # Define ranges
-            ranges = [
-                (0.5 * current_std, 2 * current_std),  # subtle
-                (2 * current_std, 4 * current_std),    # medium
-                (4 * current_std, min(current_range, current_value * base_range[1]))  # obvious
-            ]
-            
-            # Choose a range based on probabilities
-            chosen_idx = np.random.choice(3, p=[0.6, 0.3, 0.1])
-            chosen_range = ranges[chosen_idx]
-            
-            # Generate magnitude within chosen range
-            return np.random.uniform(chosen_range[0], chosen_range[1])
-        else:
-            # Use base range from config
-            return current_value * np.random.uniform(*base_range)
-        
+
     def inject_missing_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Inject missing data anomalies by replacing sections with NaN values.
@@ -271,9 +227,6 @@ class SyntheticErrorGenerator:
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_spikes} spikes randomly across entire dataset...")
         
-        # Calculate local statistics if context-aware is enabled
-        local_stats = self._calculate_local_variation(data) if self.use_context_aware else (None, None)
-        
         successful_injections = 0
         max_attempts = n_spikes * 10
         attempts = 0
@@ -292,11 +245,7 @@ class SyntheticErrorGenerator:
                 current_value = float(data.iloc[idx]['vst_raw'])
                 
                 # Generate spike magnitude
-                magnitude = self._generate_magnitude(
-                    current_value=current_value,
-                    local_stats=local_stats,
-                    base_range=mag_range
-                )
+                magnitude = np.random.uniform(*mag_range)
                 
                 # Determine spike direction
                 direction = np.random.choice([-1, 1], p=[negative_positiv_ratio, 1-negative_positiv_ratio])
@@ -523,10 +472,12 @@ class SyntheticErrorGenerator:
             return modified_data, offset_periods
             
         min_duration = offset_config['min_duration']
-        max_duration_multiplier = offset_config['max_duration_multiplier']
+        max_duration = min(
+            offset_config['max_duration'],
+            len(data) // 5  # Limit to 20% of data length
+        )
         mag_range = offset_config['magnitude_range']
         negative_positiv_ratio = offset_config['negative_positiv_ratio']
-        magnitude_multiplier_range = offset_config['magnitude_multiplier']
         
         # Calculate years in data and total number of offsets
         years_in_data = self._calculate_years_in_data(data.index)
@@ -535,12 +486,6 @@ class SyntheticErrorGenerator:
         
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_offsets} offset periods randomly across entire dataset...")
-        
-        # Calculate maximum duration based on data length
-        max_duration = min(
-            int(min_duration * np.random.uniform(*max_duration_multiplier)),
-            len(data) // 4  # Limit to 25% of data length
-        )
         
         # Randomly select injection points from entire dataset
         possible_indices = np.arange(0, len(data) - min_duration)
@@ -555,14 +500,8 @@ class SyntheticErrorGenerator:
             idx = np.random.choice(possible_indices)
             attempts += 1
             
-            # Calculate local statistics for context-aware magnitude
-            window = slice(max(0, idx-24), min(len(data), idx+24))
-            local_std = modified_data.iloc[window].std().values[0]
-            
-            # Generate offset magnitude with local scaling
-            base_magnitude = np.random.uniform(*mag_range)
-            local_multiplier = np.random.uniform(*magnitude_multiplier_range)
-            magnitude = base_magnitude * local_multiplier * (1 + local_std/100)
+            # Generate offset magnitude
+            magnitude = np.random.uniform(*mag_range)
             
             # Determine direction with configured ratio
             direction = np.random.choice([-1, 1], p=[negative_positiv_ratio, 1-negative_positiv_ratio])
@@ -609,8 +548,7 @@ class SyntheticErrorGenerator:
                     parameters={
                         'magnitude': magnitude,
                         'direction': direction,
-                        'duration': duration,
-                        'local_multiplier': local_multiplier
+                        'duration': duration
                     }
                 )
             )
