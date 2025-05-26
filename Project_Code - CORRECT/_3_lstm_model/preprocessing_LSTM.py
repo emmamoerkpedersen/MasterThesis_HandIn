@@ -117,14 +117,14 @@ class DataPreprocessor:
         data = df[(df.index >= start_date) & (df.index <= end_date)]
         vinge_data = vinge_data[(vinge_data.index >= start_date) & (vinge_data.index <= end_date)]
         # Fill NaN in vst_raw_feature, and vst_raw_feature_station_21006845 and 46 with -1
-        data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
-        data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
+        # data.loc[:, 'feature_station_21006845_vst_raw'] = data['feature_station_21006845_vst_raw'].fillna(-1)
+        # data.loc[:, 'feature_station_21006847_vst_raw'] = data['feature_station_21006847_vst_raw'].fillna(-1)
   
         #Aggregate temperature to 30 days = 2880 steps
         data.loc[:, 'temperature'] = data['temperature'].rolling(window=2880, min_periods=1).mean()
        
         # Aggregated feature_station_21006845_temperature to 30 days = 2880 steps
-        data.loc[:, 'feature_station_21006845_temperature'] = data['feature_station_21006845_temperature'].rolling(window=2880, min_periods=1).mean()
+        #data.loc[:, 'feature_station_21006845_temperature'] = data['feature_station_21006845_temperature'].rolling(window=2880, min_periods=1).mean()
         print(f"  - Aggregated temperature to 30 days")
 
         # Add cumulative rainfall features if enabled in config
