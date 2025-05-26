@@ -29,7 +29,7 @@ def parse_arguments():
     parser.add_argument('--quick_mode', action='store_true', help='Enable quick mode with reduced data (3 years training, 1 year validation)')
     parser.add_argument('--error_type', type=str, default='both', choices=['both', 'train', 'validation', 'none'],
                       help='Which datasets to inject errors into (both, train, validation, or none)')
-    parser.add_argument('--experiment', type=str, default='0', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
+    parser.add_argument('--experiment', type=str, default='CPFS+TF', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
     return parser.parse_args()
 
 def setup_experiment_directories(project_dir, experiment_name):
