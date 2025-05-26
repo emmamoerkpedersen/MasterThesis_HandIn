@@ -17,7 +17,7 @@ SYNTHETIC_ERROR_PARAMS = {
     
     # Point-based errors (affect single points or very short periods)
     'spike': {
-        'count_per_year': 1,
+        'count_per_year': 0.5,
         'magnitude_range': (0.2, 1.0),  # Multiplier of current value
         'negative_positiv_ratio': 0.5,
         'recovery_time': 1  # 15-min intervals
@@ -25,21 +25,21 @@ SYNTHETIC_ERROR_PARAMS = {
     
     # Period-based errors (affect longer periods)
     'offset': {
-        'count_per_year': 1,
+        'count_per_year': 0.25,
         'magnitude_range': (30, 700),  # Absolute value
         'duration_range': (24, 1920),  # 15-min intervals (6-120 hours)
         'negative_positiv_ratio': 0.5
     },
     
     'drift': {
-        'count_per_year': 1,
+        'count_per_year': 0.25,
         'magnitude_range': [50, 150],  # Absolute value
         'duration_range': [1168*2, 1168*3],  # 15-min intervals (24.3-36.5 days)
         'negative_positive_ratio': 0.5
     },
     
     'noise': {
-        'count_per_year': 1,
+        'count_per_year': 0.5,
         'magnitude_range': (50, 200),  # Absolute value for segment offsets
         'duration_range': (168, 468),  # 15-min intervals (42-117 hours)
         'negative_positive_ratio': 0.5,  # For segment direction
