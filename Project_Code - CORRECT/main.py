@@ -215,19 +215,19 @@ def run_pipeline(
     history, val_predictions, val_targets = train_model(trainer, training_data, validation_data, model_config)
     save_model(model, 'final_model.pth')
     
-    # Calculate and plot feature importance
-    print("\nCalculating feature importance...")
-    try:
-        feature_names, importance_scores = calculate_feature_importance(model, validation_data, preprocessor)
-        plot_feature_importance(
-            feature_names=feature_names,
-            importance_scores=importance_scores,
-            station_id=station_id,
-            title_suffix="SHAP Values"
-        )
-        print("Feature importance plot created successfully.")
-    except Exception as e:
-        print(f"Warning: Could not calculate feature importance: {str(e)}")
+ #   # Calculate and plot feature importance
+ #   print("\nCalculating feature importance...")
+ #   try:
+ #       feature_names, importance_scores = calculate_feature_importance(model, validation_data, preprocessor)
+ #       plot_feature_importance(
+ #           feature_names=feature_names,
+  #          importance_scores=importance_scores,
+  #          station_id=station_id,
+  #          title_suffix="SHAP Values"
+  #      )
+  #      print("Feature importance plot created successfully.")
+  #  except Exception as e:
+  #      print(f"Warning: Could not calculate feature importance: {str(e)}")
     
     # Process validation predictions
     val_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
