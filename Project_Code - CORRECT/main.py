@@ -105,11 +105,11 @@ def run_pipeline(
     original_test_data = test_data.copy()
     
     # Create correlation plot
-    print("\nGenerating correlation plot...")
-    correlation_plot_path = plot_feature_correlation(original_train_data)
-    print(f"Correlation plot saved to: {correlation_plot_path}")
+    # print("\nGenerating correlation plot...")
+    # correlation_plot_path = plot_feature_correlation(original_train_data)
+    # print(f"Correlation plot saved to: {correlation_plot_path}")
     
-    # Create feature plots
+    # # Create feature plots
     # print("\nGenerating feature plots...")
     # feature_plots = create_individual_feature_plots(original_train_data)
     # print(f"Feature plots saved to: {list(feature_plots.values())}")
@@ -156,15 +156,14 @@ def run_pipeline(
             # Process training data
             print("\nProcessing TRAINING data...")
             train_data_with_errors_raw, train_results = inject_errors_into_dataset(
-                original_train_data, error_generator, f"{station_id}_train", water_level_cols
+                original_train_data, error_generator, f"{station_id}_train", water_level_cols, "train"
             )
             stations_results.update(train_results)
             
-            # Process validation data
-            error_generator = SyntheticErrorGenerator(error_config)
+            # Process validation data (reuse the same generator for consistent seeding)
             print("\nProcessing VALIDATION data...")
             val_data_with_errors_raw, val_results = inject_errors_into_dataset(
-                original_val_data, error_generator, f"{station_id}_val", water_level_cols
+                original_val_data, error_generator, f"{station_id}_val", water_level_cols, "val"
             )
             stations_results.update(val_results)
         
@@ -288,7 +287,7 @@ def run_pipeline(
             test_predictions_df, 
             str(station_id), 
             model_config, 
-            title_suffix=test_plot_title,
+            title_suffix=None,
             synthetic_data=None  # No synthetic errors in test data
         )
     
@@ -331,7 +330,7 @@ if __name__ == "__main__":
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run LSTM water level prediction model')
-    parser.add_argument('--error_multiplier', type=float, default=None, 
+    parser.add_argument('--error_multiplier', type=float, default=1, 
                       help='Error multiplier for synthetic errors. If not provided, no errors are injected.')
     parser.add_argument('--run_experiments', action='store_true',
                       help='Run experiments with different error multipliers')

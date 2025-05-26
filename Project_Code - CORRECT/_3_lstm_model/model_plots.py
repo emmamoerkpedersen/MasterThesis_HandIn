@@ -776,26 +776,16 @@ def create_water_level_plot_png(actual, predictions, station_id, timestamp, mode
         ax.plot(vinge_data.index, vinge_data['vinge'].values, 'o', color='#ff7f0e', label='VINGE Data')
     
     # Clean styling
-    if title_suffix:
-        title_text = f'Water Level Predictions - Station {station_id} - {title_suffix}'
-    else:
-        title_text = f'Water Level Predictions - Station {station_id}'
-        
-    if isinstance(timestamp, str):
-        ax.set_title(title_text, fontweight='bold', pad=15)
-    else:
-        if title_suffix:
-            ax.set_title(f'{title_text}\n{timestamp.strftime("%Y-%m-%d")}', fontweight='bold', pad=15)
-        else:
-            ax.set_title(f'Water Level Predictions - Station {station_id}\n{timestamp.strftime("%Y-%m-%d")}', fontweight='bold', pad=15)
     ax.set_xlabel('Date', fontweight='bold', labelpad=10)
     ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
     
     # No grid lines as requested
     ax.grid(False)
     
-    # Add clean legend
-    ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc')
+    
+    ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', 
+             loc='upper center', bbox_to_anchor=(0.5, 1.15), 
+             ncol=4, handletextpad=0.5, columnspacing=1.0)
     
     # Format the date axis
     fig.autofmt_xdate(bottom=0.2)
@@ -2057,14 +2047,14 @@ def plot_feature_correlation(data, output_dir=None):
         'vst_raw',
         'feature_station_21006845_vst_raw',
         'feature_station_21006847_vst_raw',
-        'station_46_rain_1hour',
-        'station_46_rain_7hour',
-        'station_46_rain_48hour',
-        'station_46_rain_90hour',
-        'station_46_rain_1month',
-        'station_46_rain_3months',
-        'station_46_rain_6months',
-        'station_46_rain_1year'
+        'station_47_rain_1hour',
+        'station_47_rain_7hour',
+        'station_47_rain_48hour',
+        'station_47_rain_90hour',
+        'station_47_rain_1month',
+        'station_47_rain_3months',
+        'station_47_rain_6months',
+        'station_47_rain_1year'
     ]
     
     # Create correlation matrix

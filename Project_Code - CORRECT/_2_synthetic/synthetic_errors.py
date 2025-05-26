@@ -45,12 +45,13 @@ class ErrorPeriod:
 class SyntheticErrorGenerator:
     """Generate synthetic errors in time series data."""
     
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: Optional[Dict] = None, random_seed: Optional[int] = None):
         """
         Initialize error generator with configuration.
         
         Args:
             config: Dictionary of error parameters (if None, uses default from config.py)
+            random_seed: Random seed for reproducible error generation (if None, uses current state)
         """
         import sys
         from pathlib import Path
@@ -63,8 +64,17 @@ class SyntheticErrorGenerator:
         self.config = config or SYNTHETIC_ERROR_PARAMS
         self.error_periods = []
         self.used_indices = set()  # Track all used indices
-        self.use_context_aware = self.config.get('use_context_aware', False)  # New toggle
-    
+        
+        # Use provided seed, or get from config, or None
+        self.random_seed = random_seed if random_seed is not None else self.config.get('random_seed', None)
+        
+        # Set random seed if provided
+        if self.random_seed is not None:
+            np.random.seed(self.random_seed)
+            print(f"Set random seed for synthetic error generation: {self.random_seed}")
+        else:
+            print("No random seed set - error generation will be non-deterministic")
+
     def _calculate_years_in_data(self, time_index):
         """
         Calculate approximately how many years of data are in the time index.
@@ -114,133 +124,49 @@ class SyntheticErrorGenerator:
         """Mark a period as used to prevent overlaps."""
         self.used_indices.update(range(start_idx, end_idx))
     
-    def _calculate_local_variation(self, data: pd.DataFrame, window: int = 96) -> Tuple[pd.Series, pd.Series]:
-        """Calculate local statistics to determine context-appropriate magnitudes."""
-        if not self.use_context_aware:
-            return None, None
-        
-        # Make sure we're working with the 'Value' column
-        values = data['vst_raw']
-        
-        # Calculate rolling statistics
-        local_std = values.rolling(window=window, center=True).std()
-        local_range = values.rolling(window=window, center=True).max() - values.rolling(window=window, center=True).min()
-        
-        # Fill NaN values with the mean of non-NaN values
-        local_std = local_std.fillna(local_std.mean())
-        local_range = local_range.fillna(local_range.mean())
-        
-        return local_std, local_range
-    
-    def _generate_magnitude(self, current_value: float, local_stats: Tuple[pd.Series, pd.Series], base_range: Tuple[float, float]) -> float:
-        """Generate magnitude based on either local variation or base range."""
-        if self.use_context_aware and local_stats[0] is not None:
-            local_std, local_range = local_stats
-            # Get the current local statistics (most recent values)
-            current_std = float(local_std.iloc[-1])
-            current_range = float(local_range.iloc[-1])
-            
-            # Define ranges
-            ranges = [
-                (0.5 * current_std, 2 * current_std),  # subtle
-                (2 * current_std, 4 * current_std),    # medium
-                (4 * current_std, min(current_range, current_value * base_range[1]))  # obvious
-            ]
-            
-            # Choose a range based on probabilities
-            chosen_idx = np.random.choice(3, p=[0.6, 0.3, 0.1])
-            chosen_range = ranges[chosen_idx]
-            
-            # Generate magnitude within chosen range
-            return np.random.uniform(chosen_range[0], chosen_range[1])
-        else:
-            # Use base range from config
-            return current_value * np.random.uniform(*base_range)
-        
-    def inject_missing_data(self, data: pd.DataFrame) -> pd.DataFrame:
+    def _is_valid_injection_point(self, data: pd.DataFrame, start_idx: int, end_idx: int = None) -> bool:
         """
-        Inject missing data anomalies by replacing sections with NaN values.
+        Check if the starting location is valid for error injection.
+        Invalid starting locations have NaN or -1 values.
+        Note: Only checks the start point - NaN or -1 values are allowed within the error range.
         
         Args:
             data: DataFrame with time series data
+            start_idx: Start index to check
+            end_idx: End index (unused, kept for compatibility)
             
         Returns:
-            DataFrame with injected missing data sections
+            bool: True if starting location is valid for injection, False otherwise
         """
-        modified_data = data.copy()
-        
-        # Get missing data parameters from config
-        missing_config = self.config.get('missing_data', {})
-        count_per_year = missing_config.get('count_per_year', 0)
-        
-        # If count_per_year is 0, don't inject any missing data
-        if count_per_year == 0:
-            print("Missing data injection disabled (count_per_year = 0)")
-            return modified_data
+        if start_idx >= len(data):
+            return False
             
-        min_length = missing_config.get('min_length', 100)
-        max_length = missing_config.get('max_length', 500)
+        # Only check the starting point
+        value = data.iloc[start_idx]['vst_raw']
+        return not (pd.isna(value) or value == -1)
+    
+    def _find_valid_indices(self, data: pd.DataFrame, min_duration: int = 1) -> np.ndarray:
+        """
+        Find all valid indices where errors can be injected.
+        Pre-filters the data to exclude starting points with NaN and -1 values.
+        Note: Only checks starting points - NaN or -1 values are allowed within the error range.
         
-        # Calculate years in data and total number of missing data periods
-        years_in_data = self._calculate_years_in_data(data.index)
-        n_missing_periods = round(count_per_year * years_in_data)
-        
-        # If no periods to inject, return original data
-        if n_missing_periods == 0:
-            print("No missing data periods to inject")
-            return modified_data
+        Args:
+            data: DataFrame with time series data
+            min_duration: Minimum duration needed for the error
             
-        print(f"Data spans approximately {years_in_data:.1f} years")
-        print(f"Attempting to inject {n_missing_periods} missing data periods...")
+        Returns:
+            Array of valid starting indices
+        """
+        valid_indices = []
         
-        successful_injections = 0
-        max_attempts = n_missing_periods * 10
-        attempts = 0
+        for idx in range(len(data) - min_duration):
+            # Only check the starting point for validity
+            value = data.iloc[idx]['vst_raw']
+            if not (pd.isna(value) or value == -1) and self._is_period_available(idx, idx + min_duration):
+                valid_indices.append(idx)
         
-        while successful_injections < n_missing_periods and attempts < max_attempts:
-            attempts += 1
-            
-            try:
-                # Randomly determine the length of the missing data segment
-                missing_length = np.random.randint(min_length, max_length + 1)
-                
-                # Select a random starting point, avoiding the very beginning and end
-                start_idx = np.random.randint(10, len(data) - missing_length - 10)
-                end_idx = start_idx + missing_length
-                
-                # Check if this period is available (not overlapping with other errors)
-                if not self._is_period_available(start_idx, end_idx):
-                    continue
-                
-                # Store original values
-                original_values = modified_data.iloc[start_idx:end_idx]['vst_raw'].copy().values
-                
-                # Replace values with NaN
-                modified_data.iloc[start_idx:end_idx, modified_data.columns.get_loc('vst_raw')] = np.nan
-                
-                # Record the error period
-                self.error_periods.append(
-                    ErrorPeriod(
-                        start_time=modified_data.index[start_idx],
-                        end_time=modified_data.index[end_idx - 1],
-                        error_type='missing_data',
-                        original_values=original_values,
-                        modified_values=np.full_like(original_values, np.nan),
-                        parameters={'missing_length': missing_length}
-                    )
-                )
-                
-                # Mark period as used
-                self._mark_period_used(start_idx, end_idx)
-                successful_injections += 1
-                print(f"Successfully injected missing data period {successful_injections}/{n_missing_periods} - {missing_length} points")
-                
-            except Exception as e:
-                print(f"Failed to inject missing data at index {start_idx}:{end_idx}")
-                print(f"Error: {str(e)}")
-                continue
-        
-        return modified_data
+        return np.array(valid_indices)
 
     def inject_spike_errors(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -271,10 +197,8 @@ class SyntheticErrorGenerator:
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_spikes} spikes randomly across entire dataset...")
         
-        # Calculate local statistics if context-aware is enabled
-        local_stats = self._calculate_local_variation(data) if self.use_context_aware else (None, None)
-        
         successful_injections = 0
+        skipped_invalid = 0
         max_attempts = n_spikes * 10
         attempts = 0
         
@@ -285,18 +209,19 @@ class SyntheticErrorGenerator:
                 # Select injection point randomly from the entire dataset (avoid edges)
                 idx = np.random.randint(1, len(data) - 1)
                 
+                # Check if period is available and injection point is valid
                 if not self._is_period_available(idx, idx + 1):
+                    continue
+                    
+                if not self._is_valid_injection_point(data, idx):
+                    skipped_invalid += 1
                     continue
                 
                 # Get current value and values before/after
                 current_value = float(data.iloc[idx]['vst_raw'])
                 
                 # Generate spike magnitude
-                magnitude = self._generate_magnitude(
-                    current_value=current_value,
-                    local_stats=local_stats,
-                    base_range=mag_range
-                )
+                magnitude = np.random.uniform(*mag_range)
                 
                 # Determine spike direction
                 direction = np.random.choice([-1, 1], p=[negative_positiv_ratio, 1-negative_positiv_ratio])
@@ -339,72 +264,11 @@ class SyntheticErrorGenerator:
                 print(f"Error: {str(e)}")
                 continue
         
+        if skipped_invalid > 0:
+            print(f"Skipped {skipped_invalid} spike injection attempts due to NaN or -1 values")
+        
         return modified_data
 
-    def inject_flatline_errors(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, List[Tuple[pd.Timestamp, pd.Timestamp]]]:
-        """
-        Inject flatline errors into the time series data.
-        Creates periods where the value stays exactly constant (horizontal line).
-        
-        Calculates the total number of flatlines based on data span (years) and configured
-        count_per_year, then distributes them randomly throughout the entire dataset.
-        """
-        modified_data = data.copy()
-        flatline_periods = []
-        
-        # Get flatline parameters from config
-        flatline_config = self.config['flatline']
-        count_per_year = flatline_config.get('count_per_year', 0)
-        duration_range = flatline_config['duration_range']
-        
-        # Calculate years in data and total number of flatlines
-        years_in_data = self._calculate_years_in_data(data.index)
-        n_flatlines = int(count_per_year * years_in_data)
-        
-        print(f"Attempting to inject {n_flatlines} flatlines randomly across entire dataset...")
-        
-        successful_injections = 0
-        max_attempts = n_flatlines * 10
-        attempts = 0
-        
-        while successful_injections < n_flatlines and attempts < max_attempts:
-            # Select random index from entire dataset
-            idx = np.random.randint(0, len(data) - duration_range[1])
-            duration = np.random.randint(*duration_range)
-            end_idx = min(idx + duration, len(modified_data))
-            
-            if self._is_period_available(idx, end_idx):
-                # Store original values
-                original_values = modified_data.iloc[idx:end_idx].copy()
-                
-                # Simply repeat the first value for the entire duration
-                flatline_value = float(modified_data.iloc[idx].values[0])
-                modified_data.iloc[idx:end_idx] = flatline_value
-                
-                # Store period for plotting
-                flatline_periods.append((modified_data.index[idx], modified_data.index[end_idx-1]))
-                
-                # Record error period
-                self.error_periods.append(
-                    ErrorPeriod(
-                        start_time=modified_data.index[idx],
-                        end_time=modified_data.index[end_idx - 1],
-                        error_type='flatline',
-                        original_values=original_values.values.flatten(),
-                        modified_values=np.full(end_idx - idx, flatline_value),
-                        parameters={
-                            'duration': duration,
-                            'flatline_value': flatline_value
-                        }
-                    )
-                )
-                
-                self._mark_period_used(idx, end_idx)
-                successful_injections += 1
-            
-            attempts += 1
-        
-        return modified_data, flatline_periods
 
     def inject_drift_errors(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -431,6 +295,7 @@ class SyntheticErrorGenerator:
         print(f"Attempting to inject {n_drifts} drifts randomly across entire dataset...")
         
         successful_injections = 0
+        skipped_invalid = 0
         max_attempts = n_drifts * 10
         attempts = 0
         
@@ -440,59 +305,69 @@ class SyntheticErrorGenerator:
             duration = np.random.randint(*drift_config['duration_range'])
             end_idx = min(idx + duration, len(modified_data))
             
-            if self._is_period_available(idx, end_idx):
-                # Store original values
-                original_values = modified_data.iloc[idx:end_idx].copy()
+            # Check if period is available and injection point is valid
+            if not self._is_period_available(idx, end_idx):
+                attempts += 1
+                continue
                 
-                # Determine drift direction
-                direction = np.random.choice([-1, 1], p=[drift_config['negative_positive_ratio'], 1-drift_config['negative_positive_ratio']])
-                
-                # Generate drift magnitude
-                max_drift = direction * np.random.uniform(*drift_config['magnitude_range'])
-                
-                # Create drift pattern (linear or exponential)
-                if np.random.random() < 0.5:  # 50% chance of linear vs exponential
-                    # Linear drift
-                    drift_pattern = np.linspace(0, max_drift, end_idx - idx)
-                else:
-                    # Exponential drift
-                    drift_pattern = max_drift * (np.exp(np.linspace(0, 1, end_idx - idx)) - 1) / (np.e - 1)
-                
-                # Apply drift to the data
-                modified_values = original_values.values.flatten() + drift_pattern
-                
-                # Ensure values stay within physical limits
-                modified_values = np.clip(
-                    modified_values,
-                    self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0),
-                    self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
-                )
-                
-                # Apply modified values
-                modified_data.iloc[idx:end_idx] = modified_values.reshape(-1, 1)
-                
-                # Record error period
-                self.error_periods.append(
-                    ErrorPeriod(
-                        start_time=modified_data.index[idx],
-                        end_time=modified_data.index[end_idx - 1],
-                        error_type='drift',
-                        original_values=original_values.values.flatten(),
-                        modified_values=modified_values,
-                        parameters={
-                            'duration': duration,
-                            'max_drift': max_drift,
-                            'drift_type': 'linear' if np.random.random() < 0.5 else 'exponential'
-                        }
-                    )
-                )
-                
-                # Mark period as used
-                self._mark_period_used(idx, end_idx)
-                successful_injections += 1
+            if not self._is_valid_injection_point(data, idx):
+                skipped_invalid += 1
+                attempts += 1
+                continue
             
-            attempts += 1
+            # Store original values
+            original_values = modified_data.iloc[idx:end_idx].copy()
             
+            # Determine drift direction
+            direction = np.random.choice([-1, 1], p=[drift_config['negative_positive_ratio'], 1-drift_config['negative_positive_ratio']])
+            
+            # Generate drift magnitude
+            max_drift = direction * np.random.uniform(*drift_config['magnitude_range'])
+            
+            # Create drift pattern (linear or exponential)
+            if np.random.random() < 0.5:  # 50% chance of linear vs exponential
+                # Linear drift
+                drift_pattern = np.linspace(0, max_drift, end_idx - idx)
+            else:
+                # Exponential drift
+                drift_pattern = max_drift * (np.exp(np.linspace(0, 1, end_idx - idx)) - 1) / (np.e - 1)
+            
+            # Apply drift to the data
+            modified_values = original_values.values.flatten() + drift_pattern
+            
+            # Ensure values stay within physical limits
+            modified_values = np.clip(
+                modified_values,
+                self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0),
+                self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
+            )
+            
+            # Apply modified values
+            modified_data.iloc[idx:end_idx] = modified_values.reshape(-1, 1)
+            
+            # Record error period
+            self.error_periods.append(
+                ErrorPeriod(
+                    start_time=modified_data.index[idx],
+                    end_time=modified_data.index[end_idx - 1],
+                    error_type='drift',
+                    original_values=original_values.values.flatten(),
+                    modified_values=modified_values,
+                    parameters={
+                        'duration': duration,
+                        'max_drift': max_drift,
+                        'drift_type': 'linear' if np.random.random() < 0.5 else 'exponential'
+                    }
+                )
+            )
+            
+            # Mark period as used
+            self._mark_period_used(idx, end_idx)
+            successful_injections += 1
+        
+        if skipped_invalid > 0:
+            print(f"Skipped {skipped_invalid} drift injection attempts due to NaN or -1 values")
+        
         return modified_data
 
     def inject_offset_errors(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, List[Tuple[pd.Timestamp, pd.Timestamp]]]:
@@ -522,11 +397,13 @@ class SyntheticErrorGenerator:
             print("Offset injection disabled (count_per_year = 0)")
             return modified_data, offset_periods
             
-        min_duration = offset_config['min_duration']
-        max_duration_multiplier = offset_config['max_duration_multiplier']
+        duration_range = offset_config['duration_range']
+        max_duration = min(
+            duration_range[1],
+            len(data) // 5  # Limit to 20% of data length
+        )
         mag_range = offset_config['magnitude_range']
         negative_positiv_ratio = offset_config['negative_positiv_ratio']
-        magnitude_multiplier_range = offset_config['magnitude_multiplier']
         
         # Calculate years in data and total number of offsets
         years_in_data = self._calculate_years_in_data(data.index)
@@ -536,17 +413,12 @@ class SyntheticErrorGenerator:
         print(f"Data spans approximately {years_in_data:.1f} years")
         print(f"Attempting to inject {n_offsets} offset periods randomly across entire dataset...")
         
-        # Calculate maximum duration based on data length
-        max_duration = min(
-            int(min_duration * np.random.uniform(*max_duration_multiplier)),
-            len(data) // 4  # Limit to 25% of data length
-        )
-        
         # Randomly select injection points from entire dataset
-        possible_indices = np.arange(0, len(data) - min_duration)
+        possible_indices = np.arange(0, len(data) - duration_range[0])
         
         # Try to place offsets while respecting constraints
         successful_injections = 0
+        skipped_invalid = 0
         max_attempts = n_offsets * 10
         attempts = 0
         
@@ -555,29 +427,27 @@ class SyntheticErrorGenerator:
             idx = np.random.choice(possible_indices)
             attempts += 1
             
-            # Calculate local statistics for context-aware magnitude
-            window = slice(max(0, idx-24), min(len(data), idx+24))
-            local_std = modified_data.iloc[window].std().values[0]
+            # Determine variable duration
+            duration = np.random.randint(duration_range[0], max_duration)
+            end_idx = min(idx + duration, len(modified_data))
             
-            # Generate offset magnitude with local scaling
-            base_magnitude = np.random.uniform(*mag_range)
-            local_multiplier = np.random.uniform(*magnitude_multiplier_range)
-            magnitude = base_magnitude * local_multiplier * (1 + local_std/100)
+            # Check if period is available and injection point is valid
+            if not self._is_period_available(idx, end_idx):
+                continue
+                
+            if not self._is_valid_injection_point(data, idx):
+                skipped_invalid += 1
+                continue
+            
+            # Store original values
+            original_values = modified_data.iloc[idx:end_idx].copy()
+            
+            # Generate offset magnitude
+            magnitude = np.random.uniform(*mag_range)
             
             # Determine direction with configured ratio
             direction = np.random.choice([-1, 1], p=[negative_positiv_ratio, 1-negative_positiv_ratio])
             offset = direction * magnitude
-            
-            # Determine variable duration
-            duration = np.random.randint(min_duration, max_duration)
-            end_idx = min(idx + duration, len(modified_data))
-            
-            # Check if period is available
-            if not self._is_period_available(idx, end_idx):
-                continue
-                
-            # Store original values
-            original_values = modified_data.iloc[idx:end_idx].copy()
             
             # Create offset values (flatten the array to 1D)
             offset_values = original_values.values.flatten() + offset
@@ -609,13 +479,15 @@ class SyntheticErrorGenerator:
                     parameters={
                         'magnitude': magnitude,
                         'direction': direction,
-                        'duration': duration,
-                        'local_multiplier': local_multiplier
+                        'duration': duration
                     }
                 )
             )
             self._mark_period_used(idx, end_idx)
             successful_injections += 1
+        
+        if skipped_invalid > 0:
+            print(f"Skipped {skipped_invalid} offset injection attempts due to NaN or -1 values")
         
         return modified_data, offset_periods
 
@@ -662,6 +534,7 @@ class SyntheticErrorGenerator:
         
         # Try to place noise periods while respecting constraints
         successful_injections = 0
+        skipped_invalid = 0
         max_attempts = n_noise_periods * 10
         attempts = 0
         
@@ -674,145 +547,87 @@ class SyntheticErrorGenerator:
             duration = np.random.randint(duration_range[0], duration_range[1])
             end_idx = min(idx + duration, len(modified_data))
             
-            if self._is_period_available(idx, end_idx):
-                # Store original values for the entire noise period for logging
-                original_values_for_log = modified_data.iloc[idx:end_idx].copy()
+            # Check if period is available and injection point is valid
+            if not self._is_period_available(idx, end_idx):
+                continue
                 
-                num_sub_segments = np.random.randint(num_sub_segments_range[0], num_sub_segments_range[1] + 1)
-                segment_len = (end_idx - idx) // num_sub_segments
+            if not self._is_valid_injection_point(data, idx):
+                skipped_invalid += 1
+                continue
+            
+            # Store original values for the entire noise period for logging
+            original_values_for_log = modified_data.iloc[idx:end_idx].copy()
+            
+            num_sub_segments = np.random.randint(num_sub_segments_range[0], num_sub_segments_range[1] + 1)
+            segment_len = (end_idx - idx) // num_sub_segments
+            
+            current_actual_idx = idx
+            period_parameters = {'segments': []}
+
+            for i_segment in range(num_sub_segments):
+                seg_start_idx = current_actual_idx
+                seg_end_idx = current_actual_idx + segment_len if i_segment < num_sub_segments - 1 else end_idx
+
+                if seg_start_idx >= seg_end_idx: # Should not happen if segment_len > 0
+                    continue
+
+                # Determine the new base level for this segment
+                # Use the original data's value at the start of the segment as a reference point
+                reference_value_for_level = data.iloc[seg_start_idx]['vst_raw'] 
+                if pd.isna(reference_value_for_level):
+                     # Fallback if original data is NaN: use mean of local window or overall mean
+                    local_window_mean = data.iloc[max(0, seg_start_idx-24):min(len(data), seg_start_idx+24)]['vst_raw'].mean()
+                    reference_value_for_level = local_window_mean if pd.notna(local_window_mean) else data['vst_raw'].mean()
                 
-                current_actual_idx = idx
-                period_parameters = {'segments': []}
+                level_offset = np.random.uniform(segment_level_offset_range_abs[0],
+                                               segment_level_offset_range_abs[1]) * np.random.choice([-1, 1])
+                new_segment_base_level = reference_value_for_level + level_offset
 
-                for i_segment in range(num_sub_segments):
-                    seg_start_idx = current_actual_idx
-                    seg_end_idx = current_actual_idx + segment_len if i_segment < num_sub_segments - 1 else end_idx
+                # Add noise around this new base level
+                current_intensity = np.random.uniform(intensity_range[0], intensity_range[1])
+                noise_for_segment = np.random.normal(0, 
+                                                     segment_noise_std_abs * current_intensity, 
+                                                     size=(seg_end_idx - seg_start_idx))
+                
+                modified_data.iloc[seg_start_idx:seg_end_idx, 0] = new_segment_base_level + noise_for_segment
+                
+                period_parameters['segments'].append({
+                    'start_idx': seg_start_idx,
+                    'end_idx': seg_end_idx -1,
+                    'base_level': new_segment_base_level,
+                    'level_offset': level_offset,
+                    'noise_intensity_factor': current_intensity
+                })
+                current_actual_idx = seg_end_idx
 
-                    if seg_start_idx >= seg_end_idx: # Should not happen if segment_len > 0
-                        continue
+            # Apply physical limits (optional, but good practice)
+            # This part can be adapted from how physical limits are handled elsewhere
+            # For now, simple clipping as an example:
+            min_limit = self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0)
+            max_limit = self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
+            modified_data.iloc[idx:end_idx, 0] = np.clip(modified_data.iloc[idx:end_idx, 0], min_limit, max_limit)
 
-                    # Determine the new base level for this segment
-                    # Use the original data's value at the start of the segment as a reference point
-                    reference_value_for_level = data.iloc[seg_start_idx]['vst_raw'] 
-                    if pd.isna(reference_value_for_level):
-                         # Fallback if original data is NaN: use mean of local window or overall mean
-                        local_window_mean = data.iloc[max(0, seg_start_idx-24):min(len(data), seg_start_idx+24)]['vst_raw'].mean()
-                        reference_value_for_level = local_window_mean if pd.notna(local_window_mean) else data['vst_raw'].mean()
-                    
-                    level_offset = np.random.uniform(segment_level_offset_range_abs[0],
-                                                   segment_level_offset_range_abs[1]) * np.random.choice([-1, 1])
-                    new_segment_base_level = reference_value_for_level + level_offset
-
-                    # Add noise around this new base level
-                    current_intensity = np.random.uniform(intensity_range[0], intensity_range[1])
-                    noise_for_segment = np.random.normal(0, 
-                                                         segment_noise_std_abs * current_intensity, 
-                                                         size=(seg_end_idx - seg_start_idx))
-                    
-                    modified_data.iloc[seg_start_idx:seg_end_idx, 0] = new_segment_base_level + noise_for_segment
-                    
-                    period_parameters['segments'].append({
-                        'start_idx': seg_start_idx,
-                        'end_idx': seg_end_idx -1,
-                        'base_level': new_segment_base_level,
-                        'level_offset': level_offset,
-                        'noise_intensity_factor': current_intensity
-                    })
-                    current_actual_idx = seg_end_idx
-
-                # Apply physical limits (optional, but good practice)
-                # This part can be adapted from how physical limits are handled elsewhere
-                # For now, simple clipping as an example:
-                min_limit = self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0)
-                max_limit = self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
-                modified_data.iloc[idx:end_idx, 0] = np.clip(modified_data.iloc[idx:end_idx, 0], min_limit, max_limit)
-
-                # Record error period
-                self.error_periods.append(
-                    ErrorPeriod(
-                        start_time=modified_data.index[idx],
-                        end_time=modified_data.index[end_idx - 1],
-                        error_type='noise',
-                        original_values=original_values_for_log.values, # Log original values over the whole period
-                        modified_values=modified_data.iloc[idx:end_idx].values,
-                        parameters=period_parameters
-                    )
+            # Record error period
+            self.error_periods.append(
+                ErrorPeriod(
+                    start_time=modified_data.index[idx],
+                    end_time=modified_data.index[end_idx - 1],
+                    error_type='noise',
+                    original_values=original_values_for_log.values, # Log original values over the whole period
+                    modified_values=modified_data.iloc[idx:end_idx].values,
+                    parameters=period_parameters
                 )
-                
-                self._mark_period_used(idx, end_idx)
-                successful_injections += 1
+            )
+            
+            self._mark_period_used(idx, end_idx)
+            successful_injections += 1
+
+        if skipped_invalid > 0:
+            print(f"Skipped {skipped_invalid} noise injection attempts due to NaN or -1 values")
 
         return modified_data
 
-    def inject_baseline_shift_errors(self, data: pd.DataFrame) -> pd.DataFrame:
-        """
-        Inject sudden baseline shift errors that permanently change the base level.
-        Creates abrupt, permanent changes in the baseline level, similar to sensor recalibration
-        or physical changes in measurement conditions.
-        
-        Calculates the total number of shifts based on data span (years) and configured
-        count_per_year, then distributes them randomly throughout the entire dataset.
-        """
-        modified_data = data.copy()
-        
-        # Get baseline shift parameters from config
-        shift_config = self.config['baseline shift']
-        count_per_year = shift_config.get('count_per_year', 0)
-        
-        # If count_per_year is 0, don't inject any baseline shifts
-        if count_per_year == 0:
-            print("Baseline shift injection disabled (count_per_year = 0)")
-            return modified_data
-        
-        # Calculate years in data and total number of shifts
-        years_in_data = self._calculate_years_in_data(data.index)
-        # Ensure at least 1 baseline shift if count_per_year > 0
-        n_shifts = max(1, round(count_per_year * years_in_data))
-        
-        print(f"Attempting to inject {n_shifts} baseline shifts randomly across entire dataset...")
-        
-        # Try to inject shifts
-        successful_shifts = 0
-        attempts = 0
-        max_attempts = n_shifts * 10
-        
-        while successful_shifts < n_shifts and attempts < max_attempts:
-            # Select random index from entire dataset
-            idx = np.random.randint(0, len(data) - 1)
-            
-            if self._is_period_available(idx, idx + 1):
-                # Store original values
-                original_values = modified_data.iloc[idx:idx+2].copy()
-                
-                # Determine shift direction and magnitude
-                direction = np.random.choice([-1, 1], p=[shift_config['negative_positive_ratio'], 1-shift_config['negative_positive_ratio']])
-                magnitude = direction * np.random.uniform(*shift_config['magnitude_range'])
-                
-                # Apply the shift (abrupt change)
-                modified_data.iloc[idx+1:] += magnitude  # Everything after the shift point
-                
-                # Record error period
-                self.error_periods.append(
-                    ErrorPeriod(
-                        start_time=modified_data.index[idx],
-                        end_time=modified_data.index[idx + 1],
-                        error_type='baseline shift',
-                        original_values=original_values.values.flatten(),
-                        modified_values=modified_data.iloc[idx:idx+2].values.flatten(),
-                        parameters={
-                            'magnitude': magnitude
-                        }
-                    )
-                )
-                
-                # Mark shift point as used
-                self._mark_period_used(idx, idx + 1)
-                successful_shifts += 1
-            
-            attempts += 1
-        
-        return modified_data
-
+  
     def inject_all_errors(self, data: pd.DataFrame, error_types: List[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Inject all types of errors into the data.
@@ -826,6 +641,10 @@ class SyntheticErrorGenerator:
         while still scaling the number of errors proportionally to the dataset size.
         """
         try:
+            # Reset random seed if one was provided for reproducible error injection
+            if self.random_seed is not None:
+                np.random.seed(self.random_seed)
+                
             # Reset error periods and used indices at the START of each station/year
             self.error_periods = []
             self.used_indices = set()
@@ -838,7 +657,7 @@ class SyntheticErrorGenerator:
                 return data, pd.DataFrame(index=data.index)
             
             # Default error types ordered by typical duration
-            all_error_types = ['missing_data', 'offset', 'drift', 'flatline', 'spike', 'noise']
+            all_error_types = ['offset', 'drift', 'spike', 'noise']
             
             # Filter error types based on count_per_year > 0 in config
             active_error_types = [
@@ -858,18 +677,12 @@ class SyntheticErrorGenerator:
                     print(f"Injecting {error_type} errors...")
                     if error_type == 'spike':
                         modified_data = self.inject_spike_errors(modified_data)
-                    elif error_type == 'flatline':
-                        modified_data, _ = self.inject_flatline_errors(modified_data)
                     elif error_type == 'drift':
                         modified_data = self.inject_drift_errors(modified_data)
-                    elif error_type == 'baseline shift':
-                        modified_data = self.inject_baseline_shift_errors(modified_data)
                     elif error_type == 'offset':
                         modified_data, _ = self.inject_offset_errors(modified_data)
                     elif error_type == 'noise':
                         modified_data = self.inject_noise_errors(modified_data)
-                    elif error_type == 'missing_data':
-                        modified_data = self.inject_missing_data(modified_data)
                 except Exception as e:
                     print(f"Error injecting {error_type}: {str(e)}")
                     continue
@@ -890,3 +703,19 @@ class SyntheticErrorGenerator:
         except Exception as e:
             print(f"Error in inject_all_errors: {str(e)}")
             return data, pd.DataFrame(index=data.index)
+
+    def set_seed_for_dataset(self, dataset_identifier: str):
+        """
+        Set a deterministic seed based on the dataset identifier.
+        This allows different datasets to have different but reproducible error patterns.
+        
+        Args:
+            dataset_identifier: String identifier for the dataset (e.g., 'train', 'val', 'test')
+        """
+        if self.random_seed is not None:
+            # Create a deterministic seed based on the base seed and dataset identifier
+            dataset_seed = self.random_seed + hash(dataset_identifier) % 10000
+            np.random.seed(dataset_seed)
+            print(f"Set dataset-specific seed for '{dataset_identifier}': {dataset_seed}")
+        else:
+            print(f"No base random seed set - '{dataset_identifier}' will use current random state")
