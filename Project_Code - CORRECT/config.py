@@ -20,12 +20,6 @@ SYNTHETIC_ERROR_PARAMS = {
         'recovery_time': 1  # 15-min intervals
     },
     
-    'baseline shift': {
-        'count_per_year': 1,
-        'magnitude_range': (100, 600),  # Absolute value
-        'negative_positive_ratio': 0
-    },
-    
     # Period-based errors (affect longer periods)
     'offset': {
         'count_per_year': 1,
@@ -50,22 +44,7 @@ SYNTHETIC_ERROR_PARAMS = {
         'num_sub_segments_range': (15, 20),  # Number of steps in noise period
         'segment_noise_std_abs': 1  # Base standard deviation
     },
-    
-    # Disabled error types
-    'flatline': {
-        'count_per_year': 0,
-        'magnitude_range': (0, 0),  # Not applicable for flatline
-        'duration_range': (10, 200),
-        'negative_positive_ratio': 0.5,
-        'value_method': 'first_value'
-    },
-    
-    'missing_data': {
-        'count_per_year': 0,
-        'magnitude_range': (0, 0),  # Not applicable for missing data
-        'min_length': 100,
-        'max_length': 500
-    },
+
     
     # Physical limits for all error types
     'PHYSICAL_LIMITS': PHYSICAL_LIMITS
@@ -74,14 +53,14 @@ SYNTHETIC_ERROR_PARAMS = {
 # LSTM Model Configuration
 LSTM_CONFIG = {
     # Model Architecture
-    'hidden_size': 128,
+    'hidden_size': 12,
     'num_layers': 2,
     'dropout': 0.25,
     'sequence_length': 70080,
     
     # Training Parameters
     'batch_size': 1,
-    'epochs': 50,
+    'epochs': 5,
     'patience': 10,
     'learning_rate': 0.001,
     'warmup_length': 350,
