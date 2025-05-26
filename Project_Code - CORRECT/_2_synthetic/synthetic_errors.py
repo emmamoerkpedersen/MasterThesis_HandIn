@@ -471,9 +471,9 @@ class SyntheticErrorGenerator:
             print("Offset injection disabled (count_per_year = 0)")
             return modified_data, offset_periods
             
-        min_duration = offset_config['min_duration']
+        duration_range = offset_config['duration_range']
         max_duration = min(
-            offset_config['max_duration'],
+            duration_range[1],
             len(data) // 5  # Limit to 20% of data length
         )
         mag_range = offset_config['magnitude_range']
@@ -488,7 +488,7 @@ class SyntheticErrorGenerator:
         print(f"Attempting to inject {n_offsets} offset periods randomly across entire dataset...")
         
         # Randomly select injection points from entire dataset
-        possible_indices = np.arange(0, len(data) - min_duration)
+        possible_indices = np.arange(0, len(data) - duration_range[0])
         
         # Try to place offsets while respecting constraints
         successful_injections = 0
@@ -508,7 +508,7 @@ class SyntheticErrorGenerator:
             offset = direction * magnitude
             
             # Determine variable duration
-            duration = np.random.randint(min_duration, max_duration)
+            duration = np.random.randint(duration_range[0], max_duration)
             end_idx = min(idx + duration, len(modified_data))
             
             # Check if period is available
