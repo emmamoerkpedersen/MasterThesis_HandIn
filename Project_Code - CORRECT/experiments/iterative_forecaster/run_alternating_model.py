@@ -407,7 +407,7 @@ def run_alternating_model(args):
         )
         
         # Print metrics
-        print("\nValidation Metrics (against original data):")
+        print("\nValidation Metrics (against original data) - If errors injected, this is not relevant:")
         for metric, value in metrics.items():
             print(f"  {metric}: {value:.6f}")
         
