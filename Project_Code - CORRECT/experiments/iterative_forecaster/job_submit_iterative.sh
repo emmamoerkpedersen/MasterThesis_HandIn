@@ -15,11 +15,11 @@
 ### Send notification at completion
 #BSUB -N
 ### specify the output and error file. %J is the job ID
-#BSUB -o "Output_iterative_Synthetic_100sequence%J.out"
-#BSUB -e "Error_iterative_Synthetic_100sequence.%J.err"
+#BSUB -o "Output_iterative_0%J.out"
+#BSUB -e "Error_iterative_0.%J.err"
 
 pwd
 module load python3/3.12.9
 
-python3 "run_alternating_model.py" --error_multiplier 1.0
+python3 "run_alternating_model.py" 
 
