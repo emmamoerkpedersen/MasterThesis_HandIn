@@ -105,11 +105,11 @@ def run_pipeline(
     original_test_data = test_data.copy()
     
     # Create correlation plot
-    print("\nGenerating correlation plot...")
-    correlation_plot_path = plot_feature_correlation(original_train_data)
-    print(f"Correlation plot saved to: {correlation_plot_path}")
+    # print("\nGenerating correlation plot...")
+    # correlation_plot_path = plot_feature_correlation(original_train_data)
+    # print(f"Correlation plot saved to: {correlation_plot_path}")
     
-    # Create feature plots
+    # # Create feature plots
     # print("\nGenerating feature plots...")
     # feature_plots = create_individual_feature_plots(original_train_data)
     # print(f"Feature plots saved to: {list(feature_plots.values())}")
@@ -215,19 +215,19 @@ def run_pipeline(
     history, val_predictions, val_targets = train_model(trainer, training_data, validation_data, model_config)
     save_model(model, 'final_model.pth')
     
-    # Calculate and plot feature importance
-    print("\nCalculating feature importance...")
-    try:
-        feature_names, importance_scores = calculate_feature_importance(model, validation_data, preprocessor)
-        plot_feature_importance(
-            feature_names=feature_names,
-            importance_scores=importance_scores,
-            station_id=station_id,
-            title_suffix="SHAP Values"
-        )
-        print("Feature importance plot created successfully.")
-    except Exception as e:
-        print(f"Warning: Could not calculate feature importance: {str(e)}")
+ #   # Calculate and plot feature importance
+ #   print("\nCalculating feature importance...")
+ #   try:
+ #       feature_names, importance_scores = calculate_feature_importance(model, validation_data, preprocessor)
+ #       plot_feature_importance(
+ #           feature_names=feature_names,
+  #          importance_scores=importance_scores,
+  #          station_id=station_id,
+  #          title_suffix="SHAP Values"
+  #      )
+  #      print("Feature importance plot created successfully.")
+  #  except Exception as e:
+  #      print(f"Warning: Could not calculate feature importance: {str(e)}")
     
     # Process validation predictions
     val_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
@@ -288,7 +288,7 @@ def run_pipeline(
             test_predictions_df, 
             str(station_id), 
             model_config, 
-            title_suffix=test_plot_title,
+            title_suffix=None,
             synthetic_data=None  # No synthetic errors in test data
         )
     

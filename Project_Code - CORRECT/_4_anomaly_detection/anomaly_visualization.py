@@ -7,6 +7,154 @@ from pathlib import Path
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+def calculate_anomaly_confidence(z_scores, threshold):
+    """
+    Calculate confidence levels for detected anomalies based on z-score distance.
+    
+    Args:
+        z_scores: Array of z-scores
+        threshold: Base threshold for anomaly detection
+        
+    Returns:
+        Array of confidence levels ('High', 'Medium', 'Low', 'Normal')
+    """
+    abs_z_scores = np.abs(z_scores)
+    confidence = np.full_like(z_scores, 'Normal', dtype=object)
+    
+    # Define confidence thresholds
+    high_threshold = 2.0 * threshold      # High confidence: > 2x threshold
+    medium_threshold = 1.5 * threshold    # Medium confidence: 1.5x to 2x threshold  
+    low_threshold = threshold             # Low confidence: threshold to 1.5x threshold
+    
+    # Assign confidence levels
+    confidence[abs_z_scores >= high_threshold] = 'High'
+    confidence[(abs_z_scores >= medium_threshold) & (abs_z_scores < high_threshold)] = 'Medium'
+    confidence[(abs_z_scores >= low_threshold) & (abs_z_scores < medium_threshold)] = 'Low'
+    
+    return confidence
+
+def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confidence, 
+                            error_generator, station_id, config, output_dir):
+    """
+    Create zoomed plots for each type of injected error showing model behavior during anomalous events.
+    
+    Args:
+        val_data: Validation data with potential synthetic errors
+        predictions: Model predictions
+        z_scores: Calculated z-scores
+        anomalies: Boolean array of detected anomalies
+        confidence: Confidence levels for each point
+        error_generator: SyntheticErrorGenerator instance with error_periods
+        station_id: Station identifier
+        config: Configuration dictionary
+        output_dir: Output directory for plots
+    """
+    if not hasattr(error_generator, 'error_periods') or not error_generator.error_periods:
+        print("No error periods found for zoom plots")
+        return
+    
+    print(f"\nCreating zoom plots for {len(error_generator.error_periods)} injected errors...")
+    print(f"DEBUG: val_data index range: {val_data.index[0]} to {val_data.index[-1]}")
+    
+    # Group error periods by type
+    error_types = {}
+    for period in error_generator.error_periods:
+        error_type = period.error_type
+        if error_type not in error_types:
+            error_types[error_type] = []
+        error_types[error_type].append(period)
+        print(f"DEBUG: Found {error_type} error from {period.start_time} to {period.end_time}")
+    
+    # Create zoom plots for each error type (take first occurrence of each type)
+    for error_type, periods in error_types.items():
+        try:
+            # Take the first period of this error type
+            period = periods[0]
+            
+            print(f"Creating zoom plot for {error_type} error...")
+            print(f"DEBUG: Error period: {period.start_time} to {period.end_time}")
+            
+            # Calculate buffer (2 hours before and after)
+            buffer_hours = 2
+            buffer_steps = buffer_hours * 4  # 15-min intervals
+            
+            # Find the period in the validation data
+            start_time = period.start_time
+            end_time = period.end_time
+            
+            # Get indices for the error period
+            period_mask = (val_data.index >= start_time) & (val_data.index <= end_time)
+            if not period_mask.any():
+                print(f"ERROR: Error period not found in validation data for {error_type}")
+                print(f"  Looking for: {start_time} to {end_time}")
+                print(f"  Data range: {val_data.index[0]} to {val_data.index[-1]}")
+                continue
+                
+            # Find start and end indices
+            period_indices = np.where(period_mask)[0]
+            start_idx = max(0, period_indices[0] - buffer_steps)
+            end_idx = min(len(val_data), period_indices[-1] + buffer_steps)
+            
+            print(f"DEBUG: Period indices: {period_indices[0]} to {period_indices[-1]}")
+            print(f"DEBUG: Zoom indices (with buffer): {start_idx} to {end_idx}")
+            
+            # Extract zoom data
+            zoom_data = val_data.iloc[start_idx:end_idx]
+            zoom_predictions = predictions[start_idx:end_idx] if len(predictions) > end_idx else predictions[start_idx:]
+            zoom_z_scores = z_scores[start_idx:end_idx] if len(z_scores) > end_idx else z_scores[start_idx:]
+            zoom_anomalies = anomalies[start_idx:end_idx] if len(anomalies) > end_idx else anomalies[start_idx:]
+            zoom_confidence = confidence[start_idx:end_idx] if len(confidence) > end_idx else confidence[start_idx:]
+            
+            # DEBUG: Check if the data shows the synthetic error
+            print(f"DEBUG: Zoom data range: {zoom_data['vst_raw'].min():.1f} to {zoom_data['vst_raw'].max():.1f} mm")
+            print(f"DEBUG: Original values in error period: {period.original_values.min():.1f} to {period.original_values.max():.1f} mm")
+            print(f"DEBUG: Modified values in error period: {period.modified_values.min():.1f} to {period.modified_values.max():.1f} mm")
+            
+            # ADDITIONAL DEBUG: Check specific values at error period indices
+            error_period_data = zoom_data.iloc[period_indices[0]-start_idx:period_indices[-1]-start_idx+1]
+            print(f"DEBUG: Actual zoom data during error period: {error_period_data['vst_raw'].min():.1f} to {error_period_data['vst_raw'].max():.1f} mm")
+            print(f"DEBUG: Expected modified range should be: {period.modified_values.min():.1f} to {period.modified_values.max():.1f} mm")
+            
+            # Check if the data matches original or modified values
+            if abs(error_period_data['vst_raw'].mean() - np.mean(period.original_values)) < abs(error_period_data['vst_raw'].mean() - np.mean(period.modified_values)):
+                print(f"🚨 BUG DETECTED: Zoom data matches ORIGINAL values, not MODIFIED values!")
+            else:
+                print(f"✅ Zoom data correctly shows MODIFIED values")
+            
+            # Create zoom plot
+            zoom_title = f"Zoom: {error_type.title()} Error - Station {station_id}"
+            zoom_title += f"\nPeriod: {start_time.strftime('%Y-%m-%d %H:%M')} to {end_time.strftime('%Y-%m-%d %H:%M')}"
+            
+            # Count anomalies by confidence in this zoom
+            high_conf = np.sum((zoom_anomalies) & (zoom_confidence == 'High'))
+            med_conf = np.sum((zoom_anomalies) & (zoom_confidence == 'Medium'))
+            low_conf = np.sum((zoom_anomalies) & (zoom_confidence == 'Low'))
+            
+            zoom_title += f"\nDetected: {high_conf} High, {med_conf} Medium, {low_conf} Low confidence anomalies"
+            
+            zoom_png, zoom_html = plot_water_level_anomalies(
+                test_data=zoom_data,
+                predictions=zoom_predictions,
+                z_scores=zoom_z_scores,
+                anomalies=zoom_anomalies,
+                threshold=config['threshold'],
+                title=zoom_title,
+                output_dir=output_dir,
+                save_png=True,
+                save_html=True,
+                show_plot=False,
+                filename_prefix=f"zoom_{error_type}_",
+                confidence=zoom_confidence
+            )
+            
+            print(f"  Zoom plot for {error_type} saved to: {zoom_png}")
+            
+        except Exception as e:
+            print(f"Error creating zoom plot for {error_type}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            continue
+
 def plot_water_level_anomalies(
     test_data,
     predictions,
@@ -19,7 +167,8 @@ def plot_water_level_anomalies(
     save_html=True,
     show_plot=True,
     sequence_length=None,
-
+    filename_prefix="",
+    confidence=None
 ):
     """
     Creates a plot showing water level data, predictions, z-scores, and detected anomalies.
@@ -31,12 +180,15 @@ def plot_water_level_anomalies(
         predictions (pd.Series or np.array): Predicted water level values.
         z_scores (np.array): Z-scores calculated from residuals.
         anomalies (np.array): Boolean array indicating anomaly points.
+        threshold (float): Anomaly detection threshold.
         title (str): Plot title.
         output_dir (str or Path): Directory to save output files.
         save_png (bool): Whether to save plot as PNG.
         save_html (bool): Whether to save interactive plot as HTML.
         show_plot (bool): Whether to display the plot.
         sequence_length (int or None): Length of the sequence to pad.
+        filename_prefix (str): Prefix for output filenames.
+        confidence (np.array or None): Confidence levels for anomalies ('High', 'Medium', 'Low', 'Normal')
         
     Returns:
         tuple: Paths to saved PNG and HTML files (if applicable).
@@ -49,15 +201,16 @@ def plot_water_level_anomalies(
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Get timestamp for file naming
+    # Generate meaningful filename
+    base_filename = f"{filename_prefix}water_level_anomalies" if filename_prefix else "water_level_anomalies"
     timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Ensure data is in the right format
     if isinstance(test_data, pd.DataFrame):
         actual_values = test_data['vst_raw']
     else:
         actual_values = test_data
-    
+
     n = len(actual_values)
 
     # Infer sequence_length if not provided
@@ -72,6 +225,7 @@ def plot_water_level_anomalies(
     full_predictions = pd.Series(np.full(n, np.nan), index=actual_values.index)
     full_z_scores = np.full(n, np.nan)
     full_anomalies = np.zeros(n, dtype=bool)
+    full_confidence = np.full(n, 'Normal', dtype=object) if confidence is not None else None
 
     # Place predictions/z_scores/anomalies after sequence_length
     valid_len = min(n - sequence_length, len(predictions))
@@ -79,6 +233,8 @@ def plot_water_level_anomalies(
         full_predictions.iloc[sequence_length:sequence_length+valid_len] = predictions[:valid_len]
         full_z_scores[sequence_length:sequence_length+valid_len] = z_scores[:valid_len]
         full_anomalies[sequence_length:sequence_length+valid_len] = anomalies[:valid_len]
+        if confidence is not None:
+            full_confidence[sequence_length:sequence_length+valid_len] = confidence[:valid_len]
 
     # Plot using matplotlib (for PNG)
     if save_png or show_plot:
@@ -89,20 +245,34 @@ def plot_water_level_anomalies(
         ax1 = axes[0]
         
         # Plot original water levels
-        ax1.plot(actual_values.index, actual_values.values, color='blue', linewidth=1, label='Original Water Levels')
+        ax1.plot(actual_values.index, actual_values.values, color='blue', linewidth=1, label='Observed Water Levels')
         
-        # Plot predictions
-        ax1.plot(actual_values.index, full_predictions.values, color='green', linewidth=1, label='Mean Forecast')
+        # Plot predictions - clearer label
+        ax1.plot(actual_values.index, full_predictions.values, color='green', linewidth=1, label='Model Predictions')
         
-        # Mark anomalies only where predictions exist
-        valid_anomaly_indices = actual_values.index[full_anomalies & ~np.isnan(full_predictions)]
-        if len(valid_anomaly_indices) > 0:
-            ax1.scatter(valid_anomaly_indices, actual_values.loc[valid_anomaly_indices], 
-                       color='red', s=50, marker='o', label='Detected Anomalies')
+        # Mark anomalies with different colors based on confidence
+        if confidence is not None:
+            # Define confidence colors
+            confidence_colors = {'High': 'red', 'Medium': 'orange', 'Low': 'yellow'}
+            
+            for conf_level, color in confidence_colors.items():
+                # Get indices for this confidence level
+                conf_mask = (full_anomalies) & (full_confidence == conf_level) & ~np.isnan(full_predictions)
+                if np.any(conf_mask):
+                    conf_indices = actual_values.index[conf_mask]
+                    ax1.scatter(conf_indices, actual_values.loc[conf_indices], 
+                               color=color, s=50, marker='o', label=f'{conf_level} Confidence Anomalies',
+                               edgecolors='black', linewidth=0.5)
+        else:
+            # Mark anomalies only where predictions exist
+            valid_anomaly_indices = actual_values.index[full_anomalies & ~np.isnan(full_predictions)]
+            if len(valid_anomaly_indices) > 0:
+                ax1.scatter(valid_anomaly_indices, actual_values.loc[valid_anomaly_indices], 
+                           color='red', s=50, marker='o', label='Detected Anomalies')
         
         # Format top plot
         ax1.set_title(title, fontsize=16)
-        ax1.set_ylabel('Water Level', fontsize=14)
+        ax1.set_ylabel('Water Level [mm]', fontsize=14)
         ax1.legend(loc='upper right')
         ax1.grid(True, alpha=0.3)
         
@@ -112,8 +282,11 @@ def plot_water_level_anomalies(
         # Plot the z-scores
         ax2.plot(actual_values.index, np.abs(full_z_scores), color='blue', linewidth=1, label='Absolute Z-Score')
         
-        # Add threshold line
+        # Add threshold lines
         ax2.axhline(y=threshold, color='red', linestyle='--', label=f'Threshold ({threshold})')
+        if confidence is not None:
+            ax2.axhline(y=1.5*threshold, color='orange', linestyle=':', alpha=0.7, label=f'Medium Conf. ({1.5*threshold:.1f})')
+            ax2.axhline(y=2.0*threshold, color='red', linestyle=':', alpha=0.7, label=f'High Conf. ({2.0*threshold:.1f})')
         
         # Format bottom plot
         ax2.set_xlabel('Date', fontsize=14)
@@ -133,7 +306,7 @@ def plot_water_level_anomalies(
         # Save the figure if requested
         png_path = None
         if save_png:
-            png_path = output_dir / f"water_level_anomalies_{timestamp}.png"
+            png_path = output_dir / f"{base_filename}_{timestamp}.png"
             plt.savefig(png_path, dpi=300, bbox_inches='tight')
             print(f"Figure saved as {png_path}")
         
@@ -142,7 +315,7 @@ def plot_water_level_anomalies(
             plt.show()
         else:
             plt.close()
-    
+
     # Create interactive Plotly visualization (for HTML)
     html_path = None
     if save_html:
@@ -161,18 +334,18 @@ def plot_water_level_anomalies(
             go.Scatter(
                 x=actual_values.index,
                 y=actual_values.values,
-                name="Original Water Levels",
+                name="Observed Water Levels",
                 line=dict(color='blue', width=1)
             ),
             row=1, col=1
         )
         
-        # Predictions
+        # Predictions - clearer label
         fig.add_trace(
             go.Scatter(
                 x=actual_values.index,
                 y=full_predictions.values,
-                name="Predictions",
+                name="Model Predictions",
                 line=dict(color='green', width=1)
             ),
             row=1, col=1
@@ -241,7 +414,7 @@ def plot_water_level_anomalies(
         )
         
         fig.update_yaxes(
-            title_text="Water Level",
+            title_text="Water Level [mm]",
             showgrid=True,
             gridwidth=1,
             gridcolor='rgba(128, 128, 128, 0.2)',
@@ -275,7 +448,7 @@ def plot_water_level_anomalies(
         )
         
         # Save to HTML
-        html_path = output_dir / f"water_level_anomalies_{timestamp}.html"
+        html_path = output_dir / f"{base_filename}_{timestamp}.html"
         fig.write_html(str(html_path), include_plotlyjs='cdn', full_html=True)
         print(f"Interactive plot saved as {html_path}")
     

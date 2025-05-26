@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import torch
+import random
 
 # Add the project root to the path
 current_dir = Path(__file__).resolve().parent
@@ -16,7 +17,11 @@ from experiments.iterative_forecaster.alternating_config import ALTERNATING_CONF
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from _3_lstm_model.model_plots import create_full_plot, plot_convergence
 from _4_anomaly_detection.z_score import calculate_z_scores_mad
-from _4_anomaly_detection.anomaly_visualization import plot_water_level_anomalies
+from _4_anomaly_detection.anomaly_visualization import (
+    plot_water_level_anomalies, 
+    calculate_anomaly_confidence, 
+    create_anomaly_zoom_plots
+)
 from experiments.iterative_forecaster.alternating_trainer import AlternatingTrainer
 from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
 
@@ -327,8 +332,43 @@ def generate_behavior_visualizations(val_data, predictions, station_id, config, 
         traceback.print_exc()
         return {}
 
+def set_random_seeds(seed):
+    """
+    Set random seeds for reproducible results across all libraries.
+    
+    Args:
+        seed: Integer seed value
+    """
+    print(f"\n🎲 Setting random seeds to {seed} for reproducible results")
+    
+    # Set Python built-in random seed
+    random.seed(seed)
+    
+    # Set NumPy random seed (important for error injection)
+    np.random.seed(seed)
+    
+    # Set PyTorch random seeds
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
+        # Make CUDA operations deterministic (may slightly reduce performance)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    
+    print(f"   ✅ Python random seed: {seed}")
+    print(f"   ✅ NumPy random seed: {seed}")
+    print(f"   ✅ PyTorch random seed: {seed}")
+    if torch.cuda.is_available():
+        print(f"   ✅ CUDA random seeds: {seed}")
+        print(f"   ✅ CUDA deterministic mode: enabled")
+    print("="*50)
+
 def run_alternating_model(args):
     """Run the alternating LSTM model with the specified parameters."""
+    # Set random seeds for reproducibility FIRST
+    set_random_seeds(args.seed)
+    
     # Setup experiment directories
     exp_dirs = setup_experiment_directories(project_dir, args.experiment)
     
@@ -362,6 +402,7 @@ def run_alternating_model(args):
     original_val_data = val_data.copy()
     
     # Check if we need to inject synthetic errors
+    saved_error_generator = None  # Store error generator for later use
     if args.error_multiplier is not None and args.error_type != 'none':
         from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
         from utils.error_utils import configure_error_params, inject_errors_into_dataset
@@ -396,11 +437,12 @@ def run_alternating_model(args):
         # Process validation data if needed
         if args.error_type in ['both', 'validation']:
             print("\nProcessing VALIDATION data - injecting errors...")
-            error_generator = SyntheticErrorGenerator(error_config)
+            validation_error_generator = SyntheticErrorGenerator(error_config)
             val_data_with_errors, val_error_report = inject_errors_into_dataset(
-                original_val_data, error_generator, f"{args.station_id}_val", water_level_cols
+                original_val_data, validation_error_generator, f"{args.station_id}_val", water_level_cols
             )
             val_data = val_data_with_errors
+            saved_error_generator = validation_error_generator  # Save for zoom plots
             
             # Handle error reporting based on actual returned format
             if isinstance(val_error_report, dict) and 'total_errors' in val_error_report:
@@ -499,107 +541,124 @@ def run_alternating_model(args):
         )
     
     # Calculate anomalies for the validation set
-    print("\nCalculating anomalies...")
+    print("\nGenerating anomaly detection analysis...")
     
-    # If we're using synthetic errors, compare against the corrupted data to detect anomalies
+    # Calculate anomalies between model predictions and "observed" data (which may contain synthetic errors)
+    z_scores, anomalies = calculate_z_scores_mad(
+        val_data['vst_raw'].values,  # "Observed" data (potentially with synthetic errors)
+        val_pred_df['vst_raw'].values,  # Model predictions
+        window_size=config['window_size'],
+        threshold=config['threshold']  
+    )
+    
+    # Calculate confidence levels for detected anomalies
+    confidence = calculate_anomaly_confidence(z_scores, config['threshold'])
+    
+    # Count anomalies by confidence level
+    high_conf_count = np.sum((anomalies) & (confidence == 'High'))
+    med_conf_count = np.sum((anomalies) & (confidence == 'Medium'))
+    low_conf_count = np.sum((anomalies) & (confidence == 'Low'))
+    total_anomalies = np.sum(anomalies)
+    
+    print(f"Anomalies detected by model: {total_anomalies} total")
+    print(f"  - High confidence: {high_conf_count}")
+    print(f"  - Medium confidence: {med_conf_count}")
+    print(f"  - Low confidence: {low_conf_count}")
+    
+    # Create output directory
+    anomaly_viz_dir = exp_dirs['anomaly_detection']
+    
+    # PLOT 1: Anomaly detection plot (predictions vs observed data)
+    anomaly_plot_title = f"Anomaly Detection - Station {args.station_id}"
     if args.error_multiplier is not None and args.error_type in ['both', 'validation']:
-        # Calculate anomalies between corrupted data and predictions
-        z_scores, anomalies = calculate_z_scores_mad(
-            val_data['vst_raw'].values, 
-            val_pred_df['vst_raw'].values,
-            window_size=config['window_size'],
-            threshold=config['threshold']  
-        )
-        
-        print(f"Number of anomalies detected in corrupted data: {np.sum(anomalies)}")
-        
-        # Generate anomaly visualization with reference to corrupted data
-        plot_title = f"Water Level Forecasting with Anomaly Detection - Station {args.station_id}"
-        plot_title += f" (Data with Synthetic Errors {args.error_multiplier}x)"
-        
-        # Create output directory
-        anomaly_viz_dir = exp_dirs['anomaly_detection']
-        
-        #png_path, html_path = plot_water_level_anomalies(
-        #    test_data=val_data,
-        #    predictions=val_pred_df['vst_raw'],
-        #    z_scores=z_scores,
-        #    anomalies=anomalies,
-        #    threshold=config['threshold'],
-        #    title=plot_title,
-        #    output_dir=anomaly_viz_dir,
-        #    save_png=True,
-        #    save_html=True,
-        #    show_plot=False
-        #)
-        
-        #print(f"Anomaly visualization (on corrupted data) saved to:")
-        #print(f"PNG: {png_path}")
-        #print(f"HTML: {html_path}")
-        
-        # Also calculate anomalies between original data and corrupted data to verify synthetic errors
-        original_vs_corrupted_zscores, original_vs_corrupted_anomalies = calculate_z_scores_mad(
-            original_val_data['vst_raw'].values, 
-            val_data['vst_raw'].values,
-            window_size=config['window_size'],
-            threshold=config['threshold']  
-        )
-        
-        print(f"Number of anomalies detected between original and corrupted data: {np.sum(original_vs_corrupted_anomalies)}")
-        
-        # Plot these anomalies to verify synthetic error injection
-        synthetic_error_plot_title = f"Synthetic Errors Detected - Station {args.station_id} (Error Multiplier: {args.error_multiplier}x)"
-        
-        #syn_png_path, syn_html_path = plot_water_level_anomalies(
-        #    test_data=original_val_data,
-        #    predictions=val_data['vst_raw'],
-        #    z_scores=original_vs_corrupted_zscores,
-        #    anomalies=original_vs_corrupted_anomalies,
-        #    title=synthetic_error_plot_title,
-        #    output_dir=anomaly_viz_dir,
-        #    save_png=True,
-        #    save_html=True,
-        #    show_plot=False,
-        #    filename_prefix="synthetic_errors_"
-        #)
-        
-        #print(f"Synthetic errors visualization saved to:")
-        #print(f"PNG: {syn_png_path}")
-        #print(f"HTML: {syn_html_path}")
-    else:
-        # Standard anomaly detection against original data
-        z_scores, anomalies = calculate_z_scores_mad(
-            val_data['vst_raw'].values, 
-            val_pred_df['vst_raw'].values,
-            window_size=config['window_size'],
-            threshold=config['threshold']  
-        )
-        
-        print(f"Number of anomalies detected: {np.sum(anomalies)}")
-        
-        # Generate anomaly visualization
-        plot_title = f"Water Level Forecasting with Anomaly Detection - Station {args.station_id}"
-        
-        # Create output directory
-        anomaly_viz_dir = exp_dirs['anomaly_detection']
-        
-        #png_path, html_path = plot_water_level_anomalies(
-        #    test_data=val_data,
-        #    predictions=val_pred_df['vst_raw'],
-        #    z_scores=z_scores,
-        #    anomalies=anomalies,
-        #    title=plot_title,
-        #    output_dir=anomaly_viz_dir,
-        #    save_png=True,
-        #    save_html=True,
-        #    show_plot=False
-        #)
-        
-        # Comment out or remove the line causing the error (around line 405-407)
-        #print(f"Anomaly visualization saved to:")
-        #print(f"PNG: {png_path}")
-        #print(f"HTML: {html_path}")
+        anomaly_plot_title += f" (Synthetic Errors {args.error_multiplier}x)"
+    anomaly_plot_title += f"\nDetected: {high_conf_count} High, {med_conf_count} Medium, {low_conf_count} Low confidence"
     
+    anomaly_png_path, anomaly_html_path = plot_water_level_anomalies(
+        test_data=val_data,  # Use modified data as "observed"
+        predictions=val_pred_df['vst_raw'],
+        z_scores=z_scores,
+        anomalies=anomalies,
+        threshold=config['threshold'],
+        title=anomaly_plot_title,
+        output_dir=anomaly_viz_dir,
+        save_png=True,
+        save_html=True,
+        show_plot=False,
+        filename_prefix="anomaly_detection_",
+        confidence=confidence  # Add confidence levels
+    )
+    
+    print(f"Anomaly detection plot saved to:")
+    print(f"  PNG: {anomaly_png_path}")
+    print(f"  HTML: {anomaly_html_path}")
+    
+    # PLOT 2: Error injection verification (original vs modified data) - only if errors were injected
+    error_generator = None  # Will be set if errors were injected
+    if args.error_multiplier is not None and args.error_type in ['both', 'validation']:
+        print("\nGenerating error injection verification plot...")
+        
+        # Calculate anomalies between original and modified data to show injected errors
+        error_z_scores, error_anomalies = calculate_z_scores_mad(
+            original_val_data['vst_raw'].values,  # Original clean data
+            val_data['vst_raw'].values,  # Modified data with synthetic errors
+            window_size=config['window_size'],
+            threshold=config['threshold']
+        )
+        
+        error_confidence = calculate_anomaly_confidence(error_z_scores, config['threshold'])
+        
+        # Count synthetic errors by confidence
+        synth_high = np.sum((error_anomalies) & (error_confidence == 'High'))
+        synth_med = np.sum((error_anomalies) & (error_confidence == 'Medium'))
+        synth_low = np.sum((error_anomalies) & (error_confidence == 'Low'))
+        
+        print(f"Synthetic errors detected: {np.sum(error_anomalies)} total")
+        print(f"  - High confidence: {synth_high}")
+        print(f"  - Medium confidence: {synth_med}")
+        print(f"  - Low confidence: {synth_low}")
+        
+        error_plot_title = f"Synthetic Error Injection Verification - Station {args.station_id} (Error Multiplier: {args.error_multiplier}x)"
+        error_plot_title += f"\nDetected: {synth_high} High, {synth_med} Medium, {synth_low} Low confidence synthetic errors"
+        
+        error_png_path, error_html_path = plot_water_level_anomalies(
+            test_data=original_val_data,  # Use original as baseline
+            predictions=val_data['vst_raw'],  # Modified data as "predictions"
+            z_scores=error_z_scores,
+            anomalies=error_anomalies,
+            threshold=config['threshold'],
+            title=error_plot_title,
+            output_dir=anomaly_viz_dir,
+            save_png=True,
+            save_html=True,
+            show_plot=False,
+            filename_prefix="error_injection_verification_",
+            confidence=error_confidence  # Add confidence levels
+        )
+        
+        print(f"Error injection verification plot saved to:")
+        print(f"  PNG: {error_png_path}")
+        print(f"  HTML: {error_html_path}")
+        
+        # Create zoom plots for each error type if we have the error generator
+        if saved_error_generator is not None:
+            print("\nCreating zoom plots for individual error types...")
+            create_anomaly_zoom_plots(
+                val_data=val_data,
+                predictions=val_pred_df['vst_raw'].values,
+                z_scores=z_scores,
+                anomalies=anomalies,
+                confidence=confidence,
+                error_generator=saved_error_generator,
+                station_id=args.station_id,
+                config=config,
+                output_dir=anomaly_viz_dir
+            )
+        else:
+            print("\nNo error generator available for zoom plots")
+    
+    print(f"\nAll anomaly detection analysis completed!")
+
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics
     valid_mask = ~np.isnan(original_val_data['vst_raw'].values)

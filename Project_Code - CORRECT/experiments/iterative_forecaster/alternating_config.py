@@ -17,8 +17,8 @@ ALTERNATING_CONFIG = {
     # Forecasting parameters
     'warmup_length': 672,
     # Anomaly detection parameters
-    'threshold': 13.0,          # Threshold for detecting anomalies
-    'window_size': 100,        # Window size for MAD calculation
+    'threshold': 15.0,          # Increased from 5.0 - less sensitive to model prediction errors
+    'window_size': 1500,        # Window size for MAD calculation
     
     # Quick mode for faster training with reduced data
     'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
@@ -34,7 +34,7 @@ ALTERNATING_CONFIG = {
     ],
     'output_features': ['vst_raw'],  # Target is water level
     
-
+    
     'feature_stations': [
         #{
         #    'station_id': '21006845',
@@ -52,4 +52,4 @@ ALTERNATING_CONFIG = {
     
     # Do not include additional stations
     # The model will use only the primary station's features
-} 
+}
