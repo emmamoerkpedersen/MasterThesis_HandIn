@@ -146,96 +146,48 @@ def run_alternating_model(args):
         
         print(f"\nInjecting synthetic errors with multiplier {args.error_multiplier:.1f}x...")
         print(f"Error injection mode: {args.error_type}")
-        print(f"Using seed: {args.seed} for reproducible error generation")
-        
         error_config = configure_error_params(SYNTHETIC_ERROR_PARAMS, args.error_multiplier)
-        # Ensure the error config uses our specified seed
-        error_config['random_seed'] = args.seed
         
         # Identify target columns for error injection
-        water_level_cols = ['vst_raw', 'vst_raw_feature']
-        available_cols = [col for col in water_level_cols if col in original_train_data.columns]
-        print(f"Available columns: {list(original_train_data.columns)}")
-        print(f"Injecting errors into columns: {available_cols}")
+        water_level_cols = ['vst_raw','vst_raw_feature']
+        print(f"Injecting errors into columns: {water_level_cols}")
         
         # Process training data if needed
         if args.error_type in ['both', 'train']:
             print("\nProcessing TRAINING data - injecting errors...")
-            error_generator = SyntheticErrorGenerator(error_config, random_seed=args.seed)
+            error_generator = SyntheticErrorGenerator(error_config)
+            train_data_with_errors, train_error_report = inject_errors_into_dataset(
+                original_train_data, error_generator, f"{args.station_id}_train", water_level_cols
+            )
+            train_data = train_data_with_errors
             
-            # Process each column separately but with the same error generator to ensure identical errors
-            train_data_modified = original_train_data.copy()
-            all_train_results = {}
-            
-            for column in available_cols:
-                print(f"  Injecting errors into {column}...")
-                # Reset the error generator to ensure identical error patterns
-                error_generator.error_periods = []
-                error_generator.used_indices = set()
-                
-                # Create single-column data for error injection
-                column_data = pd.DataFrame({
-                    'vst_raw': original_train_data[column]
-                }, index=original_train_data.index)
-                
-                # Inject errors with consistent seeding
-                modified_data, ground_truth = error_generator.inject_all_errors(column_data)
-                
-                # Update the main dataset
-                train_data_modified[column] = modified_data['vst_raw']
-                
-                # Store results
-                station_key = f"{args.station_id}_train_{column}"
-                all_train_results[station_key] = {
-                    'modified_data': modified_data,
-                    'ground_truth': ground_truth,
-                    'error_periods': error_generator.error_periods.copy()
-                }
-                
-                print(f"    Injected {len(error_generator.error_periods)} error periods into {column}")
-            
-            train_data = train_data_modified
-            print(f"Training data error injection completed for {len(available_cols)} columns")
+            # Handle error reporting based on actual returned format
+            if isinstance(train_error_report, dict) and 'total_errors' in train_error_report:
+                print(f"Training errors injected: {train_error_report['total_errors']} errors")
+                if 'error_counts' in train_error_report:
+                    for error_type, count in train_error_report['error_counts'].items():
+                        print(f"  - {error_type}: {count}")
+            else:
+                print(f"Training errors injected successfully")
         
         # Process validation data if needed
         if args.error_type in ['both', 'validation']:
             print("\nProcessing VALIDATION data - injecting errors...")
-            validation_error_generator = SyntheticErrorGenerator(error_config, random_seed=args.seed)
+            validation_error_generator = SyntheticErrorGenerator(error_config)
+            val_data_with_errors, val_error_report = inject_errors_into_dataset(
+                original_val_data, validation_error_generator, f"{args.station_id}_val", water_level_cols
+            )
+            val_data = val_data_with_errors
             saved_error_generator = validation_error_generator  # Save for zoom plots
             
-            # Process each column separately but with the same error generator to ensure identical errors
-            val_data_modified = original_val_data.copy()
-            all_val_results = {}
-            
-            for column in available_cols:
-                print(f"  Injecting errors into {column}...")
-                # Reset the error generator to ensure identical error patterns
-                validation_error_generator.error_periods = []
-                validation_error_generator.used_indices = set()
-                
-                # Create single-column data for error injection
-                column_data = pd.DataFrame({
-                    'vst_raw': original_val_data[column]
-                }, index=original_val_data.index)
-                
-                # Inject errors with consistent seeding
-                modified_data, ground_truth = validation_error_generator.inject_all_errors(column_data)
-                
-                # Update the main dataset
-                val_data_modified[column] = modified_data['vst_raw']
-                
-                # Store results
-                station_key = f"{args.station_id}_val_{column}"
-                all_val_results[station_key] = {
-                    'modified_data': modified_data,
-                    'ground_truth': ground_truth,
-                    'error_periods': validation_error_generator.error_periods.copy()
-                }
-                
-                print(f"    Injected {len(validation_error_generator.error_periods)} error periods into {column}")
-            
-            val_data = val_data_modified
-            print(f"Validation data error injection completed for {len(available_cols)} columns")
+            # Handle error reporting based on actual returned format
+            if isinstance(val_error_report, dict) and 'total_errors' in val_error_report:
+                print(f"Validation errors injected: {val_error_report['total_errors']} errors")
+                if 'error_counts' in val_error_report:
+                    for error_type, count in val_error_report['error_counts'].items():
+                        print(f"  - {error_type}: {count}")
+            else:
+                print(f"Validation errors injected successfully")
     else:
         print("\nNo synthetic errors injected.")
     
@@ -323,7 +275,7 @@ def run_alternating_model(args):
             title_suffix=viz_title_suffix,
             output_dir=exp_dirs['visualizations']
         )
-    
+    '''
     # Calculate anomalies for the validation set
     print("\nGenerating anomaly detection analysis...")
     
@@ -439,7 +391,7 @@ def run_alternating_model(args):
         print(f"\nSkipping comprehensive evaluation (no synthetic errors injected or error generator unavailable)")
 
     print(f"\nAll anomaly detection analysis completed!")
-
+    '''
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics
     valid_mask = ~np.isnan(original_val_data['vst_raw'].values)
@@ -455,10 +407,11 @@ def run_alternating_model(args):
         )
         
         # Print metrics
-        print("\nValidation Metrics (against original data):")
+        print("\nValidation Metrics (against original data) - If errors injected, this is not relevant:")
         for metric, value in metrics.items():
             print(f"  {metric}: {value:.6f}")
-            
+        
+        '''
         # If we injected errors, also calculate metrics against the corrupted data
         if args.error_multiplier is not None and args.error_type in ['both', 'validation']:
             try:
@@ -501,6 +454,7 @@ def run_alternating_model(args):
             except Exception as e:
                 print(f"\nError during error correction analysis: {str(e)}")
                 print("Continuing with model evaluation...")
+            '''
     else:
         print("\nNot enough valid data points to calculate metrics")
         metrics = {"mse": float('nan'), "rmse": float('nan'), "mae": float('nan')}
