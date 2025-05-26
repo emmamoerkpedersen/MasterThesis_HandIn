@@ -42,7 +42,7 @@ def print_error_frequencies(error_config):
         if isinstance(settings, dict) and 'count_per_year' in settings:
             print(f"  {error_type.capitalize()}: {settings['count_per_year']:.1f}")
 
-def inject_errors_into_dataset(dataset, error_generator, station_id, water_level_cols):
+def inject_errors_into_dataset(dataset, error_generator, station_id, water_level_cols, dataset_identifier=None):
     """
     Inject synthetic errors into a dataset's water level columns.
     
@@ -51,10 +51,15 @@ def inject_errors_into_dataset(dataset, error_generator, station_id, water_level
         error_generator: SyntheticErrorGenerator instance
         station_id: Station identifier string
         water_level_cols: List of water level column names
+        dataset_identifier: Optional identifier for dataset-specific seeding (e.g., 'train', 'val')
         
     Returns:
         Tuple of (modified_dataset, error_periods_dict)
     """
+    # Set dataset-specific seed if identifier provided
+    if dataset_identifier:
+        error_generator.set_seed_for_dataset(dataset_identifier)
+    
     # Make a copy of the dataset to modify
     dataset_with_errors = dataset.copy()
     

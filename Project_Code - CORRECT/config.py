@@ -12,10 +12,13 @@ PHYSICAL_LIMITS = {
 
 # Synthetic Error Generation Parameters
 SYNTHETIC_ERROR_PARAMS = {
+    # Random seed for reproducible error generation
+    'random_seed': 42,  # Set to None for non-deterministic behavior
+    
     # Point-based errors (affect single points or very short periods)
     'spike': {
         'count_per_year': 1,
-        'magnitude_range': (0.1, 1.0),  # Multiplier of current value
+        'magnitude_range': (0.2, 1.0),  # Multiplier of current value
         'negative_positiv_ratio': 0.5,
         'recovery_time': 1  # 15-min intervals
     },
