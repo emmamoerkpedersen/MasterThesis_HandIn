@@ -105,11 +105,11 @@ def run_pipeline(
     original_test_data = test_data.copy()
     
     # Create correlation plot
-    print("\nGenerating correlation plot...")
-    correlation_plot_path = plot_feature_correlation(original_train_data)
-    print(f"Correlation plot saved to: {correlation_plot_path}")
+    # print("\nGenerating correlation plot...")
+    # correlation_plot_path = plot_feature_correlation(original_train_data)
+    # print(f"Correlation plot saved to: {correlation_plot_path}")
     
-    # Create feature plots
+    # # Create feature plots
     # print("\nGenerating feature plots...")
     # feature_plots = create_individual_feature_plots(original_train_data)
     # print(f"Feature plots saved to: {list(feature_plots.values())}")
@@ -288,7 +288,7 @@ def run_pipeline(
             test_predictions_df, 
             str(station_id), 
             model_config, 
-            title_suffix=test_plot_title,
+            title_suffix=None,
             synthetic_data=None  # No synthetic errors in test data
         )
     
