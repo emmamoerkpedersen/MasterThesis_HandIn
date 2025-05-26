@@ -54,6 +54,7 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
         return
     
     print(f"\nCreating zoom plots for {len(error_generator.error_periods)} injected errors...")
+    print(f"DEBUG: val_data index range: {val_data.index[0]} to {val_data.index[-1]}")
     
     # Group error periods by type
     error_types = {}
@@ -62,6 +63,7 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
         if error_type not in error_types:
             error_types[error_type] = []
         error_types[error_type].append(period)
+        print(f"DEBUG: Found {error_type} error from {period.start_time} to {period.end_time}")
     
     # Create zoom plots for each error type (take first occurrence of each type)
     for error_type, periods in error_types.items():
@@ -70,6 +72,7 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
             period = periods[0]
             
             print(f"Creating zoom plot for {error_type} error...")
+            print(f"DEBUG: Error period: {period.start_time} to {period.end_time}")
             
             # Calculate buffer (2 hours before and after)
             buffer_hours = 2
@@ -82,7 +85,9 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
             # Get indices for the error period
             period_mask = (val_data.index >= start_time) & (val_data.index <= end_time)
             if not period_mask.any():
-                print(f"Error period not found in validation data for {error_type}")
+                print(f"ERROR: Error period not found in validation data for {error_type}")
+                print(f"  Looking for: {start_time} to {end_time}")
+                print(f"  Data range: {val_data.index[0]} to {val_data.index[-1]}")
                 continue
                 
             # Find start and end indices
@@ -90,12 +95,31 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
             start_idx = max(0, period_indices[0] - buffer_steps)
             end_idx = min(len(val_data), period_indices[-1] + buffer_steps)
             
+            print(f"DEBUG: Period indices: {period_indices[0]} to {period_indices[-1]}")
+            print(f"DEBUG: Zoom indices (with buffer): {start_idx} to {end_idx}")
+            
             # Extract zoom data
             zoom_data = val_data.iloc[start_idx:end_idx]
             zoom_predictions = predictions[start_idx:end_idx] if len(predictions) > end_idx else predictions[start_idx:]
             zoom_z_scores = z_scores[start_idx:end_idx] if len(z_scores) > end_idx else z_scores[start_idx:]
             zoom_anomalies = anomalies[start_idx:end_idx] if len(anomalies) > end_idx else anomalies[start_idx:]
             zoom_confidence = confidence[start_idx:end_idx] if len(confidence) > end_idx else confidence[start_idx:]
+            
+            # DEBUG: Check if the data shows the synthetic error
+            print(f"DEBUG: Zoom data range: {zoom_data['vst_raw'].min():.1f} to {zoom_data['vst_raw'].max():.1f} mm")
+            print(f"DEBUG: Original values in error period: {period.original_values.min():.1f} to {period.original_values.max():.1f} mm")
+            print(f"DEBUG: Modified values in error period: {period.modified_values.min():.1f} to {period.modified_values.max():.1f} mm")
+            
+            # ADDITIONAL DEBUG: Check specific values at error period indices
+            error_period_data = zoom_data.iloc[period_indices[0]-start_idx:period_indices[-1]-start_idx+1]
+            print(f"DEBUG: Actual zoom data during error period: {error_period_data['vst_raw'].min():.1f} to {error_period_data['vst_raw'].max():.1f} mm")
+            print(f"DEBUG: Expected modified range should be: {period.modified_values.min():.1f} to {period.modified_values.max():.1f} mm")
+            
+            # Check if the data matches original or modified values
+            if abs(error_period_data['vst_raw'].mean() - np.mean(period.original_values)) < abs(error_period_data['vst_raw'].mean() - np.mean(period.modified_values)):
+                print(f"🚨 BUG DETECTED: Zoom data matches ORIGINAL values, not MODIFIED values!")
+            else:
+                print(f"✅ Zoom data correctly shows MODIFIED values")
             
             # Create zoom plot
             zoom_title = f"Zoom: {error_type.title()} Error - Station {station_id}"
@@ -127,6 +151,8 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
             
         except Exception as e:
             print(f"Error creating zoom plot for {error_type}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             continue
 
 def plot_water_level_anomalies(
