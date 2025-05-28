@@ -10,8 +10,8 @@ ALTERNATING_CONFIG = {
     'dropout': 0.25,
     
     # Training parameters
-    'batch_size': (2*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 50,              # More epochs for better convergence
+    'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
+    'epochs': 40,              # More epochs for better convergence
     'patience': 5,
     'learning_rate': 0.001,
     # Forecasting parameters
@@ -21,7 +21,7 @@ ALTERNATING_CONFIG = {
     'window_size': 24, 
 
     'bce_weight': 1,          # Weight for anomaly detection loss
-    'weight_factor': 1,       # Weight factor for class imbalance
+    'weight_factor': 5,       # Weight factor for class imbalance
 
 
     'week_steps': 672,
@@ -51,8 +51,8 @@ ALTERNATING_CONFIG = {
         #}
     ],
     # Feature engineering settings - EXPERIMENT 3: TIME FEATURES
-    'use_time_features': False,        # ENABLED: month_sin, month_cos, day_of_year_sin, day_of_year_cos
-    'use_cumulative_features': False, # FOR EXP 4: Enable cumulative rainfall features
+    'use_time_features': True,        # ENABLED: month_sin, month_cos, day_of_year_sin, day_of_year_cos
+    'use_cumulative_features': True, # FOR EXP 4: Enable cumulative rainfall features
 
     
     # Do not include additional stations
