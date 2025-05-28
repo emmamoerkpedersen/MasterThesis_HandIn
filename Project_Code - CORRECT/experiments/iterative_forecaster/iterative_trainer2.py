@@ -306,7 +306,7 @@ class AlternatingTrainer:
                             
                             if n_pos > 0:
                                 # Calculate pos_weight for class imbalance
-                                weight_factor = 5
+                                weight_factor = self.config.get('weight_factor', 5)
                                 pos_weight = torch.tensor([max(n_neg / n_pos, 1.0) * weight_factor], device=self.device)
                                 
                                 # Statistical anomaly loss using z-scores as logits
@@ -321,7 +321,7 @@ class AlternatingTrainer:
                                 total_anomaly_loss = statistical_bce_loss
                                 
                                 # Combine with MSE loss
-                                bce_weight = 1  # Weight for anomaly detection loss
+                                bce_weight = self.config.get('bce_weight', 1.0)  # Weight for anomaly detection loss
                                 total_loss = mse_loss + bce_weight * total_anomaly_loss
                                 
                                 if batch_idx == 0:  # Only print for first batch to avoid spam

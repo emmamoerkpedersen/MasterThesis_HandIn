@@ -18,8 +18,12 @@ ALTERNATING_CONFIG = {
     'warmup_length': 672,
     # Anomaly detection parameters
     'threshold': 50,          
-    'window_size': 24,        # Window size for MAD calculation
-    
+    'window_size': 24, 
+
+    'bce_weight': 1,          # Weight for anomaly detection loss
+    'weight_factor': 1,       # Weight factor for class imbalance
+
+
     'week_steps': 672,
     # Quick mode for faster training with reduced data
     'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
