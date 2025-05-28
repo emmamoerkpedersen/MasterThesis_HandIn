@@ -446,7 +446,7 @@ def create_feature_importance_plot(test_data, predictions, feature_cols, output_
     features = test_data[valid_feature_cols]
     
     # Handle missing values if any
-    features = features.fillna(method='ffill').fillna(0)
+    features = features.ffill()
     
     # Get unique indices where both actual and predictions have valid values
     common_idx = features.index.intersection(actual.index).intersection(predictions.index)
@@ -557,7 +557,7 @@ def create_correlation_analysis(test_data, predictions, feature_cols, output_dir
     df_corr['Abs_Error'] = df_corr['Error'].abs()
     
     # Handle missing values
-    df_corr = df_corr.fillna(method='ffill').fillna(0)
+    df_corr = df_corr.ffill()
     
     # Create correlation matrix
     corr_matrix = df_corr.corr()

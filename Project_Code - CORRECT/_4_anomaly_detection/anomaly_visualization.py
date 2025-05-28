@@ -159,7 +159,8 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
                 show_plot=False,
                 filename_prefix=f"zoom_{error_type}_",
                 confidence=zoom_confidence,
-                original_data=zoom_original_data  # Pass original data for comparison
+                original_data=zoom_original_data,  # Pass original data for comparison
+                ground_truth_flags=None  # No ground truth flags for zoom plots
             )
             
             print(f"  Zoom plot for {error_type} saved to: {zoom_png}")
@@ -184,7 +185,8 @@ def plot_water_level_anomalies(
     sequence_length=None,
     filename_prefix="",
     confidence=None,
-    original_data=None  # Add parameter for original data
+    original_data=None,  # Add parameter for original data
+    ground_truth_flags=None  # New: ground truth anomaly flags
 ):
     """
     Creates a plot showing water level data, predictions, z-scores, and detected anomalies.
@@ -206,6 +208,7 @@ def plot_water_level_anomalies(
         filename_prefix (str): Prefix for output filenames.
         confidence (np.array or None): Confidence levels for anomalies.
         original_data (pd.DataFrame or None): Original data before error injection.
+        ground_truth_flags (np.array or None): Boolean array indicating ground truth anomalies.
     """
     # Set up output directory
     if output_dir is None:
@@ -343,6 +346,10 @@ def plot_water_level_anomalies(
     # Create interactive Plotly visualization (for HTML)
     html_path = None
     if save_html:
+        # Debug prints for ground truth flags
+        if ground_truth_flags is not None:
+            print("DEBUG: Number of ground truth anomalies:", np.sum(ground_truth_flags))
+            print("DEBUG: Indices of ground truth anomalies:", test_data.index[ground_truth_flags == 1])
         # Create figure with 2 subplots
         fig = make_subplots(
             rows=2, cols=1,
@@ -387,6 +394,26 @@ def plot_water_level_anomalies(
             row=1, col=1
         )
         
+        # After the main anomaly scatter plot in the HTML section
+        if ground_truth_flags is not None:
+            # Plot ground truth anomalies as blue dots
+            if hasattr(test_data, 'index'):
+                gt_indices = test_data.index[ground_truth_flags == 1]
+                gt_values = test_data['vst_raw'].loc[gt_indices]
+            else:
+                gt_indices = np.where(ground_truth_flags == 1)[0]
+                gt_values = test_data[gt_indices]
+            fig.add_trace(
+                go.Scatter(
+                    x=gt_indices,
+                    y=gt_values,
+                    mode='markers',
+                    marker=dict(color='blue', size=7, symbol='diamond'),
+                    name='Ground Truth Anomalies',
+                ),
+                row=1, col=1
+            )
+        
         # Add anomalies as scatter points only where predictions exist
         valid_anomaly_indices = modified_values.index[full_anomalies & ~np.isnan(full_predictions)]
         if len(valid_anomaly_indices) > 0:
@@ -395,7 +422,7 @@ def plot_water_level_anomalies(
                     x=valid_anomaly_indices,
                     y=modified_values.loc[valid_anomaly_indices],
                     mode='markers',
-                    marker=dict(color='red', size=8, symbol='circle'),
+                    marker=dict(color='red', size=5, symbol='circle'),
                     name=f"Detected Anomalies ({len(valid_anomaly_indices)})"
                 ),
                 row=1, col=1

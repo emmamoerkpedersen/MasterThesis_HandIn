@@ -10,22 +10,22 @@ ALTERNATING_CONFIG = {
     'dropout': 0.25,
     
     # Training parameters
-    'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 300,              # More epochs for better convergence
-    'patience': 15,
+    'batch_size': (2*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
+    'epochs': 50,              # More epochs for better convergence
+    'patience': 5,
     'learning_rate': 0.001,
     # Forecasting parameters
     'warmup_length': 672,
     # Anomaly detection parameters
-    'threshold': 15.0,          # Increased from 5.0 - less sensitive to model prediction errors
-    'window_size': 1500,        # Window size for MAD calculation
+    'threshold': 50,          
+    'window_size': 24,        # Window size for MAD calculation
     
     'week_steps': 672,
     # Quick mode for faster training with reduced data
     'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
 
     # Loss function
-    'objective_function': 'mae_loss',  # Using MAE loss
+    'objective_function': 'mae_loss',  # Using MAE lossx
     
     # Features
     'feature_cols': [
@@ -47,8 +47,8 @@ ALTERNATING_CONFIG = {
         #}
     ],
     # Feature engineering settings - EXPERIMENT 3: TIME FEATURES
-    'use_time_features': True,        # ENABLED: month_sin, month_cos, day_of_year_sin, day_of_year_cos
-    'use_cumulative_features': True, # FOR EXP 4: Enable cumulative rainfall features
+    'use_time_features': False,        # ENABLED: month_sin, month_cos, day_of_year_sin, day_of_year_cos
+    'use_cumulative_features': False, # FOR EXP 4: Enable cumulative rainfall features
 
     
     # Do not include additional stations
