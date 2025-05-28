@@ -173,37 +173,7 @@ class AlternatingForecastModel(nn.Module):
             if current_data_type != last_data_type:
                 last_data_type = current_data_type
             
-            # Initialize anomaly information for this timestep
-            current_z_score = torch.zeros(batch_size, device=device)
-            current_anomaly_flag = torch.zeros(batch_size, device=device)
-            
-            # Calculate z-score and anomaly flag if we have enough history
-            if t >= self.window_size and y_true is not None:
-                for b in range(batch_size):
-                    if t > 0:  # We need a previous prediction to calculate residual
-                        true_val = y_true[b, t-1, 0] if len(y_true.shape) == 3 else y_true[b, t-1]
-                        pred_val = outputs[b, t-1, 0]
-                        
-                        if not torch.isnan(true_val) and not torch.isnan(pred_val):
-                            # Detach residual calculation from computation graph
-                            residual = (true_val - pred_val).detach()
-                            self._update_residual_buffer(b, residual)
-                            
-                            # Calculate z-score (detached from computation graph)
-                            z_score = self._calculate_z_score_mad_torch(
-                                self.residual_buffer[b], residual
-                            )
-                            current_z_score[b] = z_score.detach()  # Ensure z_score is detached
-                            
-                            # Set anomaly flag based on threshold
-                            if torch.abs(z_score) > self.threshold:
-                                current_anomaly_flag[b] = 1.0
-            
-            # Store z-scores and flags
-            z_scores[:, t] = current_z_score
-            anomaly_flags[:, t] = current_anomaly_flag
-            
-            # Prepare input with anomaly information
+            # Prepare input with anomaly information from PREVIOUS timestep
             if not use_original and t > 0:
                 n_used_prediction += 1
                 binary_flag = torch.ones(batch_size, 1, device=device)
@@ -215,13 +185,17 @@ class AlternatingForecastModel(nn.Module):
                 binary_flag = torch.zeros(batch_size, 1, device=device)
                 pred_input = x[:, t, :]
             
-            # Create augmented input with anomaly information (no neural anomaly probability)
-            # [features, binary_flag, z_score, anomaly_flag]
+            # Use anomaly information from previous timestep for current input
+            prev_z_score = z_scores[:, t-1] if t > 0 else torch.zeros(batch_size, device=device)
+            prev_anomaly_flag = anomaly_flags[:, t-1] if t > 0 else torch.zeros(batch_size, device=device)
+            
+            # Create augmented input with previous anomaly information
+            # [features, binary_flag, prev_z_score, prev_anomaly_flag]
             current_input = torch.cat([
                 pred_input, 
                 binary_flag, 
-                current_z_score.unsqueeze(1),
-                current_anomaly_flag.unsqueeze(1)
+                prev_z_score.unsqueeze(1),
+                prev_anomaly_flag.unsqueeze(1)
             ], dim=1)
             
             # Process through LSTM cell
@@ -232,6 +206,35 @@ class AlternatingForecastModel(nn.Module):
             
             # Generate prediction for current timestep (only water level)
             outputs[:, t, :] = self.output_layer(final_hidden)
+            
+            # NOW calculate anomaly detection for current timestep (after we have the prediction)
+            current_z_score = torch.zeros(batch_size, device=device)
+            current_anomaly_flag = torch.zeros(batch_size, device=device)
+            
+            if t >= self.window_size and y_true is not None:
+                for b in range(batch_size):
+                    # Compare current true value with current prediction
+                    true_val = y_true[b, t, 0] if len(y_true.shape) == 3 else y_true[b, t]
+                    pred_val = outputs[b, t, 0]
+                    
+                    if not torch.isnan(true_val) and not torch.isnan(pred_val):
+                        # Calculate residual for current timestep
+                        residual = (true_val - pred_val).detach()
+                        self._update_residual_buffer(b, residual)
+                        
+                        # Calculate z-score
+                        z_score = self._calculate_z_score_mad_torch(
+                            self.residual_buffer[b], residual
+                        )
+                        current_z_score[b] = z_score.detach()
+                        
+                        # Set anomaly flag for current timestep
+                        if torch.abs(z_score) > self.threshold:
+                            current_anomaly_flag[b] = 1.0
+            
+            # Store z-scores and flags for current timestep
+            z_scores[:, t] = current_z_score
+            anomaly_flags[:, t] = current_anomaly_flag
         
         # Return None for anomaly_probs to maintain interface compatibility
         return outputs, hidden_state, cell_state, z_scores, anomaly_flags, None

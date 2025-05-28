@@ -326,12 +326,19 @@ class AlternatingTrainer:
                                 
                                 if batch_idx == 0:  # Only print for first batch to avoid spam
                                     print(f"MSE: {mse_loss.item():.4f}, Statistical BCE: {statistical_bce_loss.item():.4f}, Total: {total_loss.item():.4f}")
+                                    print(f"    Anomaly stats: {n_pos}/{n_total} positive samples, pos_weight: {pos_weight.item():.2f}")
                             else:
                                 total_loss = mse_loss
+                                if batch_idx == 0:
+                                    print(f"MSE: {mse_loss.item():.4f}, No anomalies in batch, Total: {total_loss.item():.4f}")
                         else:
                             total_loss = mse_loss
+                            if batch_idx == 0:
+                                print(f"MSE: {mse_loss.item():.4f}, No valid anomaly mask, Total: {total_loss.item():.4f}")
                     else:
                         total_loss = mse_loss
+                        if batch_idx == 0:
+                            print(f"MSE: {mse_loss.item():.4f}, No anomaly flags provided, Total: {total_loss.item():.4f}")
                 else:
                     continue  # Skip this batch if no valid samples
                 total_loss.backward()
@@ -355,7 +362,7 @@ class AlternatingTrainer:
                 hidden_state, cell_state = None, None
                 
                 # Get predictions
-                val_outputs, _, _, val_z_scores, val_anomaly_flags, val_anomaly_probs = self.model(
+                val_outputs, _, _, val_z_scores, val_model_anomaly_flags, val_anomaly_probs = self.model(
                     x_val, 
                     hidden_state, 
                     cell_state,
@@ -365,7 +372,58 @@ class AlternatingTrainer:
                 
                 mask = ~torch.isnan(y_val)
                 if mask.any():
-                    val_loss = self.criterion(val_outputs[mask], y_val[mask]).item()
+                    val_mse_loss = self.criterion(val_outputs[mask], y_val[mask])
+                    
+                    # Add anomaly detection loss to validation (same as training)
+                    if val_anomaly_flags is not None:
+                        # Get the true anomaly flags for validation
+                        # val_anomaly_flags should be a 1D array matching the validation sequence length
+                        if isinstance(val_anomaly_flags, torch.Tensor):
+                            true_flags_tensor = val_anomaly_flags.clone().detach().to(self.device)
+                        else:
+                            true_flags_tensor = torch.tensor(val_anomaly_flags, dtype=torch.float32, device=self.device)
+                        
+                        # Use z-scores as logits for anomaly detection
+                        z_scores_flat = val_z_scores.flatten()
+                        true_flags_flat = true_flags_tensor.flatten()  # Ensure it's flat
+                        
+                        # Create valid mask for anomaly detection
+                        valid_anomaly_mask = (~torch.isnan(z_scores_flat) & 
+                                            ~torch.isnan(true_flags_flat) & 
+                                            ~torch.isnan(y_val.flatten()))
+                        
+                        if valid_anomaly_mask.any():
+                            n_pos = true_flags_flat[valid_anomaly_mask].sum().item()
+                            
+                            if n_pos > 0:
+                                # Calculate pos_weight for class imbalance (same as training)
+                                n_total = valid_anomaly_mask.sum().item()
+                                n_neg = n_total - n_pos
+                                weight_factor = self.config.get('weight_factor', 5)
+                                pos_weight = torch.tensor([max(n_neg / n_pos, 1.0) * weight_factor], device=self.device)
+                                
+                                # Statistical anomaly loss using z-scores as logits
+                                z_scores_clamped = torch.clamp(z_scores_flat[valid_anomaly_mask], -10, 10)
+                                bce_z_loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+                                val_statistical_bce_loss = bce_z_loss_fn(
+                                    z_scores_clamped, 
+                                    true_flags_flat[valid_anomaly_mask]
+                                )
+                                
+                                # Combine with MSE loss (same as training)
+                                bce_weight = self.config.get('bce_weight', 1.0)
+                                val_loss = val_mse_loss + bce_weight * val_statistical_bce_loss
+                                
+                                if epoch == 0:  # Print details for first epoch
+                                    print(f"Validation - MSE: {val_mse_loss.item():.4f}, Statistical BCE: {val_statistical_bce_loss.item():.4f}, Total: {val_loss.item():.4f}")
+                            else:
+                                val_loss = val_mse_loss
+                        else:
+                            val_loss = val_mse_loss
+                    else:
+                        val_loss = val_mse_loss
+                    
+                    val_loss = val_loss.item()
                 else:
                     val_loss = float('inf')
                 
@@ -390,7 +448,7 @@ class AlternatingTrainer:
                     best_model_state = self.model.state_dict().copy()
                     best_val_predictions = val_outputs.detach().cpu()
                     best_val_z_scores = val_z_scores.detach().cpu()
-                    best_val_anomaly_flags = val_anomaly_flags.detach().cpu()
+                    best_val_anomaly_flags = val_model_anomaly_flags.detach().cpu()
                     # Handle case where anomaly_probs is None (simplified model)
                     best_val_anomaly_probs = val_anomaly_probs.detach().cpu() if val_anomaly_probs is not None else None
                 else:
