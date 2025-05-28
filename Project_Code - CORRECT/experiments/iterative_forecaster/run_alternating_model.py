@@ -411,7 +411,7 @@ def run_alternating_model(args):
         for metric, value in metrics.items():
             print(f"  {metric}: {value:.6f}")
         
-        '''
+        
         # If we injected errors, also calculate metrics against the corrupted data
         if args.error_multiplier is not None and args.error_type in ['both', 'validation']:
             try:
@@ -425,7 +425,8 @@ def run_alternating_model(args):
                 print("\nValidation Metrics (against corrupted data):")
                 for metric, value in corrupted_metrics.items():
                     print(f"  {metric}: {value:.6f}")
-                    
+                
+                '''  
                 print("\nError Correction Analysis:")
                 
                 # Original vs Corrupted (how bad are the errors)
