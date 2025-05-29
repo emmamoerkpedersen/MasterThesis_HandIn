@@ -159,7 +159,8 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
                 show_plot=False,
                 filename_prefix=f"zoom_{error_type}_",
                 confidence=zoom_confidence,
-                original_data=zoom_original_data  # Pass original data for comparison
+                original_data=zoom_original_data,  # Pass original data for comparison
+                edt_data=None  # No EDT data for zoom plots
             )
             
             print(f"  Zoom plot for {error_type} saved to: {zoom_png}")
@@ -184,11 +185,12 @@ def plot_water_level_anomalies(
     sequence_length=None,
     filename_prefix="",
     confidence=None,
-    original_data=None  # Add parameter for original data
+    original_data=None,  # Add parameter for original data
+    edt_data=None  # Add parameter for EDT reference data
 ):
     """
     Creates a plot showing water level data, predictions, z-scores, and detected anomalies.
-    Now includes original data (before error injection) if provided.
+    Now includes original data (before error injection) and EDT reference data if provided.
     
     Args:
         test_data (pd.DataFrame): DataFrame containing water level data with datetime index.
@@ -206,6 +208,7 @@ def plot_water_level_anomalies(
         filename_prefix (str): Prefix for output filenames.
         confidence (np.array or None): Confidence levels for anomalies.
         original_data (pd.DataFrame or None): Original data before error injection.
+        edt_data (pd.Series or None): EDT reference data for comparison.
     """
     # Set up output directory
     if output_dir is None:
@@ -265,6 +268,11 @@ def plot_water_level_anomalies(
         if original_values is not None:
             ax1.plot(original_values.index, original_values.values, color='lightblue', linewidth=1, 
                     label='Original Water Levels', alpha=0.7)
+        
+        # Plot EDT reference data if available
+        if edt_data is not None:
+            ax1.plot(edt_data.index, edt_data.values, color='purple', linewidth=1.5, 
+                    label='EDT Reference', alpha=0.8, linestyle='--')
         
         # Plot modified water levels
         ax1.plot(modified_values.index, modified_values.values, color='blue', linewidth=1, 
@@ -361,6 +369,18 @@ def plot_water_level_anomalies(
                     y=original_values.values,
                     name="Original Water Levels",
                     line=dict(color='lightblue', width=1)
+                ),
+                row=1, col=1
+            )
+        
+        # EDT reference data if available
+        if edt_data is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=edt_data.index,
+                    y=edt_data.values,
+                    name="EDT Reference",
+                    line=dict(color='purple', width=1.5, dash='dash')
                 ),
                 row=1, col=1
             )

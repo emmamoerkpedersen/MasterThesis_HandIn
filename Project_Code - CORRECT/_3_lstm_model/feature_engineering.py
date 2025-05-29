@@ -186,4 +186,42 @@ class FeatureEngineer:
         
         return data
 
+    def add_lagged_features(self, data, target_col='vst_raw', lags=[24, 48, 72, 168, 336, 672]):
+        """
+        Add lagged features for water level to help the model predict peaks and valleys.
+        Uses longer lags to escape potential anomalous periods.
+        
+        Args:
+            data: DataFrame containing time series data
+            target_col: Column to create lags for (default: 'vst_raw')
+            lags: List of lag hours to create features for (default: 1d, 2d, 3d, 1w, 2w, 4w)
+            
+        Returns:
+            DataFrame with added lagged features
+        """
+        # Create a copy of the data to avoid SettingWithCopyWarning
+        data = data.copy()
+        
+        # 15-minute intervals: 4 timesteps per hour
+        timesteps_per_hour = 4
+        
+        for lag_hours in lags:
+            lag_timesteps = lag_hours * timesteps_per_hour
+            feature_name = f'{target_col}_lag_{lag_hours}h'
+            
+            # Create lagged feature, using vst_raw_feature as source to avoid look-ahead
+            if 'vst_raw_feature' in data.columns:
+                data.loc[:, feature_name] = data['vst_raw_feature'].shift(lag_timesteps)
+            else:
+                data.loc[:, feature_name] = data[target_col].shift(lag_timesteps)
+            
+            # Fill NaN values at the beginning with forward fill
+            data.loc[:, feature_name] = data[feature_name].ffill()
+            
+            # Add to feature columns list if not already there
+            if feature_name not in self.feature_cols:
+                self.feature_cols.append(feature_name)
+        
+        return data
+
  
