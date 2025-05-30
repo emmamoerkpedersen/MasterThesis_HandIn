@@ -452,6 +452,13 @@ class SyntheticErrorGenerator:
             # Create offset values (flatten the array to 1D)
             offset_values = original_values.values.flatten() + offset
             
+            # Ensure values stay within physical limits
+            offset_values = np.clip(
+                offset_values,
+                self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0),
+                self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
+            )
+            
             # Create the offset series
             offset_series = pd.Series(
                 index=modified_data.index[idx:end_idx],

@@ -1,0 +1,743 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from pathlib import Path
+import sys
+import pandas as pd
+import numpy as np
+from tqdm import tqdm
+from sklearn.preprocessing import StandardScaler
+from _4_anomaly_detection.z_score import calculate_z_scores_mad
+import torch.nn.functional as F
+
+# Add the project root to the path
+current_dir = Path(__file__).resolve().parent
+project_dir = current_dir.parent.parent
+sys.path.append(str(project_dir))
+
+from _3_lstm_model.objective_functions import get_objective_function
+from experiments.iterative_forecaster.iterative_forecast_model2 import AlternatingForecastModel
+
+class AlternatingTrainer:
+    """
+    Trainer for the AlternatingForecastModel that handles the sequential nature
+    of the training process and maintains hidden states across batches.
+    """
+    def __init__(self, config, preprocessor):
+        """
+        Initialize the trainer and AlternatingForecastModel.
+        
+        Args:
+            config: Dictionary containing model and training parameters
+            preprocessor: Instance of DataPreprocessor
+        """
+        self.config = config
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.preprocessor = preprocessor
+        
+        # Print device information
+        print(f"\n🖥️  Device Information:")
+        print(f"   Using device: {self.device}")
+        if torch.cuda.is_available():
+            print(f"   GPU: {torch.cuda.get_device_name(0)}")
+            print(f"   CUDA version: {torch.version.cuda}")
+            print(f"   PyTorch version: {torch.__version__}")
+            print(f"   GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            # Clear CUDA cache at initialization
+            torch.cuda.empty_cache()
+            print(f"   CUDA cache cleared")
+        else:
+            print(f"   CUDA not available, using CPU")
+        print("="*50)
+        
+        # Initialize feature columns from config
+        self.feature_cols = config['feature_cols'].copy()
+        
+        # Add feature station columns dynamically
+        if config.get('feature_stations'):
+            for station in config['feature_stations']:
+                for feature in station['features']:
+                    feature_name = f"feature_station_{station['station_id']}_{feature}"
+                    self.feature_cols.append(feature_name)
+        
+        print(f"Using features: {self.feature_cols}")
+        
+        # Initialize model (will be properly initialized after feature engineering)
+        self.model = None
+        
+        # Get the loss function
+        self.criterion = get_objective_function(config.get('objective_function'))
+    
+    def prepare_sequences(self, df, is_training=True):
+        """
+        Custom method to prepare sequences for the alternating model.
+        Each feature is scaled individually using its own StandardScaler.
+        Scalers are fitted only on training data and reused for validation/test.
+        
+        NaN handling:
+        - Temperature: Forward fill, backward fill, then 30-day aggregation
+        - Rainfall: Fill NaN with -1
+        - vst_raw_feature: Fill NaN with -1
+        - Feature station data: Fill NaN with -1
+        - vst_raw (target): Keep NaN values (handled in loss calculation)
+        
+        Args:
+            df: DataFrame with features and target
+            is_training: Whether data is for training
+            
+        Returns:
+            tuple: (x_tensor, y_tensor) containing input features and targets
+        """
+        print(f"\nPreparing sequences:")
+        print(f"Input DataFrame shape: {df.shape}")
+        
+        # Get all feature columns except the target
+        feature_cols = [col for col in df.columns if col not in self.config['output_features']]
+        print(f"Using all available features: {len(feature_cols)} features")
+        print(f"Features: {feature_cols}")
+        
+        # Extract features and target as DataFrames
+        features_df = df[feature_cols]
+        target_df = df[self.config['output_features']]
+        
+        print(f"Features DataFrame shape: {features_df.shape}")
+        print(f"Target DataFrame shape: {target_df.shape}")
+        
+        # Apply scaling
+        if is_training:
+            # Initialize dictionary to store feature scalers
+            self.feature_scalers = {}
+            
+            # Scale each feature individually
+            x_scaled = np.zeros_like(features_df.values)
+            for i, feature in enumerate(feature_cols):
+                scaler = StandardScaler()
+                x_scaled[:, i] = scaler.fit_transform(features_df[feature].values.reshape(-1, 1)).flatten()
+                self.feature_scalers[feature] = scaler
+            
+            # Fit separate StandardScaler for target
+            self.target_scaler = StandardScaler()
+            # Handle NaN values in target
+            valid_mask = ~np.isnan(target_df.values.flatten())
+            self.target_scaler.fit(target_df.values[valid_mask].reshape(-1, 1))
+            
+            print(f"Fitted scalers on {np.sum(valid_mask)} valid target points")
+            print(f"Scaled features shape: {x_scaled.shape}")
+        else:
+            # Use previously fitted scalers
+            if not hasattr(self, 'feature_scalers') or not hasattr(self, 'target_scaler'):
+                raise ValueError("Scalers not fitted. Call with is_training=True first.")
+            
+            # Scale each feature using its fitted scaler
+            x_scaled = np.zeros_like(features_df.values)
+            for i, feature in enumerate(feature_cols):
+                x_scaled[:, i] = self.feature_scalers[feature].transform(
+                    features_df[feature].values.reshape(-1, 1)
+                ).flatten()
+            
+            print(f"Scaled features shape: {x_scaled.shape}")
+        
+        # Scale the target
+        y_values = target_df.values.flatten()
+        y_scaled = np.full_like(y_values, np.nan, dtype=float)
+        valid_mask = ~np.isnan(y_values)
+        
+        if np.any(valid_mask):
+            if is_training:
+                y_scaled[valid_mask] = self.target_scaler.transform(
+                    y_values[valid_mask].reshape(-1, 1)
+                ).flatten()
+            else:
+                y_scaled[valid_mask] = self.target_scaler.transform(
+                    y_values[valid_mask].reshape(-1, 1)
+                ).flatten()
+        
+        # Print NaN values in final tensors
+        print("\nNaN values in final tensors:")
+        print("--------------------------")
+        for i, feature in enumerate(feature_cols):
+            nan_count = np.isnan(x_scaled[:, i]).sum()
+            if nan_count > 0:
+                print(f"Feature {feature}: {nan_count} NaN values ({nan_count/len(x_scaled)*100:.2f}%)")
+        
+        nan_count = np.isnan(y_scaled).sum()
+        if nan_count > 0:
+            print(f"Target: {nan_count} NaN values ({nan_count/len(y_scaled)*100:.2f}%)")
+        
+        # Convert to tensors and add necessary dimensions for LSTM input
+        # x shape should be [batch_size, seq_len, num_features]
+        # y shape should be [batch_size, seq_len, 1]
+        
+        # Shape the input tensor correctly for our model
+        x_tensor = torch.FloatTensor(x_scaled).unsqueeze(0)  # Add batch dimension
+        y_tensor = torch.FloatTensor(y_scaled).unsqueeze(0).unsqueeze(2)  # Add batch and feature dimensions
+        
+        print(f"Prepared tensors - x_shape: {x_tensor.shape}, y_shape: {y_tensor.shape}")
+        
+        return x_tensor, y_tensor
+    
+    def train(self, train_df, val_df, epochs, batch_size=None, train_anomaly_flags=None, val_anomaly_flags=None):
+        """
+        Train the model with the alternating pattern of original/predicted data.
+        
+        Args:
+            train_df: Training DataFrame
+            val_df: Validation DataFrame
+            epochs: Number of epochs to train
+            batch_size: Batch size for training (if None, use full dataset)
+            train_anomaly_flags: Anomaly flags for training data
+            val_anomaly_flags: Anomaly flags for validation data
+            
+        Returns:
+            history: Dictionary with training history
+            val_predictions: Tensor with validation predictions
+            val_targets: Tensor with validation targets
+            val_z_scores: Z-scores from validation
+            val_anomaly_flags: Anomaly flags from validation
+            val_anomaly_probs: Anomaly probabilities from validation
+        """
+        print("\nPreparing training and validation data...")
+        print('train test')
+        x_train, y_train = self.prepare_sequences(train_df, is_training=True)
+        x_val, y_val = self.prepare_sequences(val_df, is_training=False)
+        
+        print(f"\nTraining data shapes:")
+        print(f"x_train: {x_train.shape}")
+        print(f"y_train: {y_train.shape}")
+        print(f"x_val: {x_val.shape}")
+        print(f"y_val: {y_val.shape}")
+        
+        # If in quick mode, automatically reduce epochs
+        if self.config.get('quick_mode', False) and epochs > 10:
+            original_epochs = epochs
+            epochs = max(5, epochs // 3)
+            print(f"\n*** QUICK MODE: Reducing epochs from {original_epochs} to {epochs} ***")
+        
+        # If no batch_size provided, train on chunks rather than full data
+        if batch_size is None:
+            # Use a reasonable chunk size to avoid memory issues (50,000 samples)
+            batch_size = min(50000, x_train.shape[1] // 10)
+            print(f"Using chunk size of {batch_size} samples")
+        
+        # Move data to device
+        x_train = x_train.to(self.device)
+        y_train = y_train.to(self.device)
+        x_val = x_val.to(self.device)
+        y_val = y_val.to(self.device)
+        
+        # Initialize training history
+        history = {'train_loss': [], 'val_loss': []}
+        best_val_loss = float('inf')
+        patience_counter = 0
+        best_model_state = None
+        best_val_predictions = None
+        best_val_z_scores = None
+        best_val_anomaly_flags = None
+        best_val_anomaly_probs = None
+        
+        # Total number of batches
+        total_samples = x_train.shape[1]
+        num_batches = (total_samples + batch_size - 1) // batch_size
+        
+        print(f"\nTraining configuration:")
+        print(f"Total samples: {total_samples}")
+        print(f"Batch size: {batch_size}")
+        print(f"Number of batches per epoch: {num_batches}")
+        
+        epoch_pbar = tqdm(range(epochs), desc="Training Progress")
+        for epoch in epoch_pbar:
+            self.model.train()
+            self.model.debug_mode = (epoch == 0 and batch_size == total_samples)
+            total_train_loss = 0
+            batch_losses = []
+            hidden_state, cell_state = None, None
+            for batch_idx in range(num_batches):
+                batch_start = batch_idx * batch_size
+                batch_end = min((batch_idx + 1) * batch_size, total_samples)
+                actual_batch_size = batch_end - batch_start
+                x_batch = x_train[:, batch_start:batch_end, :]
+                y_batch = y_train[:, batch_start:batch_end, :]
+                self.optimizer.zero_grad()
+                
+                # Updated forward pass to include y_true for anomaly detection
+                outputs, hidden_state, cell_state, z_scores, anomaly_flags, anomaly_probs = self.model(
+                    x_batch, 
+                    hidden_state, 
+                    cell_state,
+                    use_predictions=True,
+                    alternating_weeks=True,
+                    y_true=y_batch  # Pass true values for anomaly detection
+                )
+                
+                # Detach states to prevent gradient accumulation across batches
+                if hidden_state is not None:
+                    hidden_state = hidden_state.detach()
+                if cell_state is not None:
+                    cell_state = cell_state.detach()
+                    
+                mask = ~torch.isnan(y_batch)
+                warmup_length = self.config.get('warmup_length', 0)
+                if warmup_length > 0:
+                    warmup_mask = torch.ones_like(mask, dtype=torch.bool)
+                    warmup_mask[:, :warmup_length, :] = False
+                    mask = mask & warmup_mask
+                if mask.any():
+                    mse_loss = self.criterion(outputs[mask], y_batch[mask])
+                    
+                    # --- Statistical anomaly loss using only z-scores ---
+                    if train_anomaly_flags is not None:
+                        # Get the true anomaly flags for this batch
+                        true_flags = train_anomaly_flags[batch_start:batch_end]
+                        true_flags_tensor = torch.tensor(true_flags, dtype=torch.float32, device=self.device)
+                        
+                        # Use z-scores as logits for anomaly detection
+                        z_scores_flat = z_scores.flatten()
+                        true_flags_flat = true_flags_tensor
+                        
+                        # Create valid mask for anomaly detection
+                        valid_anomaly_mask = (~torch.isnan(z_scores_flat) & 
+                                            ~torch.isnan(true_flags_flat) & 
+                                            ~torch.isnan(y_batch.flatten()))
+                        
+                        if valid_anomaly_mask.any():
+                            n_pos = true_flags_flat[valid_anomaly_mask].sum().item()
+                            n_total = valid_anomaly_mask.sum().item()
+                            n_neg = n_total - n_pos
+                            
+                            if n_pos > 0:
+                                # Calculate pos_weight for class imbalance
+                                weight_factor = self.config.get('weight_factor', 5)
+                                pos_weight = torch.tensor([max(n_neg / n_pos, 1.0) * weight_factor], device=self.device)
+                                
+                                # Statistical anomaly loss using z-scores as logits
+                                z_scores_clamped = torch.clamp(z_scores_flat[valid_anomaly_mask], -10, 10)
+                                bce_z_loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+                                statistical_bce_loss = bce_z_loss_fn(
+                                    z_scores_clamped, 
+                                    true_flags_flat[valid_anomaly_mask]
+                                )
+                                
+                                # Only use statistical anomaly loss
+                                total_anomaly_loss = statistical_bce_loss
+                                
+                                # Combine with MSE loss
+                                bce_weight = self.config.get('bce_weight', 1.0)  # Weight for anomaly detection loss
+                                total_loss = mse_loss + bce_weight * total_anomaly_loss
+                                
+                                if batch_idx == 0:  # Only print for first batch to avoid spam
+                                    print(f"MSE: {mse_loss.item():.4f}, Statistical BCE: {statistical_bce_loss.item():.4f}, Total: {total_loss.item():.4f}")
+                                    print(f"    Anomaly stats: {n_pos}/{n_total} positive samples, pos_weight: {pos_weight.item():.2f}")
+                            else:
+                                total_loss = mse_loss
+                                if batch_idx == 0:
+                                    print(f"MSE: {mse_loss.item():.4f}, No anomalies in batch, Total: {total_loss.item():.4f}")
+                        else:
+                            total_loss = mse_loss
+                            if batch_idx == 0:
+                                print(f"MSE: {mse_loss.item():.4f}, No valid anomaly mask, Total: {total_loss.item():.4f}")
+                    else:
+                        total_loss = mse_loss
+                        if batch_idx == 0:
+                            print(f"MSE: {mse_loss.item():.4f}, No anomaly flags provided, Total: {total_loss.item():.4f}")
+                else:
+                    continue  # Skip this batch if no valid samples
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                self.optimizer.step()
+                batch_loss = total_loss.item()
+                total_train_loss += batch_loss
+                batch_losses.append(batch_loss)
+            
+            # Calculate average training loss for the epoch
+            avg_train_loss = total_train_loss / max(1, num_batches)
+            history['train_loss'].append(avg_train_loss)
+            
+            # Validation phase
+            self.model.eval()
+            # Enable debug mode for validation only in first epoch
+            self.model.debug_mode = (epoch == 0)
+            
+            with torch.no_grad():
+                # Reset states
+                hidden_state, cell_state = None, None
+                
+                # Get predictions
+                val_outputs, _, _, val_z_scores, val_model_anomaly_flags, val_anomaly_probs = self.model(
+                    x_val, 
+                    hidden_state, 
+                    cell_state,
+                    use_predictions=False,  # Use original data for validation
+                    y_true=y_val  # Pass true values for anomaly detection
+                )
+                
+                mask = ~torch.isnan(y_val)
+                if mask.any():
+                    val_mse_loss = self.criterion(val_outputs[mask], y_val[mask])
+                    
+                    # Add anomaly detection loss to validation (same as training)
+                    if val_anomaly_flags is not None:
+                        # Get the true anomaly flags for validation
+                        # val_anomaly_flags should be a 1D array matching the validation sequence length
+                        if isinstance(val_anomaly_flags, torch.Tensor):
+                            true_flags_tensor = val_anomaly_flags.clone().detach().to(self.device)
+                        else:
+                            true_flags_tensor = torch.tensor(val_anomaly_flags, dtype=torch.float32, device=self.device)
+                        
+                        # Use z-scores as logits for anomaly detection
+                        z_scores_flat = val_z_scores.flatten()
+                        true_flags_flat = true_flags_tensor.flatten()  # Ensure it's flat
+                        
+                        # Create valid mask for anomaly detection
+                        valid_anomaly_mask = (~torch.isnan(z_scores_flat) & 
+                                            ~torch.isnan(true_flags_flat) & 
+                                            ~torch.isnan(y_val.flatten()))
+                        
+                        if valid_anomaly_mask.any():
+                            n_pos = true_flags_flat[valid_anomaly_mask].sum().item()
+                            
+                            if n_pos > 0:
+                                # Calculate pos_weight for class imbalance (same as training)
+                                n_total = valid_anomaly_mask.sum().item()
+                                n_neg = n_total - n_pos
+                                weight_factor = self.config.get('weight_factor', 5)
+                                pos_weight = torch.tensor([max(n_neg / n_pos, 1.0) * weight_factor], device=self.device)
+                                
+                                # Statistical anomaly loss using z-scores as logits
+                                z_scores_clamped = torch.clamp(z_scores_flat[valid_anomaly_mask], -10, 10)
+                                bce_z_loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+                                val_statistical_bce_loss = bce_z_loss_fn(
+                                    z_scores_clamped, 
+                                    true_flags_flat[valid_anomaly_mask]
+                                )
+                                
+                                # Combine with MSE loss (same as training)
+                                bce_weight = self.config.get('bce_weight', 1.0)
+                                val_loss = val_mse_loss + bce_weight * val_statistical_bce_loss
+                                
+                                if epoch == 0:  # Print details for first epoch
+                                    print(f"Validation - MSE: {val_mse_loss.item():.4f}, Statistical BCE: {val_statistical_bce_loss.item():.4f}, Total: {val_loss.item():.4f}")
+                            else:
+                                val_loss = val_mse_loss
+                        else:
+                            val_loss = val_mse_loss
+                    else:
+                        val_loss = val_mse_loss
+                    
+                    val_loss = val_loss.item()
+                else:
+                    val_loss = float('inf')
+                
+                history['val_loss'].append(val_loss)
+                
+                # Update epoch progress bar
+                epoch_pbar.set_postfix({
+                    'train_loss': f"{avg_train_loss:.6f}",
+                    'val_loss': f"{val_loss:.6f}",
+                    'best_val_loss': f"{best_val_loss:.6f}"
+                })
+                
+                # Print epoch results
+                print(f"\nEpoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.6f}, Val Loss: {val_loss:.6f}")
+                if val_loss < best_val_loss:
+                    print(f"New best validation loss: {best_val_loss:.6f}")
+                
+                # Check for improvement
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    best_model_state = self.model.state_dict().copy()
+                    best_val_predictions = val_outputs.detach().cpu()
+                    best_val_z_scores = val_z_scores.detach().cpu()
+                    best_val_anomaly_flags = val_model_anomaly_flags.detach().cpu()
+                    # Handle case where anomaly_probs is None (simplified model)
+                    best_val_anomaly_probs = val_anomaly_probs.detach().cpu() if val_anomaly_probs is not None else None
+                else:
+                    patience_counter += 1
+                    print(f"Patience: {patience_counter}/{self.config.get('patience', 5)}")
+                    if patience_counter >= self.config.get('patience', 5):
+                        print(f"Early stopping at epoch {epoch+1}")
+                        break
+        
+        # Restore best model
+        if best_model_state:
+            self.model.load_state_dict(best_model_state)
+        
+        # Clean up CUDA memory if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            memory_allocated = torch.cuda.memory_allocated() / 1024**3
+            memory_reserved = torch.cuda.memory_reserved() / 1024**3
+            print(f"\n🖥️  GPU Memory after training:")
+            print(f"   Allocated: {memory_allocated:.2f} GB")
+            print(f"   Reserved: {memory_reserved:.2f} GB")
+        
+        return history, best_val_predictions, y_val.cpu(), best_val_z_scores, best_val_anomaly_flags, best_val_anomaly_probs
+    
+    def predict(self, test_df, num_steps=None, use_predictions=True):
+        """
+        Generate predictions using the trained model.
+        
+        Args:
+            test_df: Test DataFrame
+            num_steps: Number of steps to predict (if None, predict entire sequence)
+            use_predictions: Whether to use model's own predictions as input
+            
+        Returns:
+            predictions: Model predictions
+            predictions_scaled: Scaled predictions  
+            y_test: Original targets
+            z_scores: Anomaly z-scores
+            anomaly_flags: Binary anomaly flags
+            anomaly_probs: Predicted anomaly probabilities
+        """
+        # Prepare test data
+        x_test, y_test = self.prepare_sequences(test_df, is_training=False)
+        x_test = x_test.to(self.device)
+        y_test_tensor = torch.from_numpy(y_test).to(self.device)  # Fix tensor creation warning
+        
+        # Set model to evaluation mode
+        self.model.eval()
+        
+        # Determine prediction length
+        if num_steps is None:
+            num_steps = x_test.shape[1]
+        
+        with torch.no_grad():
+            # Initialize hidden and cell states
+            hidden_state, cell_state = self.model.init_hidden(x_test.shape[0], self.device)
+            
+            # Generate predictions with anomaly detection
+            outputs, _, _, z_scores, anomaly_flags, anomaly_probs = self.model(
+                x_test, 
+                hidden_state, 
+                cell_state,
+                use_predictions=use_predictions,
+                y_true=y_test_tensor
+            )
+            
+            # Convert predictions back to original scale
+            predictions_scaled = outputs.cpu().numpy()
+            y_test_np = y_test
+            
+            # Reshape predictions for sklearn's inverse_transform (expects 2D)
+            original_shape = predictions_scaled.shape
+            predictions_reshaped = predictions_scaled.reshape(-1, predictions_scaled.shape[-1])
+            
+            # Inverse transform predictions using our target_scaler
+            predictions_inverse = self.target_scaler.inverse_transform(predictions_reshaped)
+            predictions = predictions_inverse.reshape(original_shape)
+            
+            # Convert anomaly information to numpy
+            z_scores_np = z_scores.cpu().numpy()
+            anomaly_flags_np = anomaly_flags.cpu().numpy()
+            # Handle case where anomaly_probs is None (simplified model)
+            anomaly_probs_np = anomaly_probs.cpu().numpy() if anomaly_probs is not None else None
+            
+            return predictions, predictions_scaled, y_test_np, z_scores_np, anomaly_flags_np, anomaly_probs_np
+    
+    def load_data(self, project_root, station_id):
+        """
+        Custom data loading function for the alternating model that uses both primary station
+        and configured feature stations.
+        
+        NaN handling:
+        - Temperature: Forward fill, backward fill, then 30-day aggregation
+        - Rainfall: Fill NaN with -1
+        - vst_raw_feature: Fill NaN with -1
+        - vst_raw (target): Keep NaN values (handled in loss calculation)
+        
+        Args:
+            project_root: Path to project root
+            station_id: Station ID to process
+            
+        Returns:
+            train_data, val_data, test_data: DataFrames for training, validation, and testing
+        """
+        print(f"\nLoading data for station {station_id}...")
+        
+        # Load the preprocessed data
+        data_dir = project_root / "data_utils" / "Sample data"
+        data = pd.read_pickle(data_dir / "preprocessed_data.pkl")
+
+        # Check if station_id exists in the data dictionary
+        station_data = data.get(station_id)
+        if not station_data:
+            raise ValueError(f"Station ID {station_id} not found in the data.")
+
+        # Initialize DataFrame with only the features specified in config
+        df = pd.DataFrame(index=station_data[list(station_data.keys())[0]].index)
+        
+        # Add only the features specified in config['feature_cols']
+        for feature in self.config['feature_cols']:
+            if feature in station_data:
+                df[feature] = station_data[feature][feature]
+            else:
+                raise ValueError(f"Feature {feature} not found in station data")
+        
+        # Add target column
+        if self.config['output_features'][0] in station_data:
+            df[self.config['output_features'][0]] = station_data[self.config['output_features'][0]][self.config['output_features'][0]]
+        else:
+            raise ValueError(f"Target feature {self.config['output_features'][0]} not found in station data")
+        
+        # Add feature station data if configured
+        if self.config.get('feature_stations'):
+            print("\nAdding feature station data:")
+            for station in self.config['feature_stations']:
+                feature_station_id = station['station_id']
+                feature_station_data = data.get(feature_station_id)
+                
+                if not feature_station_data:
+                    raise ValueError(f"Feature station ID {feature_station_id} not found in the data.")
+                
+                # Add each requested feature from the feature station
+                for feature in station['features']:
+                    if feature not in feature_station_data:
+                        raise ValueError(f"Feature {feature} not found in station {feature_station_id}")
+                        
+                    feature_name = f"feature_station_{feature_station_id}_{feature}"
+                    df[feature_name] = feature_station_data[feature][feature]
+                    print(f"  - Added {feature} from station {feature_station_id}")
+        
+        # Print basic feature information
+        print("\nInput Features Summary:")
+        print("----------------------")
+        print("Using features from:")
+        print("  - Primary station:")
+        for feature in self.config['feature_cols']:
+            print(f"    * {feature}")
+        
+        if self.config.get('feature_stations'):
+            print("  - Feature stations:")
+            for station in self.config['feature_stations']:
+                print(f"    * Station {station['station_id']}:")
+                for feature in station['features']:
+                    print(f"      - {feature}")
+        
+        print("\nFeature engineering settings:")
+        print(f"  - Using time features: {self.config.get('use_time_features', False)}")
+        print(f"  - Using cumulative features: {self.config.get('use_cumulative_features', False)}")
+        print(f"  - Using lagged features: {self.config.get('use_lagged_features', False)}")
+        print("----------------------\n")
+
+        # Set date range
+        start_date = pd.Timestamp('2020-01-04')
+        end_date = pd.Timestamp('2025-01-07')
+        
+        # Cut dataframe to date range
+        df = df[(df.index >= start_date) & (df.index <= end_date)]
+        
+        # Handle NaN values for input features
+        print("\nHandling NaN values:")
+        print("  - Temperature: Forward fill, backward fill, then 30-day aggregation")
+        df.loc[:, 'temperature'] = df['temperature'].ffill().bfill()
+        df.loc[:, 'temperature'] = df['temperature'].rolling(window=30, min_periods=1).mean()
+        
+        print("  - Rainfall: Fill NaN with -1")
+        df.loc[:, 'rainfall'] = df['rainfall'].fillna(-1)
+        
+        print("  - vst_raw_feature: Fill NaN with -1")
+        df.loc[:, 'vst_raw_feature'] = df['vst_raw_feature'].fillna(-1)
+        
+        # Fill NaN values for feature station data
+        if self.config.get('feature_stations'):
+            print("  - Feature station data: Fill NaN with -1")
+            for station in self.config['feature_stations']:
+                for feature in station['features']:
+                    col_name = f"feature_station_{station['station_id']}_{feature}"
+                    if col_name in df.columns:
+                        df.loc[:, col_name] = df[col_name].fillna(-1)
+        
+        print("  - Target (vst_raw): Keep NaN values (handled in loss calculation)")
+        
+        # Add time-based features if enabled
+        if self.config.get('use_time_features', False):
+            print("\nAdding time-based features...")
+            df = self.preprocessor.feature_engineer._add_time_features(df)
+            print(f"  - Added time features: {[col for col in df.columns if col in ['month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos']]}")
+        
+        # Add cumulative features if enabled
+        if self.config.get('use_cumulative_features', False):
+            print("\nAdding cumulative features...")
+            df = self.preprocessor.feature_engineer._add_cumulative_features(df)
+            print(f"  - Added cumulative rainfall features")
+        
+        # Add lagged features if enabled
+        if self.config.get('use_lagged_features', False) and 'lag_hours' in self.config:
+            print("\nAdding lagged features...")
+            df = self.preprocessor.feature_engineer.add_lagged_features(
+                df,
+                target_col=self.config['output_features'][0],
+                lags=self.config['lag_hours']
+            )
+            print(f"  - Added lagged features for hours: {self.config['lag_hours']}")
+        
+        # Store all the feature columns to use
+        all_columns = [col for col in df.columns if col not in self.config['output_features']]
+        self.all_feature_cols = all_columns
+        
+        print(f"\nAll available feature columns ({len(self.all_feature_cols)}): {self.all_feature_cols}")
+        
+        # Initialize the model with the correct input size based on all features
+        input_size = len(self.all_feature_cols)
+        print(f"Initializing model with input size: {input_size}")
+        
+        self.model = AlternatingForecastModel(
+            input_size=input_size,  # Use total number of features
+            hidden_size=self.config['hidden_size'],
+            output_size=1,  # Always predict 1 time step ahead for water level
+            dropout=self.config['dropout'],
+            config=self.config  # Pass config to the model
+        ).to(self.device)
+        
+        # Initialize optimizer after model creation
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.config.get('learning_rate'))
+        #Print features in the model
+        print(f"\nFeatures in the model: {df.columns}")
+        print(f"\nTotal features after engineering: {len(df.columns)}")
+        
+        # Split data based on years
+        test_data = df[(df.index.year == 2024)]
+        
+        # Check if quick mode is enabled
+        if self.config.get('quick_mode', False):
+            print("\n*** QUICK MODE ENABLED ***")
+            print("Using reduced dataset: 3 years training, 1 year validation")
+            
+            # Use only 2021 for validation in quick mode
+            val_data = df[(df.index.year == 2022)]
+            
+            # Use only 2018-2020 for training in quick mode (4 years)
+            train_data = df[(df.index.year >= 2018) & (df.index.year <= 2021)]
+            
+            print("Quick mode data ranges:")
+            print(f"  - Training: 2018-2021 (4 years)")
+            print(f"  - Validation: 2022 (1 year)")
+            print(f"  - Test: 2024 (unchanged)")
+        else:
+            # Standard mode: use more data
+            val_data = df[(df.index.year >= 2022) & (df.index.year <= 2023)]  # Validation: 2022-2023
+            train_data = df[df.index.year < 2022]  # Training: before 2022
+        
+        # Print NaN values in each split after all handling
+        print("\nNaN values in data splits (after handling):")
+        print("----------------------------------------")
+        for split_name, split_data in [("Training", train_data), ("Validation", val_data), ("Test", test_data)]:
+            print(f"\n{split_name} data:")
+            for col in split_data.columns:
+                nan_count = split_data[col].isna().sum()
+                if nan_count > 0:
+                    print(f"  {col}: {nan_count} NaN values ({nan_count/len(split_data)*100:.2f}%)")
+        
+        print(f"\nSplit Summary:")
+        print(f"Training period: {train_data.index.min().year} - {train_data.index.max().year}")
+        print(f"Validation period: {val_data.index.min().year} - {val_data.index.max().year}")
+        print(f"Test year: {test_data.index.min().year}")
+        
+        print(f'\nData shapes:')
+        print(f'Total data: {df.shape}')
+        print(f'Train data: {train_data.shape}')
+        print(f'Validation data: {val_data.shape}')
+        print(f'Test data: {test_data.shape}')
+        
+        return train_data, val_data, test_data 
