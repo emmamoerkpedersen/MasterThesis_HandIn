@@ -13,7 +13,7 @@ ALTERNATING_CONFIG = {
     'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
     'epochs': 150,              # More epochs for better convergence
     'patience': 5,
-    'learning_rate': 0.001,
+    'learning_rate': 0.0003,
     # Forecasting parameters
     'warmup_length': 672,
     # Anomaly detection parameters

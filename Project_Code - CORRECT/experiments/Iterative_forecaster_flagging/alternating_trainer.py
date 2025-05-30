@@ -363,7 +363,7 @@ class AlternatingTrainer:
                     loss.backward()
                     
                     # Clip gradients to prevent explosion
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                     
                     self.optimizer.step()
                     

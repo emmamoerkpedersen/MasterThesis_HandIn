@@ -101,7 +101,7 @@ class AlternatingForecastModel(nn.Module):
         last_good_cell_state = cell_state.clone()
         
         # memory_decay = 0.1 means: during anomalies, accept only 10% new info, keep 90% old good memory
-        memory_decay = 0.1  
+        memory_decay = 0.3 
         
         # Find which column contains the anomaly flags (0=normal, 1=anomaly)
         if feature_names is not None and self.anomaly_flag_idx is None:
@@ -146,15 +146,18 @@ class AlternatingForecastModel(nn.Module):
             # -----------------------------------------------
             # STEP 4: MEMORY PROTECTION DECISION
             # -----------------------------------------------
+            # -----------------------------------------------
             if is_anomalous.any():
                 # ANOMALY DETECTED: Protect memory by blending
-                # Keep 90% of old good memory + 10% of new (potentially corrupted) memory
-                cell_state = last_good_cell_state * (1 - memory_decay) + new_cell_state * memory_decay
+                # Keep 70% of old good memory + 30% of new (potentially corrupted) memory
+                new_cell_blend = last_good_cell_state * (1 - memory_decay) + new_cell_state * memory_decay
+                
+                # Add exponential smoothing to make transitions more gradual
+                smoothing_factor = 0.1
+                cell_state = cell_state * (1 - smoothing_factor) + new_cell_blend * smoothing_factor
                 
                 # Update hidden state normally (it's less critical than cell state for long-term memory)
                 hidden_state = new_hidden_state
-                
-                # Don't update the backup - keep using the last known good state
             else:
                 # NORMAL OPERATION: Update everything and save this as new "good" backup
                 hidden_state = new_hidden_state
@@ -230,7 +233,7 @@ class AlternatingForecastModel(nn.Module):
         # ===============================
         normal_weight = 1.0      # Full weight during normal periods
         anomaly_weight = self.anomaly_weight  # Reduced weight (0.3) during anomalies
-        pattern_weight = 2.0     # Pattern consistency is twice as important as basic accuracy
+        pattern_weight = 0.5     # REDUCED from 2.0 to 0.5 to prevent oscillations
         
         # Create weight mask: anomalous periods get lower weight
         weights = torch.where(anomaly_flags.bool(), 
