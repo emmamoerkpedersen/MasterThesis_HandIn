@@ -275,7 +275,7 @@ def run_alternating_model(args):
             title_suffix=viz_title_suffix,
             output_dir=exp_dirs['visualizations']
         )
-    '''
+    
     # Calculate anomalies for the validation set
     print("\nGenerating anomaly detection analysis...")
     
@@ -391,7 +391,7 @@ def run_alternating_model(args):
         print(f"\nSkipping comprehensive evaluation (no synthetic errors injected or error generator unavailable)")
 
     print(f"\nAll anomaly detection analysis completed!")
-    '''
+    
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics
     valid_mask = ~np.isnan(original_val_data['vst_raw'].values)
