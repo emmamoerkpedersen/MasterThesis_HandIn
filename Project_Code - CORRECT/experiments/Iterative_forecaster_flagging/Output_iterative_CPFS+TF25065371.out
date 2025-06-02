@@ -1,0 +1,141 @@
+/zhome/ff/b/147446/MasterThesis/Project_Code - CORRECT/experiments/iterative_forecaster
+
+🎲 Setting random seeds to 42 for reproducible results
+   ✅ Python random seed: 42
+   ✅ NumPy random seed: 42
+   ✅ PyTorch random seed: 42
+==================================================
+
+Experiment directories created under: /zhome/ff/b/147446/MasterThesis/Project_Code - CORRECT/results/Iterative model results/experiment_CPFS+TF
+
+Model Configuration:
+  hidden_size: 24
+  dropout: 0.25
+  batch_size: 7392
+  epochs: 300
+  patience: 15
+  learning_rate: 0.001
+  warmup_length: 672
+  threshold: 15.0
+  window_size: 1500
+  week_steps: 672
+  quick_mode: False
+  objective_function: mae_loss
+  use_time_features: True
+  use_cumulative_features: True
+
+Initializing trainer...
+
+🖥️  Device Information:
+   Using device: cpu
+   CUDA not available, using CPU
+==================================================
+Using features: ['vst_raw_feature', 'temperature', 'rainfall']
+
+Loading data for station 21006846...
+
+Loading data for station 21006846...
+
+Input Features Summary:
+----------------------
+Using features from:
+  - Primary station:
+    * vst_raw_feature
+    * temperature
+    * rainfall
+
+Feature engineering settings:
+  - Using time features: True
+  - Using cumulative features: True
+  - Using lagged features: False
+----------------------
+
+
+Handling NaN values:
+  - Temperature: Forward fill, backward fill, then 30-day aggregation
+  - Rainfall: Fill NaN with -1
+  - vst_raw_feature: Fill NaN with -1
+  - Target (vst_raw): Keep NaN values (handled in loss calculation)
+
+Adding time-based features...
+  - Added time features: ['month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos']
+
+Adding cumulative features...
+  - Added cumulative rainfall features
+
+All available feature columns (11): ['vst_raw_feature', 'temperature', 'rainfall', 'month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos', 'station_46_rain_1hour', 'station_46_rain_7hour', 'station_46_rain_48hour', 'station_46_rain_90hour']
+Initializing model with input size: 11
+
+Features in the model: Index(['vst_raw_feature', 'temperature', 'rainfall', 'vst_raw', 'month_sin',
+       'month_cos', 'day_of_year_sin', 'day_of_year_cos',
+       'station_46_rain_1hour', 'station_46_rain_7hour',
+       'station_46_rain_48hour', 'station_46_rain_90hour'],
+      dtype='object')
+
+Total features after engineering: 12
+
+NaN values in data splits (after handling):
+----------------------------------------
+
+Training data:
+  vst_raw: 73463 NaN values (17.85%)
+
+Validation data:
+  vst_raw: 5 NaN values (0.01%)
+
+Test data:
+
+Split Summary:
+Training period: 2010 - 2021
+Validation period: 2022 - 2023
+Test year: 2024
+
+Data shapes:
+Total data: (517240, 12)
+Train data: (411488, 12)
+Validation data: (70078, 12)
+Test data: (35136, 12)
+
+No synthetic errors injected.
+
+Training model...
+
+Preparing training and validation data...
+
+Preparing sequences:
+Input DataFrame shape: (411488, 12)
+Using all available features: 11 features
+Features: ['vst_raw_feature', 'temperature', 'rainfall', 'month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos', 'station_46_rain_1hour', 'station_46_rain_7hour', 'station_46_rain_48hour', 'station_46_rain_90hour']
+Features DataFrame shape: (411488, 11)
+Target DataFrame shape: (411488, 1)
+Fitted scalers on 338025 valid target points
+Scaled features shape: (411488, 11)
+
+NaN values in final tensors:
+--------------------------
+Target: 73463 NaN values (17.85%)
+Prepared tensors - x_shape: torch.Size([1, 411488, 11]), y_shape: torch.Size([1, 411488, 1])
+
+Preparing sequences:
+Input DataFrame shape: (70078, 12)
+Using all available features: 11 features
+Features: ['vst_raw_feature', 'temperature', 'rainfall', 'month_sin', 'month_cos', 'day_of_year_sin', 'day_of_year_cos', 'station_46_rain_1hour', 'station_46_rain_7hour', 'station_46_rain_48hour', 'station_46_rain_90hour']
+Features DataFrame shape: (70078, 11)
+Target DataFrame shape: (70078, 1)
+Scaled features shape: (70078, 11)
+
+NaN values in final tensors:
+--------------------------
+Target: 5 NaN values (0.01%)
+Prepared tensors - x_shape: torch.Size([1, 70078, 11]), y_shape: torch.Size([1, 70078, 1])
+
+Training data shapes:
+x_train: torch.Size([1, 411488, 11])
+y_train: torch.Size([1, 411488, 1])
+x_val: torch.Size([1, 70078, 11])
+y_val: torch.Size([1, 70078, 1])
+
+Training configuration:
+Total samples: 411488
+Batch size: 7392
+Number of batches per epoch: 56
