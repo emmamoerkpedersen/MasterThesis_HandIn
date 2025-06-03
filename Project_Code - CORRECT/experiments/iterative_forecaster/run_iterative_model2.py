@@ -20,7 +20,7 @@ from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from experiments.iterative_forecaster.iterative_trainer2 import AlternatingTrainer
 from _3_lstm_model.model_diagnostics import generate_all_diagnostics
 
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence
+from _3_lstm_model.model_plots import create_full_plot, plot_convergence, create_synthetic_error_zoom_plots
 from _4_anomaly_detection.anomaly_visualization import (
     plot_water_level_anomalies, 
     calculate_anomaly_confidence, 
@@ -39,7 +39,7 @@ def parse_arguments():
     parser.add_argument('--quick_mode', action='store_true', help='Enable quick mode with reduced data (3 years training, 1 year validation)')
     parser.add_argument('--error_type', type=str, default='both', choices=['both', 'train', 'validation', 'none'],
                       help='Which datasets to inject errors into (both, train, validation, or none)')
-    parser.add_argument('--experiment', type=str, default='1', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
+    parser.add_argument('--experiment', type=str, default='Iterative_forecaster2_0', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducible results (default: 42)')
     parser.add_argument('--ground_truth_strategy', type=str, default='synthetic', choices=['synthetic', 'mad'],
                       help='Strategy for ground truth anomaly flags: synthetic (use synthetic error locations) or mad (use MAD-calculated flags). Default: synthetic')
@@ -388,6 +388,20 @@ def run_alternating_model(args):
         ground_truth_flags=val_flags
     )
 
+    # Create synthetic error zoom plots if errors were injected
+    if saved_error_generator is not None:
+        print("\nCreating synthetic error zoom plots...")
+        create_synthetic_error_zoom_plots(
+            val_data=val_data,
+            predictions=val_pred_df['vst_raw'].values,
+            error_generator=saved_error_generator,
+            station_id=args.station_id,
+            output_dir=anomaly_viz_dir,
+            original_val_data=original_val_data,
+            model_config=config
+        )
+    else:
+        print("\nNo error generator available for synthetic error zoom plots")
 
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics

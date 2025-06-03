@@ -15,7 +15,7 @@ sys.path.append(str(project_dir))
 # Import local modules
 from experiments.iterative_forecaster.alternating_config import ALTERNATING_CONFIG
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence
+from _3_lstm_model.model_plots import create_full_plot, plot_convergence, create_synthetic_error_zoom_plots
 from _4_anomaly_detection.z_score import calculate_z_scores_mad
 from _4_anomaly_detection.anomaly_visualization import (
     plot_water_level_anomalies, 
@@ -369,6 +369,18 @@ def run_alternating_model(args):
                 output_dir=anomaly_viz_dir,
                 original_val_data=original_val_data  # Pass original validation data
             )
+            
+            # Create synthetic error zoom plots (without anomaly detection elements)
+            print("\nCreating synthetic error zoom plots...")
+            create_synthetic_error_zoom_plots(
+                val_data=val_data,
+                predictions=val_pred_df['vst_raw'].values,
+                error_generator=saved_error_generator,
+                station_id=args.station_id,
+                output_dir=anomaly_viz_dir,
+                original_val_data=original_val_data,
+                model_config=config
+            )
         else:
             print("\nNo error generator available for zoom plots")
     
@@ -392,6 +404,21 @@ def run_alternating_model(args):
 
     print(f"\nAll anomaly detection analysis completed!")
     
+    # CREATE SYNTHETIC ERROR ZOOM PLOTS (INDEPENDENT OF ANOMALY DETECTION)
+    if args.error_multiplier is not None and args.error_type in ['both', 'validation'] and saved_error_generator is not None:
+        print("\nCreating synthetic error zoom plots (independent analysis)...")
+        create_synthetic_error_zoom_plots(
+            val_data=val_data,
+            predictions=val_pred_df['vst_raw'].values,
+            error_generator=saved_error_generator,
+            station_id=args.station_id,
+            output_dir=exp_dirs['visualizations'],  # Save to visualizations directory instead
+            original_val_data=original_val_data,
+            model_config=config
+        )
+    else:
+        print("\nNo synthetic errors injected - skipping synthetic error zoom plots")
+
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics
     valid_mask = ~np.isnan(original_val_data['vst_raw'].values)

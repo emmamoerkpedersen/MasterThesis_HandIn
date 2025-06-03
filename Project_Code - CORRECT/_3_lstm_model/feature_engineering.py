@@ -138,14 +138,14 @@ class FeatureEngineer:
         # Calculate cumulative rainfall for different windows
         # Using rolling windows with different sizes
         # Short windows
-        data.loc[:, 'station_46_rain_1hour'] = station_46_rain.rolling(window=1*4, min_periods=1).sum()
-        data.loc[:, 'station_46_rain_7hour'] = station_46_rain.rolling(window=7*4, min_periods=1).sum()
+        #data.loc[:, 'station_46_rain_1hour'] = station_46_rain.rolling(window=1*4, min_periods=1).sum()
+        #data.loc[:, 'station_46_rain_7hour'] = station_46_rain.rolling(window=7*4, min_periods=1).sum()
         data.loc[:, 'station_46_rain_48hour'] = station_46_rain.rolling(window=48*4, min_periods=1).sum()
         data.loc[:, 'station_46_rain_90hour'] = station_46_rain.rolling(window=90*4, min_periods=1).sum()
         # Longer windows
-        # data.loc[:, 'station_46_rain_1month'] = station_46_rain.rolling(window=30*24*4, min_periods=1).sum()
-        # data.loc[:, 'station_46_rain_3months'] = station_46_rain.rolling(window=90*24*4, min_periods=1).sum()
-        # data.loc[:, 'station_46_rain_6months'] = station_46_rain.rolling(window=180*24*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_1month'] = station_46_rain.rolling(window=30*24*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_3months'] = station_46_rain.rolling(window=90*24*4, min_periods=1).sum()
+        data.loc[:, 'station_46_rain_6months'] = station_46_rain.rolling(window=180*24*4, min_periods=1).sum()
         # data.loc[:, 'station_46_rain_1year'] = station_46_rain.rolling(window=365*24*4, min_periods=1).sum()
 
         # Calculate cumulative rainfall for feature stations as well
@@ -171,8 +171,10 @@ class FeatureEngineer:
 
         # Fill potential NaN values created by rolling operations with forward fill then backward fill
         cumulative_cols = [
-            'station_46_rain_1hour', 'station_46_rain_7hour', 'station_46_rain_48hour', 'station_46_rain_90hour',
-           # 'station_46_rain_1month', 'station_46_rain_3months', 'station_46_rain_6months', 'station_46_rain_1year',
+            #'station_46_rain_1hour', 'station_46_rain_7hour', 
+            'station_46_rain_48hour', 'station_46_rain_90hour',
+           'station_46_rain_1month', 'station_46_rain_3months', 'station_46_rain_6months', 
+           # 'station_46_rain_1year',
             #'station_45_rain_1hour', 'station_47_rain_1hour', 'station_45_rain_7hour', 'station_47_rain_7hour', 'station_45_rain_48hour', 'station_47_rain_48hour', 'station_45_rain_90hour', 'station_47_rain_90hour',
             #'station_45_rain_1month', 'station_47_rain_1month', 'station_45_rain_3months', 'station_47_rain_3months', 'station_45_rain_6months', 'station_47_rain_6months', 'station_45_rain_1year', 'station_47_rain_1year'
         ]

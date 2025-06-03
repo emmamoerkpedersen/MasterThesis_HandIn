@@ -15,7 +15,7 @@ project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
 from _3_lstm_model.objective_functions import get_objective_function
-from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
+from experiments.Iterative_forecaster_flagging.alternating_forecast_model import AlternatingForecastModel
 
 class AlternatingTrainer:
     """

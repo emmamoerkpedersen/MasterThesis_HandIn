@@ -16,9 +16,10 @@ ALTERNATING_CONFIG = {
     'learning_rate': 0.0003,
     # Forecasting parameters
     'warmup_length': 672,
-    # Anomaly detection parameters
-    'threshold': 15.0,          # For evaluation/visualization
-    'window_size': 1500,        # Window size for MAD calculation
+
+    # MAD calculation parameters
+    'mad_threshold': 15.0,          # For evaluation/visualization
+    'mad_window': 1500,        # Window size for MAD calculation
     
     'week_steps': 672,
     # Quick mode for faster training with reduced data

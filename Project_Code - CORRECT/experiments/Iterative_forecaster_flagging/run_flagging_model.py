@@ -13,18 +13,18 @@ project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
 # Import local modules
-from experiments.iterative_forecaster.alternating_config import ALTERNATING_CONFIG
-from experiments.iterative_forecaster.simple_anomaly_detector import SimpleAnomalyDetector
+from experiments.Iterative_forecaster_flagging.alternating_config import ALTERNATING_CONFIG
+from experiments.Iterative_forecaster_flagging.simple_anomaly_detector import SimpleAnomalyDetector
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from _3_lstm_model.model_plots import create_full_plot, plot_convergence
 from _4_anomaly_detection.z_score import calculate_z_scores_mad
+from _4_anomaly_detection.mad_outlier import mad_outlier_flags
 from _4_anomaly_detection.anomaly_visualization import (
     plot_water_level_anomalies, 
     calculate_anomaly_confidence, 
     create_anomaly_zoom_plots
 )
-from experiments.iterative_forecaster.alternating_trainer import AlternatingTrainer
-from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
+from experiments.Iterative_forecaster_flagging.alternating_trainer import AlternatingTrainer
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -38,6 +38,8 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--use_perfect_flags', action='store_true', default=True, help='Use perfect anomaly flags')
     parser.add_argument('--anomaly_weight', type=float, default=0.3, help='Weight for anomalous periods in loss')
+    parser.add_argument('--flag_method', type=str, choices=['synthetic', 'mad'], default='synthetic',
+                      help='Method for generating true anomaly flags: synthetic (from error injection) or mad (MAD outlier detection)')
     return parser.parse_args()
 
 def setup_experiment_directories(project_dir, experiment_name):
@@ -97,6 +99,10 @@ def run_flagging_model(args):
     print(f"  use_weighted_loss: {config['use_weighted_loss']}")
     print(f"  anomaly_weight: {config['anomaly_weight']}")
     print(f"  use_perfect_flags: {config['use_perfect_flags']}")
+    print(f"  flag_method: {args.flag_method}")
+    if args.flag_method == 'mad':
+        print(f"  mad_threshold: {config['mad_threshold']}")
+        print(f"  mad_window: {config['mad_window']}")
     print(f"  quick_mode: {config['quick_mode']}")
     print(f"  full_dataset_mode: {config['full_dataset_mode']}")
     print(f"  use_lagged_features: {config['use_lagged_features']}")
@@ -162,45 +168,86 @@ def run_flagging_model(args):
         window_size=config.get('anomaly_detection_window', 1500)
     )
     
-    # Add anomaly flags to data
-    if config['use_perfect_flags']:
-        print("\n🎯 Using PERFECT anomaly flags from known error locations")
+    # Add anomaly flags to data based on chosen method
+    if args.flag_method == 'synthetic':
+        print(f"\n🎯 Using SYNTHETIC ERROR FLAGS as true anomaly flags")
         
-        # Training flags
-        train_flags = detector.create_perfect_flags(
-            train_error_generator, len(train_data_with_features), train_data_with_features.index
+        if config['use_perfect_flags']:
+            print("   Using PERFECT flags from known synthetic error locations")
+            
+            # Training flags
+            train_flags = detector.create_perfect_flags(
+                train_error_generator, len(train_data_with_features), train_data_with_features.index
+            )
+            train_data_flagged = detector.add_anomaly_flags_to_dataframe(
+                train_data_with_features, train_flags, config['anomaly_flag_column']
+            )
+            
+            # Validation flags
+            val_flags = detector.create_perfect_flags(
+                val_error_generator, len(val_data_with_features), val_data_with_features.index
+            )
+            val_data_flagged = detector.add_anomaly_flags_to_dataframe(
+                val_data_with_features, val_flags, config['anomaly_flag_column']
+            )
+            
+        else:
+            print("   Using AUTOMATIC detection comparing corrupted vs original data")
+            
+            # Automatic detection
+            train_flags, _ = detector.detect_anomalies(
+                train_data_with_features['vst_raw'], original_train_data['vst_raw']
+            )
+            train_data_flagged = detector.add_anomaly_flags_to_dataframe(
+                train_data_with_features, train_flags, config['anomaly_flag_column']
+            )
+            
+            val_flags, _ = detector.detect_anomalies(
+                val_data_with_features['vst_raw'], original_val_data['vst_raw']
+            )
+            val_data_flagged = detector.add_anomaly_flags_to_dataframe(
+                val_data_with_features, val_flags, config['anomaly_flag_column']
+            )
+    
+    elif args.flag_method == 'mad':
+        print(f"\n🔍 Using MAD OUTLIER DETECTION as true anomaly flags")
+        print(f"   MAD threshold: {config['mad_threshold']}")
+        print(f"   MAD window size: {config['mad_window']}")
+        
+        # For MAD method, we use the original clean data to identify anomalies
+        # This simulates a scenario where we have clean reference data
+        
+        # Apply MAD outlier detection to original data
+        train_flags_mad, val_flags_mad, _, _, _, _ = mad_outlier_flags(
+            train_series=original_train_data['vst_raw'],
+            val_series=original_val_data['vst_raw'],
+            threshold=config['mad_threshold'],
+            window_size=config['mad_window']
         )
+        
+        # Convert to boolean arrays
+        train_flags = train_flags_mad.astype(bool)
+        val_flags = val_flags_mad.astype(bool)
+        
+        # Add flags to the corrupted data (which the model will train on)
         train_data_flagged = detector.add_anomaly_flags_to_dataframe(
             train_data_with_features, train_flags, config['anomaly_flag_column']
         )
         
-        # Validation flags
-        val_flags = detector.create_perfect_flags(
-            val_error_generator, len(val_data_with_features), val_data_with_features.index
-        )
         val_data_flagged = detector.add_anomaly_flags_to_dataframe(
             val_data_with_features, val_flags, config['anomaly_flag_column']
         )
         
+        print(f"   MAD detected {np.sum(train_flags)} anomalies in training data")
+        print(f"   MAD detected {np.sum(val_flags)} anomalies in validation data")
+    
     else:
-        print("\n🤖 Using AUTOMATIC anomaly detection")
-        
-        # Automatic detection
-        train_flags, _ = detector.detect_anomalies(
-            train_data_with_features['vst_raw'], original_train_data['vst_raw']
-        )
-        train_data_flagged = detector.add_anomaly_flags_to_dataframe(
-            train_data_with_features, train_flags, config['anomaly_flag_column']
-        )
-        
-        val_flags, _ = detector.detect_anomalies(
-            val_data_with_features['vst_raw'], original_val_data['vst_raw']
-        )
-        val_data_flagged = detector.add_anomaly_flags_to_dataframe(
-            val_data_with_features, val_flags, config['anomaly_flag_column']
-        )
+        raise ValueError(f"Unknown flag_method: {args.flag_method}")
     
     print(f"\n🏷️ Training model with anomaly flags...")
+    print(f"   Flag method: {args.flag_method}")
+    print(f"   Training anomalies: {np.sum(train_flags)} / {len(train_flags)}")
+    print(f"   Validation anomalies: {np.sum(val_flags)} / {len(val_flags)}")
     
     # Reinitialize model with correct input size for anomaly flags
     trainer.reinitialize_model_for_anomaly_flags(train_data_flagged)
@@ -372,6 +419,10 @@ if __name__ == "__main__":
     print(f"\n{'='*70}")
     print(f"🏷️ FLAGGING MODEL EXPERIMENT {args.experiment} COMPLETED!")
     print(f"{'='*70}")
+    print(f"Flag method: {args.flag_method}")
+    if args.flag_method == 'mad':
+        print(f"MAD threshold: {config['mad_threshold']}")
+        print(f"MAD window: {config['mad_window']}")
     print(f"Anomaly weight: {args.anomaly_weight}")
     print(f"Perfect flags: {args.use_perfect_flags}")
     print(f"Results saved to experiment_{args.experiment}")
