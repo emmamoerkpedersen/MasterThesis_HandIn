@@ -20,8 +20,9 @@ from _4_anomaly_detection.z_score import calculate_z_scores_mad
 from _4_anomaly_detection.anomaly_visualization import (
     plot_water_level_anomalies, 
     calculate_anomaly_confidence, 
-    create_anomaly_zoom_plots
+    create_anomaly_zoom_plots,
 )
+from experiments.iterative_forecaster.alternating_visualization import plot_zoom_comparison
 from experiments.iterative_forecaster.alternating_trainer import AlternatingTrainer
 from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
 
@@ -34,7 +35,7 @@ def parse_arguments():
     parser.add_argument('--quick_mode', action='store_true', help='Enable quick mode with reduced data (3 years training, 1 year validation)')
     parser.add_argument('--error_type', type=str, default='both', choices=['both', 'train', 'validation', 'none'],
                       help='Which datasets to inject errors into (both, train, validation, or none)')
-    parser.add_argument('--experiment', type=str, default='0', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
+    parser.add_argument('--experiment', type=str, default='baseline', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducible results (default: 42)')
     return parser.parse_args()
 
@@ -276,6 +277,28 @@ def run_alternating_model(args):
             output_dir=exp_dirs['visualizations']
         )
     
+
+    plot_zoom_comparison(
+        actual_data=val_data['vst_raw'],
+        predictions=val_pred_df['vst_raw'],
+        output_dir=exp_dirs['visualizations'],
+        station_id=args.station_id,
+        corrupted_data=None,
+        zoom_start=pd.Timestamp('2022-03-01'),
+        zoom_end=pd.Timestamp('2022-05-30'),
+        title_suffix="Validation Predictions - 2022",
+    )
+
+    plot_zoom_comparison(
+        actual_data=val_data['vst_raw'],
+        predictions=val_pred_df['vst_raw'],
+        output_dir=exp_dirs['visualizations'],
+        station_id=args.station_id,
+        corrupted_data=None,
+        zoom_start=pd.Timestamp('2023-04-01'),
+        zoom_end=pd.Timestamp('2023-05-30'),
+        title_suffix="Validation Predictions -2023",
+    )
     # Calculate anomalies for the validation set
     print("\nGenerating anomaly detection analysis...")
     
