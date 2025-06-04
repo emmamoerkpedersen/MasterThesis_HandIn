@@ -50,7 +50,7 @@ def detect_frost_periods(temperature_data, vst_data):
     current_period_start = None
     current_period_end = None
     points_removed_frost = 0  # Initialize counter for removed points
-    threshold = 150
+    threshold = 35
 
     for idx in range(len(temperature_data)):
         current_time = temperature_data.index[idx]
@@ -251,7 +251,12 @@ def preprocess_data():
     
     Returns:
         tuple: (preprocessed_data, original_data, frost_periods)
-    """
+    """    
+    # Define date range for analysis
+    start_date = pd.Timestamp('2010-01-04')
+    end_date = pd.Timestamp('2025-01-07')
+    
+    print(f"Analysis period: {start_date} to {end_date}")
     print("Loading raw station data...")
     All_station_data_original = load_all_station_data()
 
@@ -273,36 +278,42 @@ def preprocess_data():
     # Align data to common time index
     All_station_data = align_data(All_station_data)
     
-    # Count missing values in vst_raw for each station after alignment
-    print("\nMissing values in VST raw data after alignment (before spike/frost/flatline removal):")
+    # Filter data to specified date range after alignment
     for station_name, station_data in All_station_data.items():
-        if station_data['vst_raw'] is not None:
-            missing_count = station_data['vst_raw'].isna().sum().iloc[0]  # Get count for the first column
-            total_count = len(station_data['vst_raw'])
-            print(f"Station {station_name}:")
-            print(f"  - Total missing values: {missing_count}")
-            print(f"  - Total data points: {total_count}")
-            print(f"  - Percentage missing: {(missing_count/total_count)*100:.2f}%")
-        else:
-            print(f"Station {station_name}: No VST raw data available")
+        for data_type, df in station_data.items():
+            if df is not None and not df.empty:
+                # Filter to date range
+                mask = (df.index >= start_date) & (df.index <= end_date)
+                All_station_data[station_name][data_type] = df[mask]
     
     # Collect frost periods from all stations
     all_frost_periods = []
     
+    # Store statistics for tabular output
+    preprocessing_stats = {}
+    
     # Process each station's data
     for station_name, station_data in All_station_data.items():
+        if station_data['vst_raw'] is None or station_data['vst_raw'].empty:
+            continue
+            
+        # Store counts before processing for comparison
+        original_count = len(station_data['vst_raw'])
+        missing_count = station_data['vst_raw'].isna().sum().iloc[0]
+        
         # Detect and remove spikes
         station_data['vst_raw'], n_spikes, (lower_bound, upper_bound), avg_spike_intensity, avg_spike_duration, neg_pos_spike_ratio = remove_spikes(station_data['vst_raw'])
+        
         # Detect and remove flatlines
         station_data['vst_raw'], n_flatlines, avg_flatline_duration = remove_flatlines(station_data['vst_raw'])
 
-        # # # Detect freezing periods and remove from vst_raw
-        # temp_data = station_data['temperature']
-        # frost_periods, station_data['vst_raw'], points_removed_frost = detect_frost_periods(temp_data, station_data['vst_raw'])
-        # # Add to the combined list
-        # all_frost_periods.extend(frost_periods)
+        # # Detect freezing periods and remove from vst_raw
+        #temp_data = station_data['temperature']
+        #frost_periods, station_data['vst_raw'], points_removed_frost = detect_frost_periods(temp_data, station_data['vst_raw'])
+        # Add to the combined list
+        #all_frost_periods.extend(frost_periods)
+        points_removed_frost = 0  # Since frost removal is commented out
               
-    
         # Create vst_raw_feature as a separate feature
         # This will be used as an input feature, independent of the target vst_raw
         station_data['vst_raw_feature'] = station_data['vst_raw'].copy()
@@ -310,7 +321,7 @@ def preprocess_data():
         # Fill any remaining NaN values with -1 for the feature
         station_data['vst_raw_feature'] = station_data['vst_raw_feature'].fillna(-1)
         
-          # Resample temperature data if it exists
+        # Resample temperature data if it exists
         if station_data['temperature'] is not None:
             station_data['temperature'] = station_data['temperature'].resample('15min').ffill().bfill()  # Hold mean temperature constant but divide by 4
           
@@ -318,22 +329,36 @@ def preprocess_data():
         if station_data['rainfall'] is not None:
             station_data['rainfall'] = station_data['rainfall'].fillna(-1)
 
+        # Calculate final non-NaN count after all preprocessing
+        final_non_nan_count = station_data['vst_raw'].dropna().shape[0]
         
-
-        print(f"  - Total data points before processing: {len(All_station_data_original[station_name]['vst_raw'])}")
-        print(f"  - Total data points after processing: {len(station_data['vst_raw'])}")
-        print(f"  - Total data points removed: {n_spikes + n_flatlines }")
-        print(f"Percentage of data points removed: {(n_spikes + n_flatlines ) / len(All_station_data_original[station_name]['vst_raw']) * 100:.2f}%")
-
-        #print(f"  - Removed {points_removed_frost} data points from {len(frost_periods)} frost periods")
-        print(f"  - IQR bounds: {lower_bound:.2f} to {upper_bound:.2f}")
-        print(f"  - Removed {n_spikes} spikes")
-        print(f"  - Removed {int(n_flatlines)} flatline points")
-        # print(f"  - Average flatline duration: {avg_flatline_duration:.2f} points")
-        # print(f"  - Average spike intensity: {avg_spike_intensity:.2f}")    
-        # print(f"  - Average spike duration: {avg_spike_duration:.2f} points")    
-        # print(f"  - Negative to positive spike ratio: {neg_pos_spike_ratio:.2f}")    
+        # Calculate totals
+        total_removed = n_spikes + n_flatlines + points_removed_frost
+        removal_percentage = (total_removed / original_count) * 100 if original_count > 0 else 0
         
+        # Store statistics
+        preprocessing_stats[station_name] = {
+            'total_points': final_non_nan_count,  # Non-NaN points after preprocessing
+            'points_removed': total_removed,
+            'removal_percentage': removal_percentage,
+            'frost': points_removed_frost,
+            'spikes': n_spikes,
+            'flatlines': n_flatlines,
+            'missing_values': missing_count
+        }
+
+    # Print statistics in tabular format
+    print(f"\nPreprocessing Statistics Summary for Water Level Data (Period: {start_date.date()} to {end_date.date()})")
+    print("=" * 120)
+    print(f"{'Station':<10} {'Total Points':<15} {'Points Removed':<15} {'Removal (%)':<12} {'Frost':<8} {'Spikes':<8} {'Flatlines':<10} {'Missing values':<15}")
+    print("-" * 120)
+    
+    for station_name, stats in preprocessing_stats.items():
+        print(f"{station_name:<10} {stats['total_points']:<15,} {stats['points_removed']:<15,} "
+              f"{stats['removal_percentage']:<11.2f}% {stats['frost']:<8,} {stats['spikes']:<8,} "
+              f"{stats['flatlines']:<10,} {stats['missing_values']:<15,}")
+    
+    print("=" * 120)
 
     # Save the preprocessed data
     save_data_Dict(All_station_data, filename=save_path / 'preprocessed_data.pkl')
@@ -353,6 +378,10 @@ def create_interactive_station_plot(processed_data, original_data, station_id, f
         station_id: ID of the station to plot
         frost_periods: List of tuples containing (start_time, end_time) for each frost period
     """
+    # Use the same date range as in preprocessing
+    start_date = pd.Timestamp('2010-01-04')
+    end_date = pd.Timestamp('2025-01-07')
+    
     # Create subplots with shared x-axis
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1,
                         subplot_titles=("Processed VST Raw Data", "Temperature Data", "Original VST Raw Data"))
@@ -408,7 +437,7 @@ def create_interactive_station_plot(processed_data, original_data, station_id, f
     fig.update_layout(
         height=1200,
         width=1200,
-        title_text=f"Station {station_id} - VST Raw Data, Temperature, and Original Data with Frost Periods",
+        title_text=f"Station {station_id} - VST Raw Data, Temperature, and Original Data with Frost Periods ({start_date.date()} to {end_date.date()})",
         hovermode='x',
         yaxis_title="Water Level (mm)",
         xaxis_title="Date",
@@ -422,7 +451,7 @@ def create_interactive_station_plot(processed_data, original_data, station_id, f
 
 if __name__ == "__main__":
     processed_data, original_data, frost_periods = preprocess_data()
-    station_id = '21006846'  # You can change this to any station ID
+    station_id = '21006847'  # You can change this to any station ID
     
     # Create interactive plot showing processed and original vst_raw data with frost periods
     interactive_fig = create_interactive_station_plot(processed_data, original_data, station_id, frost_periods)

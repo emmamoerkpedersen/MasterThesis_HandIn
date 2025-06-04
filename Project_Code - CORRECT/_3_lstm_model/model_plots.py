@@ -2029,17 +2029,17 @@ def plot_feature_correlation(data, output_dir=None):
     # Generate timestamp for unique filename
     timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
     
-    # Set publication-quality styling
+    # Set publication-quality styling with larger fonts
     plt.rcParams.update({
         'font.family': 'serif',
         'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
-        'font.size': 16,  # Increased from 12
-        'axes.titlesize': 24,  # Increased from 16
-        'axes.labelsize': 20,  # Increased from 14
-        'xtick.labelsize': 16,  # Increased from 12
-        'ytick.labelsize': 16,  # Increased from 12
-        'legend.fontsize': 16,  # Increased from 12
-        'figure.titlesize': 24  # Increased from 18
+        'font.size': 20,  # Increased from 16
+        'axes.titlesize': 28,  # Increased from 24
+        'axes.labelsize': 24,  # Increased from 20
+        'xtick.labelsize': 20,  # Increased from 16
+        'ytick.labelsize': 20,  # Increased from 16
+        'legend.fontsize': 20,  # Increased from 16
+        'figure.titlesize': 28  # Increased from 24
     })
     
     # Select features for correlation analysis
@@ -2047,14 +2047,14 @@ def plot_feature_correlation(data, output_dir=None):
         'vst_raw',
         'feature_station_21006845_vst_raw',
         'feature_station_21006847_vst_raw',
-        'station_47_rain_1hour',
-        'station_47_rain_7hour',
-        'station_47_rain_48hour',
-        'station_47_rain_90hour',
-        'station_47_rain_1month',
-        'station_47_rain_3months',
-        'station_47_rain_6months',
-        'station_47_rain_1year'
+        'station_45_rain_1hour',
+        'station_45_rain_7hour',
+        'station_45_rain_48hour',
+        'station_45_rain_90hour',
+        'station_45_rain_1month',
+        'station_45_rain_3months',
+        'station_45_rain_6months',
+        'station_45_rain_1year'
     ]
     
     # Create correlation matrix
@@ -2063,15 +2063,15 @@ def plot_feature_correlation(data, output_dir=None):
     # Create figure
     fig, ax = plt.subplots(figsize=(14, 12), dpi=300)  # Increased figure size
     
-    # Create custom diverging colormap from red (1) through white (0) to blue (-1)
-    cmap = LinearSegmentedColormap.from_list('custom_cmap', ['#00008B', '#ffffff', '#8B0000'])
+    # Use Viridis colormap for distinct colors
+    cmap = plt.cm.viridis
     
-    # Plot correlation matrix
-    im = ax.imshow(corr_matrix, cmap=cmap, vmin=-1, vmax=1)
+    # Plot correlation matrix with range 0 to 1
+    im = ax.imshow(corr_matrix, cmap=cmap, vmin=0, vmax=1)
     
     # Add colorbar
     cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.ax.set_ylabel('Correlation Coefficient', rotation=-90, va='bottom', fontsize=20)  # Increased font size
+    cbar.ax.set_ylabel('Correlation Coefficient', rotation=-90, va='bottom', fontsize=24)  # Increased font size
     
     # Format feature names for better readability
     feature_names = [
@@ -2091,17 +2091,20 @@ def plot_feature_correlation(data, output_dir=None):
     # Set ticks and labels
     ax.set_xticks(np.arange(len(features)))
     ax.set_yticks(np.arange(len(features)))
-    ax.set_xticklabels(feature_names, rotation=45, ha='right', fontsize=16)  # Increased font size
-    ax.set_yticklabels(feature_names, fontsize=16)  # Increased font size
+    ax.set_xticklabels(feature_names, rotation=45, ha='right', fontsize=20)  # Increased font size
+    ax.set_yticklabels(feature_names, fontsize=20)  # Increased font size
     
-    # Add correlation values in each cell
+    # Add correlation values in each cell with dynamic text color
     for i in range(len(features)):
         for j in range(len(features)):
-            text = ax.text(j, i, f'{corr_matrix.iloc[i, j]:.2f}',
-                         ha='center', va='center', color='black', fontsize=16)  # Increased font size
+            corr_value = corr_matrix.iloc[i, j]
+            # Use white text for dark cells (low correlation values) and black text for light cells (high correlation values)
+            # Viridis colormap: 0.0 is dark blue/purple, 1.0 is bright yellow
+            text_color = 'white' if corr_value < 0.6 else 'black'
+            text = ax.text(j, i, f'{corr_value:.2f}',
+                         ha='center', va='center', color=text_color, fontsize=20)  # Increased font size and dynamic color
     
-    # Add title
-    plt.title('Feature Correlation Matrix', pad=20, fontsize=24)  # Increased font size
+    # No title as requested
     
     # Adjust layout
     plt.tight_layout()
@@ -2115,3 +2118,190 @@ def plot_feature_correlation(data, output_dir=None):
     plt.close()
     
     return output_path
+
+def create_synthetic_error_zoom_plots(val_data, predictions, error_generator, station_id, 
+                                    output_dir=None, original_val_data=None, model_config=None):
+    """
+    Create zoomed plots for each type of injected synthetic error showing original data,
+    data with synthetic errors, and model predictions during error periods.
+    
+    Args:
+        val_data: Validation data with synthetic errors injected
+        predictions: Model predictions (numpy array or pandas Series)
+        error_generator: SyntheticErrorGenerator instance with error_periods
+        station_id: Station identifier
+        output_dir: Optional output directory path
+        original_val_data: Original validation data before error injection
+        model_config: Optional model configuration dictionary
+    
+    Returns:
+        List of paths to saved PNG files
+    """
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path(os.path.join(PROJECT_ROOT, "results/lstm/synthetic_error_zoom"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+    elif isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Check if error generator has error periods
+    if not hasattr(error_generator, 'error_periods') or not error_generator.error_periods:
+        print("No error periods found for synthetic error zoom plots")
+        return []
+    
+    print(f"\nCreating synthetic error zoom plots for {len(error_generator.error_periods)} injected errors...")
+    print(f"DEBUG: val_data index range: {val_data.index[0]} to {val_data.index[-1]}")
+    
+    # Generate timestamp for unique filenames
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Set publication-quality styling
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino'],
+        'font.size': 12,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'figure.titlesize': 18
+    })
+    
+    # Group error periods by type
+    error_types = {}
+    for period in error_generator.error_periods:
+        error_type = period.error_type
+        if error_type not in error_types:
+            error_types[error_type] = []
+        error_types[error_type].append(period)
+        print(f"DEBUG: Found {error_type} error from {period.start_time} to {period.end_time}")
+    
+    saved_paths = []
+    
+    # Create zoom plots for each error type (limit to first 2 occurrences of each type)
+    for error_type, periods in error_types.items():
+        max_plots_per_type = 2
+        for i, period in enumerate(periods[:max_plots_per_type]):
+            try:
+                print(f"Creating zoom plot for {error_type} error (occurrence {i+1})...")
+                print(f"DEBUG: Error period: {period.start_time} to {period.end_time}")
+                
+                # Calculate buffer (4 hours before and after for better context)
+                buffer_hours = 4
+                buffer_steps = buffer_hours * 4  # 15-min intervals
+                
+                # Find the period in the validation data
+                start_time = period.start_time
+                end_time = period.end_time
+                
+                # Get indices for the error period
+                period_mask = (val_data.index >= start_time) & (val_data.index <= end_time)
+                if not period_mask.any():
+                    print(f"ERROR: Error period not found in validation data for {error_type}")
+                    print(f"  Looking for: {start_time} to {end_time}")
+                    print(f"  Data range: {val_data.index[0]} to {val_data.index[-1]}")
+                    continue
+                
+                # Find start and end indices with buffer
+                period_indices = np.where(period_mask)[0]
+                start_idx = max(0, period_indices[0] - buffer_steps)
+                end_idx = min(len(val_data), period_indices[-1] + buffer_steps)
+                
+                print(f"DEBUG: Period indices: {period_indices[0]} to {period_indices[-1]}")
+                print(f"DEBUG: Zoom indices (with buffer): {start_idx} to {end_idx}")
+                
+                # Create zoom data
+                zoom_data_synthetic = val_data.iloc[start_idx:end_idx].copy()
+                zoom_original_data = None
+                if original_val_data is not None:
+                    zoom_original_data = original_val_data.iloc[start_idx:end_idx].copy()
+                
+                # Extract predictions for the zoom window
+                if isinstance(predictions, pd.Series):
+                    zoom_predictions = predictions.iloc[start_idx:end_idx]
+                else:
+                    zoom_predictions = predictions[start_idx:end_idx] if len(predictions) > end_idx else predictions[start_idx:]
+                
+                # Create figure
+                fig, ax = plt.subplots(figsize=(14, 6), dpi=300)
+                
+                # Plot original data if available
+                if zoom_original_data is not None:
+                    ax.plot(zoom_original_data.index, zoom_original_data['vst_raw'], 
+                           color='#1f77b4', linewidth=1.0, label='Original VST Raw', alpha=0.8)
+                
+                # Plot synthetic error data
+                ax.plot(zoom_data_synthetic.index, zoom_data_synthetic['vst_raw'], 
+                       color='#d62728', linewidth=1.0, label='VST Raw (with Synthetic Errors)', linestyle='--')
+                
+                # Plot predictions
+                ax.plot(zoom_data_synthetic.index, zoom_predictions, 
+                       color='#2ca02c', linewidth=1.0, label='Model Predictions')
+                
+                # Highlight the actual error period with background shading
+                ax.axvspan(start_time, end_time, alpha=0.2, color='red', label=f'{error_type.title()} Error Period')
+                
+                # Styling
+                ax.set_xlabel('Date', fontweight='bold', labelpad=10)
+                ax.set_ylabel('Water Level (mm)', fontweight='bold', labelpad=10)
+                
+                # Create title with error information
+                title = f'Synthetic {error_type.title()} Error - Station {station_id}'
+                if i > 0:
+                    title += f' (Occurrence {i+1})'
+                title += f'\n{start_time.strftime("%Y-%m-%d %H:%M")} to {end_time.strftime("%Y-%m-%d %H:%M")}'
+                
+                # Add some statistics to the title
+                if zoom_original_data is not None:
+                    error_period_original = zoom_original_data.loc[start_time:end_time, 'vst_raw']
+                    error_period_synthetic = zoom_data_synthetic.loc[start_time:end_time, 'vst_raw']
+                    
+                    if not error_period_original.empty and not error_period_synthetic.empty:
+                        mean_diff = error_period_synthetic.mean() - error_period_original.mean()
+                        title += f'\nMean difference in error period: {mean_diff:.2f} mm'
+                
+                ax.set_title(title, pad=20)
+                
+                # Legend
+                ax.legend(frameon=True, facecolor='white', edgecolor='#cccccc', 
+                         loc='upper left', bbox_to_anchor=(0.02, 0.98))
+                
+                # Format the date axis
+                fig.autofmt_xdate(bottom=0.15)
+                
+                # Remove top and right spines for cleaner look
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                
+                # Grid for better readability
+                ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+                
+                # Tight layout
+                plt.tight_layout()
+                
+                # Save figure
+                occurrence_suffix = f"_occ{i+1}" if i > 0 else ""
+                output_path = output_dir / f'synthetic_error_zoom_{error_type}_{station_id}{occurrence_suffix}_{timestamp}.png'
+                plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+                print(f"  Zoom plot for {error_type} (occurrence {i+1}) saved to: {output_path}")
+                
+                saved_paths.append(output_path)
+                
+                # Close figure to free memory
+                plt.close()
+                
+                # Debug information about the error period
+                print(f"DEBUG: Zoom data range: {zoom_data_synthetic['vst_raw'].min():.1f} to {zoom_data_synthetic['vst_raw'].max():.1f} mm")
+                print(f"DEBUG: Error period original values: {period.original_values.min():.1f} to {period.original_values.max():.1f} mm")
+                print(f"DEBUG: Error period modified values: {period.modified_values.min():.1f} to {period.modified_values.max():.1f} mm")
+                
+            except Exception as e:
+                print(f"Error creating zoom plot for {error_type} (occurrence {i+1}): {str(e)}")
+                import traceback
+                traceback.print_exc()
+                continue
+    
+    print(f"\nCreated {len(saved_paths)} synthetic error zoom plots")
+    return saved_paths

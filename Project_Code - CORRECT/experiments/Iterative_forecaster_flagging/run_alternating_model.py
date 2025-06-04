@@ -15,14 +15,13 @@ sys.path.append(str(project_dir))
 # Import local modules
 from experiments.iterative_forecaster.alternating_config import ALTERNATING_CONFIG
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence, create_synthetic_error_zoom_plots
+from _3_lstm_model.model_plots import create_full_plot, plot_convergence
 from _4_anomaly_detection.z_score import calculate_z_scores_mad
 from _4_anomaly_detection.anomaly_visualization import (
     plot_water_level_anomalies, 
     calculate_anomaly_confidence, 
-    create_anomaly_zoom_plots,
+    create_anomaly_zoom_plots
 )
-from experiments.iterative_forecaster.alternating_visualization import plot_zoom_comparison
 from experiments.iterative_forecaster.alternating_trainer import AlternatingTrainer
 from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
 
@@ -35,7 +34,7 @@ def parse_arguments():
     parser.add_argument('--quick_mode', action='store_true', help='Enable quick mode with reduced data (3 years training, 1 year validation)')
     parser.add_argument('--error_type', type=str, default='both', choices=['both', 'train', 'validation', 'none'],
                       help='Which datasets to inject errors into (both, train, validation, or none)')
-    parser.add_argument('--experiment', type=str, default='baseline', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
+    parser.add_argument('--experiment', type=str, default='0', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducible results (default: 42)')
     return parser.parse_args()
 
@@ -276,29 +275,7 @@ def run_alternating_model(args):
             title_suffix=viz_title_suffix,
             output_dir=exp_dirs['visualizations']
         )
-    
-
-    plot_zoom_comparison(
-        actual_data=val_data['vst_raw'],
-        predictions=val_pred_df['vst_raw'],
-        output_dir=exp_dirs['visualizations'],
-        station_id=args.station_id,
-        corrupted_data=None,
-        zoom_start=pd.Timestamp('2022-03-01'),
-        zoom_end=pd.Timestamp('2022-05-30'),
-        title_suffix="Validation Predictions - 2022",
-    )
-
-    plot_zoom_comparison(
-        actual_data=val_data['vst_raw'],
-        predictions=val_pred_df['vst_raw'],
-        output_dir=exp_dirs['visualizations'],
-        station_id=args.station_id,
-        corrupted_data=None,
-        zoom_start=pd.Timestamp('2023-04-01'),
-        zoom_end=pd.Timestamp('2023-05-30'),
-        title_suffix="Validation Predictions -2023",
-    )
+   
     # Calculate anomalies for the validation set
     print("\nGenerating anomaly detection analysis...")
     
@@ -392,18 +369,6 @@ def run_alternating_model(args):
                 output_dir=anomaly_viz_dir,
                 original_val_data=original_val_data  # Pass original validation data
             )
-            
-            # Create synthetic error zoom plots (without anomaly detection elements)
-            print("\nCreating synthetic error zoom plots...")
-            create_synthetic_error_zoom_plots(
-                val_data=val_data,
-                predictions=val_pred_df['vst_raw'].values,
-                error_generator=saved_error_generator,
-                station_id=args.station_id,
-                output_dir=anomaly_viz_dir,
-                original_val_data=original_val_data,
-                model_config=config
-            )
         else:
             print("\nNo error generator available for zoom plots")
     
@@ -427,21 +392,6 @@ def run_alternating_model(args):
 
     print(f"\nAll anomaly detection analysis completed!")
     
-    # CREATE SYNTHETIC ERROR ZOOM PLOTS (INDEPENDENT OF ANOMALY DETECTION)
-    if args.error_multiplier is not None and args.error_type in ['both', 'validation'] and saved_error_generator is not None:
-        print("\nCreating synthetic error zoom plots (independent analysis)...")
-        create_synthetic_error_zoom_plots(
-            val_data=val_data,
-            predictions=val_pred_df['vst_raw'].values,
-            error_generator=saved_error_generator,
-            station_id=args.station_id,
-            output_dir=exp_dirs['visualizations'],  # Save to visualizations directory instead
-            original_val_data=original_val_data,
-            model_config=config
-        )
-    else:
-        print("\nNo synthetic errors injected - skipping synthetic error zoom plots")
-
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics
     valid_mask = ~np.isnan(original_val_data['vst_raw'].values)
@@ -475,8 +425,7 @@ def run_alternating_model(args):
                 print("\nValidation Metrics (against corrupted data):")
                 for metric, value in corrupted_metrics.items():
                     print(f"  {metric}: {value:.6f}")
-                
-                '''  
+                    
                 print("\nError Correction Analysis:")
                 
                 # Original vs Corrupted (how bad are the errors)
@@ -505,7 +454,7 @@ def run_alternating_model(args):
             except Exception as e:
                 print(f"\nError during error correction analysis: {str(e)}")
                 print("Continuing with model evaluation...")
-            '''
+            
     else:
         print("\nNot enough valid data points to calculate metrics")
         metrics = {"mse": float('nan'), "rmse": float('nan'), "mae": float('nan')}

@@ -6,30 +6,30 @@ Configuration for the Alternating Forecast Model.
 # Current: Experiment 3 (Time Features)
 ALTERNATING_CONFIG = {
     # Model architecture
-    'hidden_size': 24,         # Increased from 32 to 64
+    'hidden_size': 24,         
     'dropout': 0.25,
     
     # Training parameters
     'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 40,              # More epochs for better convergence
-    'patience': 5,
+    'epochs': 300,              
+    'patience': 15,
     'learning_rate': 0.001,
     # Forecasting parameters
     'warmup_length': 672,
     # Anomaly detection parameters
-    'threshold': 50,          
-    'window_size': 24, 
+    'threshold': 15,          
+    'window_size': 32, 
 
-    'bce_weight': 1,          # Weight for anomaly detection loss
-    'weight_factor': 5,       # Weight factor for class imbalance
-
+    'bce_weight': 0.2,          # Weight for anomaly detection loss
+    'weight_factor': 10,       # Weight factor for class imbalance
 
     'week_steps': 672,
+
     # Quick mode for faster training with reduced data
     'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
 
     # Loss function
-    'objective_function': 'mae_loss',  # Using MAE lossx
+    'objective_function': 'mse_loss',  # Using MAE loss
     
     # Features
     'feature_cols': [
