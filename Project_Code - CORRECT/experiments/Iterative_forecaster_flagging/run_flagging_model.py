@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import argparse
 import torch
 import random
+from scipy.signal import savgol_filter
 
 # Add the project root to the path
 current_dir = Path(__file__).resolve().parent
@@ -13,8 +14,8 @@ project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
 # Import local modules
-from experiments.iterative_forecaster.alternating_config import ALTERNATING_CONFIG
-from experiments.iterative_forecaster.simple_anomaly_detector import SimpleAnomalyDetector
+from alternating_config import ALTERNATING_CONFIG
+from simple_anomaly_detector import SimpleAnomalyDetector
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from _3_lstm_model.model_plots import create_full_plot, plot_convergence
 from _4_anomaly_detection.z_score import calculate_z_scores_mad
@@ -23,8 +24,8 @@ from _4_anomaly_detection.anomaly_visualization import (
     calculate_anomaly_confidence, 
     create_anomaly_zoom_plots
 )
-from experiments.iterative_forecaster.alternating_trainer import AlternatingTrainer
-from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
+from alternating_trainer import AlternatingTrainer
+from alternating_forecast_model import AlternatingForecastModel
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -88,10 +89,10 @@ def run_flagging_model(args):
         'anomaly_weight': args.anomaly_weight,
         'use_weighted_loss': True,
         'use_anomaly_flags': True,
-        'epochs': 100,  # Reduced for initial test with enhanced features
+        'epochs': 45*5,  # Reduced for initial test with enhanced features
         'experiment': args.experiment,  # Store experiment name in config
     })
-    
+     
     print("\n🏷️ Flagging Model Configuration:")
     print(f"  use_anomaly_flags: {config['use_anomaly_flags']}")
     print(f"  use_weighted_loss: {config['use_weighted_loss']}")
@@ -223,9 +224,57 @@ def run_flagging_model(args):
     
     val_predictions_original = trainer.target_scaler.inverse_transform(val_predictions_np).flatten()
     
-    # Create prediction DataFrame
+    # EXPERIMENT 3: Postprocessing smoothing to reduce oscillations
+    print("Applying postprocessing smoothing filter...")
+    
+    def smooth_predictions(predictions, method='savgol', **kwargs):
+        """
+        Apply smoothing filter to reduce oscillations in predictions.
+        
+        Args:
+            predictions: Array of predictions to smooth
+            method: 'savgol', 'moving_avg', or 'exponential'
+            **kwargs: Parameters for the smoothing method
+        """
+        if method == 'savgol':
+            window_length = kwargs.get('window_length', 7)
+            polyorder = kwargs.get('polyorder', 2)
+            # Ensure window_length is odd and not larger than data
+            window_length = min(window_length, len(predictions))
+            if window_length % 2 == 0:
+                window_length -= 1
+            if window_length < polyorder + 1:
+                window_length = polyorder + 1
+                if window_length % 2 == 0:
+                    window_length += 1
+            return savgol_filter(predictions, window_length, polyorder)
+        
+        elif method == 'moving_avg':
+            window = kwargs.get('window', 5)
+            return pd.Series(predictions).rolling(window=window, center=True).mean().fillna(method='bfill').fillna(method='ffill').values
+        
+        elif method == 'exponential':
+            alpha = kwargs.get('alpha', 0.3)
+            return pd.Series(predictions).ewm(alpha=alpha).mean().values
+        
+        else:
+            return predictions
+    
+    # Apply smoothing (you can experiment with different methods)
+    val_predictions_smoothed = smooth_predictions(
+        val_predictions_original, 
+        method='savgol', 
+        window_length=7, 
+        polyorder=2
+    )
+    
+    print(f"Original predictions range: {val_predictions_original.min():.2f} to {val_predictions_original.max():.2f}")
+    print(f"Smoothed predictions range: {val_predictions_smoothed.min():.2f} to {val_predictions_smoothed.max():.2f}")
+    
+    # Create prediction DataFrame with both original and smoothed predictions
     val_pred_df = pd.DataFrame({
-        'vst_raw': val_predictions_original,
+        'vst_raw': val_predictions_smoothed,  # Use smoothed predictions
+        'vst_raw_original': val_predictions_original,  # Keep original for comparison
     }, index=val_data_flagged.index[:len(val_predictions_original)])
     
     # Generate visualizations
@@ -250,7 +299,7 @@ def run_flagging_model(args):
         config, 
         min(history['val_loss']), 
         title_suffix=viz_title,
-        synthetic_data=synthetic_data,
+        synthetic_data=synthetic_data, 
         output_dir=exp_dirs['visualizations']
     )
     

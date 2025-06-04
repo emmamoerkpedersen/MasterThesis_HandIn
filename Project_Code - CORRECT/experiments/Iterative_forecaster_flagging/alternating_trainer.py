@@ -15,7 +15,7 @@ project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
 from _3_lstm_model.objective_functions import get_objective_function
-from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
+from alternating_forecast_model import AlternatingForecastModel
 
 class AlternatingTrainer:
     """
@@ -305,8 +305,7 @@ class AlternatingTrainer:
                     hidden_state, 
                     cell_state,
                     use_predictions=True,
-                    alternating_weeks=True,
-                    feature_names=self.all_feature_cols  # Pass feature names
+                    alternating_weeks=True
                 )
                 
                 # Detach hidden states to prevent gradient computation through sequences
@@ -387,8 +386,7 @@ class AlternatingTrainer:
                     x_val, 
                     hidden_state, 
                     cell_state,
-                    use_predictions=False,  # Use original data for validation
-                    feature_names=self.all_feature_cols  # Pass feature names
+                    use_predictions=False  # Use original data for validation
                 )
                 
                 mask = ~torch.isnan(y_val)
@@ -467,8 +465,7 @@ class AlternatingTrainer:
                 x_test, 
                 hidden_state, 
                 cell_state,
-                use_predictions=use_predictions,
-                feature_names=self.all_feature_cols  # Pass feature names
+                use_predictions=use_predictions
             )
             
             # Convert predictions back to original scale
