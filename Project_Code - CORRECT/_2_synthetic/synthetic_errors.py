@@ -228,7 +228,7 @@ class SyntheticErrorGenerator:
                 
                 # Calculate spike value with physical limits
                 spike_value = np.clip(
-                    current_value + (direction * magnitude),
+                    current_value * (direction + magnitude),
                     self.config.get('PHYSICAL_LIMITS', {}).get('min_value', 0),
                     self.config.get('PHYSICAL_LIMITS', {}).get('max_value', 3000)
                 )

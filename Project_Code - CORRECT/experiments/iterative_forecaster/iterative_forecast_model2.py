@@ -21,6 +21,7 @@ class AlternatingForecastModel(nn.Module):
     - Statistical anomaly detection with z-scores and anomaly flags (MAD-based)
     - Feeds back anomaly information as part of the internal state
     - Handles additional engineered features (time features, cumulative features)
+    - Option to use either MAD-based or synthetic error flags
     """
     def __init__(self, input_size, hidden_size, output_size=1, dropout=0.25, config=None):
         super(AlternatingForecastModel, self).__init__()
@@ -237,10 +238,4 @@ class AlternatingForecastModel(nn.Module):
             anomaly_flags[:, t] = current_anomaly_flag
         
         # Return None for anomaly_probs to maintain interface compatibility
-        return outputs, hidden_state, cell_state, z_scores, anomaly_flags, None
-    
-    def init_hidden(self, batch_size, device):
-        """Initialize hidden state and cell state."""
-        hidden_state = torch.zeros(batch_size, self.hidden_size, device=device)
-        cell_state = torch.zeros(batch_size, self.hidden_size, device=device)
-        return hidden_state, cell_state 
+        return outputs, hidden_state, cell_state, z_scores, anomaly_flags, None 

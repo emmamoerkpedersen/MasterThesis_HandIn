@@ -18,8 +18,9 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 from experiments.iterative_forecaster.alternating_config import ALTERNATING_CONFIG
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from experiments.iterative_forecaster.iterative_trainer2 import AlternatingTrainer
+from _3_lstm_model.model_diagnostics import generate_all_diagnostics
 
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence
+from _3_lstm_model.model_plots import create_full_plot, plot_convergence, create_synthetic_error_zoom_plots
 from _4_anomaly_detection.anomaly_visualization import (
     plot_water_level_anomalies, 
     calculate_anomaly_confidence, 
@@ -38,8 +39,10 @@ def parse_arguments():
     parser.add_argument('--quick_mode', action='store_true', help='Enable quick mode with reduced data (3 years training, 1 year validation)')
     parser.add_argument('--error_type', type=str, default='both', choices=['both', 'train', 'validation', 'none'],
                       help='Which datasets to inject errors into (both, train, validation, or none)')
-    parser.add_argument('--experiment', type=str, default='0', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
+    parser.add_argument('--experiment', type=str, default='Iterative_forecaster2_0', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducible results (default: 42)')
+    parser.add_argument('--ground_truth_strategy', type=str, default='synthetic', choices=['synthetic', 'mad'],
+                      help='Strategy for ground truth anomaly flags: synthetic (use synthetic error locations) or mad (use MAD-calculated flags). Default: synthetic')
     return parser.parse_args()
 
 def setup_experiment_directories(project_dir, experiment_name):
@@ -112,6 +115,20 @@ def run_alternating_model(args):
     # Setup experiment directories
     exp_dirs = setup_experiment_directories(project_dir, args.experiment)
     
+    # Handle default error_multiplier when using synthetic flags
+    if args.error_multiplier is None and args.ground_truth_strategy == 'synthetic':
+        args.error_multiplier = 1.0
+        print(f"\n🔧 Using synthetic flags as ground truth - setting default error_multiplier to {args.error_multiplier}")
+        print("   💡 Note: When using synthetic flags, errors will always be injected for ground truth generation")
+    elif args.ground_truth_strategy == 'synthetic' and args.error_multiplier is not None:
+        print(f"\n🔧 Using synthetic flags as ground truth with error_multiplier {args.error_multiplier}")
+    elif args.ground_truth_strategy == 'mad':
+        print(f"\n📊 Using MAD-calculated flags as ground truth")
+        if args.error_multiplier is not None:
+            print(f"   📝 Error injection will still occur with multiplier {args.error_multiplier} for data corruption")
+        else:
+            print(f"   📝 No error injection configured")
+    
     # Update configuration with command line arguments
     config = ALTERNATING_CONFIG.copy()
     config.update({
@@ -127,6 +144,7 @@ def run_alternating_model(args):
     for key, value in config.items():
         if not isinstance(value, (list, dict)):
             print(f"  {key}: {value}")
+    print(f"\nGround Truth Strategy: {args.ground_truth_strategy}")
     
     # Initialize preprocessor and load data
     preprocessor = DataPreprocessor(config)
@@ -141,7 +159,11 @@ def run_alternating_model(args):
     original_train_data = train_data.copy()
     original_val_data = val_data.copy()
     
-    # --- MOVE: Inject synthetic errors BEFORE calculating anomaly flags ---
+    # Initialize variables for storing synthetic error ground truth
+    train_synthetic_flags = None
+    val_synthetic_flags = None
+    
+    # --- Inject synthetic errors BEFORE calculating anomaly flags ---
     saved_error_generator = None  # Store error generator for later use
     if args.error_multiplier is not None and args.error_type != 'none':
         from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
@@ -159,6 +181,17 @@ def run_alternating_model(args):
                 original_train_data, error_generator, f"{args.station_id}_train", water_level_cols
             )
             train_data = train_data_with_errors
+            
+            # Extract synthetic error flags from the error report for training data
+            if args.ground_truth_strategy == 'synthetic' and isinstance(train_error_report, dict):
+                # Find the ground truth for vst_raw column
+                vst_key = f"{args.station_id}_train_vst_raw"
+                if vst_key in train_error_report and 'ground_truth' in train_error_report[vst_key]:
+                    ground_truth_df = train_error_report[vst_key]['ground_truth']
+                    if 'error' in ground_truth_df.columns:
+                        train_synthetic_flags = ground_truth_df['error'].values.astype(bool)
+                        print(f"Extracted {np.sum(train_synthetic_flags)} synthetic error flags from training data")
+            
             if isinstance(train_error_report, dict) and 'total_errors' in train_error_report:
                 print(f"Training errors injected: {train_error_report['total_errors']} errors")
                 if 'error_counts' in train_error_report:
@@ -174,6 +207,17 @@ def run_alternating_model(args):
             )
             val_data = val_data_with_errors
             saved_error_generator = validation_error_generator  # Save for zoom plots
+            
+            # Extract synthetic error flags from the error report for validation data
+            if args.ground_truth_strategy == 'synthetic' and isinstance(val_error_report, dict):
+                # Find the ground truth for vst_raw column
+                vst_key = f"{args.station_id}_val_vst_raw"
+                if vst_key in val_error_report and 'ground_truth' in val_error_report[vst_key]:
+                    ground_truth_df = val_error_report[vst_key]['ground_truth']
+                    if 'error' in ground_truth_df.columns:
+                        val_synthetic_flags = ground_truth_df['error'].values.astype(bool)
+                        print(f"Extracted {np.sum(val_synthetic_flags)} synthetic error flags from validation data")
+            
             if isinstance(val_error_report, dict) and 'total_errors' in val_error_report:
                 print(f"Validation errors injected: {val_error_report['total_errors']} errors")
                 if 'error_counts' in val_error_report:
@@ -184,13 +228,32 @@ def run_alternating_model(args):
     else:
         print("\nNo synthetic errors injected.")
 
-    # --- NOW: Generate anomaly flags using MAD on (potentially) corrupted data ---
-    print("\nGenerating ground truth anomaly flags using MAD...")
-    window_size = config.get('window_size', 16)
-    threshold = config.get('threshold', 3.0)
-    train_flags, val_flags, *_ = mad_outlier_flags(
-        train_data['vst_raw'], val_data['vst_raw'], threshold=threshold, window_size=window_size
-    )
+    # --- Generate anomaly flags based on the chosen strategy ---
+    if args.ground_truth_strategy == 'synthetic':
+        print("\n🎯 Using synthetic error flags as ground truth...")
+        # Use synthetic flags if available, otherwise create empty flags
+        if train_synthetic_flags is not None:
+            train_flags = train_synthetic_flags
+        else:
+            train_flags = np.zeros(len(train_data), dtype=bool)
+            print("⚠️  No synthetic flags for training data - using empty flags")
+            
+        if val_synthetic_flags is not None:
+            val_flags = val_synthetic_flags
+        else:
+            val_flags = np.zeros(len(val_data), dtype=bool)
+            print("⚠️  No synthetic flags for validation data - using empty flags")
+            
+        print(f"Training flags: {np.sum(train_flags)} anomalies out of {len(train_flags)} points")
+        print(f"Validation flags: {np.sum(val_flags)} anomalies out of {len(val_flags)} points")
+    else:
+        print("\n📊 Generating ground truth anomaly flags using MAD...")
+        window_size = config.get('window_size', 16)
+        threshold = config.get('threshold', 3.0)
+        train_flags, val_flags, *_ = mad_outlier_flags(
+            train_data['vst_raw'], val_data['vst_raw'], threshold=threshold, window_size=window_size
+        )
+        print(f"MAD flags - Training: {np.sum(train_flags)} anomalies, Validation: {np.sum(val_flags)} anomalies")
     
     # Make sure the model's week_steps matches our config
     trainer.model.week_steps = config['week_steps']
@@ -325,6 +388,20 @@ def run_alternating_model(args):
         ground_truth_flags=val_flags
     )
 
+    # Create synthetic error zoom plots if errors were injected
+    if saved_error_generator is not None:
+        print("\nCreating synthetic error zoom plots...")
+        create_synthetic_error_zoom_plots(
+            val_data=val_data,
+            predictions=val_pred_df['vst_raw'].values,
+            error_generator=saved_error_generator,
+            station_id=args.station_id,
+            output_dir=anomaly_viz_dir,
+            original_val_data=original_val_data,
+            model_config=config
+        )
+    else:
+        print("\nNo error generator available for synthetic error zoom plots")
 
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics
@@ -393,9 +470,7 @@ def run_alternating_model(args):
         print("\nNot enough valid data points to calculate metrics")
         metrics = {"mse": float('nan'), "rmse": float('nan'), "mae": float('nan')}
 
-    # Generate residual plots and other diagnostics
-    from _3_lstm_model.model_diagnostics import generate_all_diagnostics
-    
+
     # Create features DataFrame for residual analysis
     features_df = pd.DataFrame({
         'temperature': val_data['temperature'],

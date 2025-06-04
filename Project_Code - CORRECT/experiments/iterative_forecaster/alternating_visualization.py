@@ -890,4 +890,192 @@ def plot_input_flag_impact(test_data, predictions, week_steps, output_dir=None, 
     plt.close()
     
     print(f"Saved input flag impact plot to: {output_path}")
-    return output_path 
+    return output_path
+
+
+def plot_zoom_comparison(actual_data, predictions, output_dir=None, station_id='main', 
+                        corrupted_data=None, zoom_start=None, zoom_end=None, 
+                        title_suffix="", show_alternating_periods=False, week_steps=672):
+    """
+    Create a zoom plot comparing actual data, predictions, and optionally corrupted data
+    for a specified time period.
+    
+    Args:
+        actual_data: Series or DataFrame containing actual water level values (vst_raw)
+        predictions: Series or array containing predicted water level values
+        output_dir: Optional output directory path
+        station_id: Station identifier for plot title
+        corrupted_data: Optional Series containing corrupted data (if synthetic errors injected)
+        zoom_start: Start date/time for zoom period (if None, uses first 30 days)
+        zoom_end: End date/time for zoom period (if None, uses zoom_start + 30 days)
+        title_suffix: Additional text to add to plot title
+        show_alternating_periods: Whether to highlight alternating periods (original vs prediction) - default False
+        week_steps: Number of time steps in a week (for alternating pattern highlighting)
+        
+    Returns:
+        Path to the saved PNG file
+    """
+    set_thesis_plot_style()
+    
+    # Set default output directory if not provided
+    if output_dir is None:
+        output_dir = Path("results/visualizations")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for unique filename
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Extract actual values (handle both Series and DataFrame)
+    if isinstance(actual_data, pd.DataFrame):
+        if 'vst_raw' in actual_data.columns:
+            actual = actual_data['vst_raw']
+        else:
+            # Use the first column if vst_raw not found
+            actual = actual_data.iloc[:, 0]
+    else:
+        actual = actual_data
+    
+    # Handle corrupted data if provided
+    corrupted = None
+    if corrupted_data is not None:
+        if isinstance(corrupted_data, pd.DataFrame):
+            if 'vst_raw' in corrupted_data.columns:
+                corrupted = corrupted_data['vst_raw']
+            else:
+                corrupted = corrupted_data.iloc[:, 0]
+        else:
+            corrupted = corrupted_data
+    
+    # Make sure predictions is aligned with actual data
+    if isinstance(predictions, np.ndarray):
+        predictions = pd.Series(predictions, index=actual.index[:len(predictions)])
+    
+    # Set default zoom period if not provided
+    if zoom_start is None:
+        zoom_start = actual.index[0]
+    if zoom_end is None:
+        zoom_end = zoom_start + pd.Timedelta(days=30)
+    
+    # Convert string dates to timestamps if needed
+    if isinstance(zoom_start, str):
+        zoom_start = pd.Timestamp(zoom_start)
+    if isinstance(zoom_end, str):
+        zoom_end = pd.Timestamp(zoom_end)
+    
+    # Filter data to zoom period
+    zoom_mask = (actual.index >= zoom_start) & (actual.index <= zoom_end)
+    actual_zoom = actual.loc[zoom_mask]
+    
+    # Get common indices for the zoom period
+    common_idx = actual_zoom.index.intersection(predictions.index)
+    if len(common_idx) == 0:
+        print(f"Warning: No overlapping data found for zoom period {zoom_start} to {zoom_end}")
+        return None
+    
+    # Filter all data to common indices
+    actual_zoom = actual_zoom.loc[common_idx]
+    predictions_zoom = predictions.loc[common_idx]
+    
+    if corrupted is not None:
+        corrupted_zoom = corrupted.loc[corrupted.index.intersection(common_idx)]
+    else:
+        corrupted_zoom = None
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(15, 8))
+    
+    # Plot the data series with updated colors
+    ax.plot(actual_zoom.index, actual_zoom.values, 'b-', label='Actual Data', 
+            linewidth=0.8, alpha=0.8)
+    ax.plot(predictions_zoom.index, predictions_zoom.values, 'g-', label='Predictions', 
+            linewidth=0.8, alpha=0.8)
+    
+    # Plot corrupted data if available - red stippled line
+    if corrupted_zoom is not None and len(corrupted_zoom) > 0:
+        ax.plot(corrupted_zoom.index, corrupted_zoom.values, 'r:', 
+                label='VST Raw with Errors', 
+                linewidth=2.0, alpha=0.8)
+    
+    # Highlight alternating periods if requested
+    if show_alternating_periods and week_steps is not None:
+        # Calculate which periods are original vs prediction-based
+        start_time = common_idx[0]
+        full_actual_index = actual.index
+        
+        # Find the position of our zoom start in the full dataset
+        if start_time in full_actual_index:
+            start_position = full_actual_index.get_loc(start_time)
+        else:
+            # Find the closest position
+            start_position = full_actual_index.searchsorted(start_time)
+        
+        # Calculate week transitions within the zoom period
+        for i, timestamp in enumerate(common_idx):
+            current_position = start_position + i
+            week_num = (current_position // week_steps) % 2
+            
+            # Only mark transitions, not every point
+            if i > 0:
+                prev_position = start_position + i - 1
+                prev_week_num = (prev_position // week_steps) % 2
+                
+                if week_num != prev_week_num:
+                    # This is a transition point
+                    color = 'blue' if week_num == 0 else 'red'
+                    label = 'Original Data Period' if week_num == 0 else 'Prediction-based Period'
+                    
+                    ax.axvline(x=timestamp, color=color, linestyle=':', alpha=0.6, linewidth=1)
+        
+        # Add background shading for the periods
+        current_start = common_idx[0]
+        current_position = start_position
+        current_week_type = (current_position // week_steps) % 2
+        
+        for i, timestamp in enumerate(common_idx[1:], 1):
+            position = start_position + i
+            week_type = (position // week_steps) % 2
+            
+            if week_type != current_week_type or i == len(common_idx) - 1:
+                # End of current period or end of data
+                end_time = timestamp if week_type != current_week_type else common_idx[-1]
+                
+                # Add shading
+                color = 'lightblue' if current_week_type == 0 else 'lightsalmon'
+                alpha = 0.15
+                ax.axvspan(current_start, end_time, alpha=alpha, color=color)
+                
+                # Update for next period
+                current_start = timestamp
+                current_week_type = week_type
+    
+    # Format the plot
+    title = f'Water Level Comparison - Station {station_id}'
+    if title_suffix:
+        title += f' {title_suffix}'
+    title += f'\nZoom Period: {zoom_start.strftime("%Y-%m-%d")} to {zoom_end.strftime("%Y-%m-%d")}'
+    
+    ax.set_title(title, fontweight='bold')
+    ax.set_xlabel('Time', fontweight='bold')
+    ax.set_ylabel('Water Level [mm]', fontweight='bold')
+    
+    # Format x-axis to show only year and month
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    # Add grid and legend
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='best')
+    
+    # Tight layout
+    plt.tight_layout()
+    
+    # Save the figure
+    zoom_period_str = f"{zoom_start.strftime('%Y%m%d')}_{zoom_end.strftime('%Y%m%d')}"
+    output_path = output_dir / f'zoom_comparison_{station_id}_{zoom_period_str}_{timestamp}.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"Saved zoom comparison plot to: {output_path}")
+    return output_path
