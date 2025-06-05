@@ -621,7 +621,7 @@ class AlternatingTrainer:
         print("----------------------\n")
 
         # Set date range
-        start_date = pd.Timestamp('2010-01-04')
+        start_date = pd.Timestamp('2020-01-04')
         end_date = pd.Timestamp('2025-01-07')
         
         # Cut dataframe to date range
@@ -718,7 +718,9 @@ class AlternatingTrainer:
             # Standard mode: use more data
             val_data = df[(df.index.year >= 2022) & (df.index.year <= 2023)]  # Validation: 2022-2023
             train_data = df[df.index.year < 2022]  # Training: before 2022
-        
+    
+            
+            
         # Print NaN values in each split after all handling
         print("\nNaN values in data splits (after handling):")
         print("----------------------------------------")

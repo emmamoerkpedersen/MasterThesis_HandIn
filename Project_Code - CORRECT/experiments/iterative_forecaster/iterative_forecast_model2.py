@@ -39,14 +39,19 @@ class AlternatingForecastModel(nn.Module):
         self.residual_buffer = None
         self.buffer_initialized = False
         
-        #print(f"\nModel initialization:")
-        #print(f"Input size: {input_size}")
-        #print(f"Hidden size: {hidden_size}")
-        #print(f"Output size: {output_size}")
+        # Check if anomaly detection is disabled
+        self.anomaly_detection_enabled = config.get('enable_anomaly_detection', True) if config else True
         
-        # LSTM cell that takes input + binary flag + z_score + anomaly_flag
-        # input_size + 1 (binary flag) + 1 (z_score) + 1 (anomaly_flag)
-        self.lstm_cell = nn.LSTMCell(input_size + 3, hidden_size)
+        if self.anomaly_detection_enabled:
+            # Model with binary anomaly flag feedback only (no z-score feedback)
+            self.lstm_input_size = input_size + 2  # +1 binary flag, +1 anomaly_flag (no z_score)
+            print(f"Model initialized with anomaly flag feedback (input size: {self.lstm_input_size})")
+        else:
+            # Simplified model without anomaly features  
+            self.lstm_input_size = input_size + 1  # +1 binary flag only
+            print(f"Model initialized WITHOUT anomaly detection (input size: {self.lstm_input_size})")
+        
+        self.lstm_cell = nn.LSTMCell(self.lstm_input_size, hidden_size)
         
         # Dropout for regularization
         self.dropout = nn.Dropout(dropout)
@@ -187,17 +192,21 @@ class AlternatingForecastModel(nn.Module):
                 pred_input = x[:, t, :]
             
             # Use anomaly information from previous timestep for current input
-            prev_z_score = z_scores[:, t-1] if t > 0 else torch.zeros(batch_size, device=device)
             prev_anomaly_flag = anomaly_flags[:, t-1] if t > 0 else torch.zeros(batch_size, device=device)
             
-            # Create augmented input with previous anomaly information
-            # [features, binary_flag, prev_z_score, prev_anomaly_flag]
-            current_input = torch.cat([
-                pred_input, 
-                binary_flag, 
-                prev_z_score.unsqueeze(1),
-                prev_anomaly_flag.unsqueeze(1)
-            ], dim=1)
+            # Create augmented input with previous anomaly flag only (no z-score feedback)
+            # [features, binary_flag, prev_anomaly_flag]
+            if self.anomaly_detection_enabled:
+                current_input = torch.cat([
+                    pred_input, 
+                    binary_flag, 
+                    prev_anomaly_flag.unsqueeze(1)
+                ], dim=1)
+            else:
+                current_input = torch.cat([
+                    pred_input, 
+                    binary_flag
+                ], dim=1)
             
             # Process through LSTM cell
             hidden_state, cell_state = self.lstm_cell(current_input, (hidden_state, cell_state))
@@ -208,7 +217,7 @@ class AlternatingForecastModel(nn.Module):
             # Generate prediction for current timestep (only water level)
             outputs[:, t, :] = self.output_layer(final_hidden)
             
-            # NOW calculate anomaly detection for current timestep (after we have the prediction)
+            # calculate anomaly detection for current timestep (after we have the prediction)
             current_z_score = torch.zeros(batch_size, device=device)
             current_anomaly_flag = torch.zeros(batch_size, device=device)
             
