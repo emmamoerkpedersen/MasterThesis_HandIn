@@ -7,6 +7,10 @@ from plotly.offline import plot
 import copy
 from plotly_resampler import FigureResampler
 import numpy as np
+import plotly.express as px
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import seaborn as sns
 # Add the parent directory to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 from data_utils.data_loading import load_all_station_data, save_data_Dict
@@ -449,8 +453,310 @@ def create_interactive_station_plot(processed_data, original_data, station_id, f
     
     return fig
 
+def create_missing_values_heatmap(data, start_date, end_date):
+    """
+    Create a heatmap showing missing values patterns in the VST raw series.
+    
+    Args:
+        data: Dictionary containing station data
+        start_date: Start date for the analysis
+        end_date: End date for the analysis
+        
+    Returns:
+        plotly figure object
+    """
+    # Define the VST series we want to analyze
+    vst_series = ['vst_raw']
+    
+    # Get all stations that have at least one of the VST series
+    stations = list(data.keys())
+    
+    # Create a common time index for the analysis period
+    time_index = pd.date_range(start=start_date, end=end_date, freq='15min')
+    
+    # Create a matrix to store missing value information
+    missing_data = {}
+    
+    for series_name in vst_series:
+        # Initialize matrix for this series (stations x time)
+        series_data = []
+        valid_stations = []
+        
+        for station in stations:
+            if series_name in data[station] and data[station][series_name] is not None:
+                station_data = data[station][series_name].reindex(time_index)
+                # Convert to 1 for missing, 0 for present
+                missing_mask = station_data.iloc[:, 0].isna().astype(int)
+                series_data.append(missing_mask.values)
+                valid_stations.append(station)
+        
+        if series_data:
+            missing_data[series_name] = {
+                'data': np.array(series_data),
+                'stations': valid_stations,
+                'time_index': time_index
+            }
+    
+    # Check if we have any data
+    if not missing_data:
+        print("No VST series data found for heatmap.")
+        return None
+    
+    # Since we only have one series now, create a single plot instead of subplots
+    series_name = 'vst_raw'
+    series_info = missing_data[series_name]
+    
+    # Sample the data for better visualization (every 4 hours for daily patterns)
+    sample_freq = 16  # Every 4 hours (16 * 15min intervals)
+    sampled_time = series_info['time_index'][::sample_freq]
+    sampled_data = series_info['data'][:, ::sample_freq]
+    
+    # Create custom hover text
+    hover_text = []
+    for station_idx, station in enumerate(series_info['stations']):
+        station_hover = []
+        for time_idx, timestamp in enumerate(sampled_time):
+            status = "Missing" if sampled_data[station_idx, time_idx] == 1 else "Present"
+            station_hover.append(f"Station: {station}<br>Time: {timestamp}<br>Status: {status}")
+        hover_text.append(station_hover)
+    
+    # Create the figure
+    fig = go.Figure()
+    
+    # Add heatmap
+    heatmap = go.Heatmap(
+        z=sampled_data,
+        x=sampled_time,
+        y=series_info['stations'],
+        colorscale=[[0, 'darkgreen'], [1, 'darkred']],
+        showscale=False,  # Remove the colorbar
+        hovertemplate='%{text}<extra></extra>',
+        text=hover_text,
+        name="VST Raw Missing Values",
+        ygap=3  # Add gap between station rows for better separation
+    )
+    
+    fig.add_trace(heatmap)
+    
+    # Update layout
+    fig.update_layout(
+        height=max(400, len(series_info['stations']) * 20 + 200),  # Dynamic height based on number of stations
+        width=1400,
+        xaxis_title="Date",
+        yaxis_title="Station ID",
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(size=16),  # General font size for all text
+        xaxis=dict(
+            titlefont=dict(size=18),
+            tickfont=dict(size=14)
+        ),
+        yaxis=dict(
+            titlefont=dict(size=18),
+            tickfont=dict(size=14)
+        )
+    )
+    
+    return fig
+
+def create_missing_values_summary(data, start_date, end_date):
+    """
+    Create a summary table of missing values statistics for the vst_raw series.
+    
+    Args:
+        data: Dictionary containing station data
+        start_date: Start date for the analysis
+        end_date: End date for the analysis
+        
+    Returns:
+        pandas DataFrame with missing values statistics
+    """
+    vst_series = ['vst_raw']
+    stations = list(data.keys())
+    
+    summary_data = []
+    
+    for station in stations:
+        station_summary = {'Station': station}
+        
+        for series_name in vst_series:
+            if series_name in data[station] and data[station][series_name] is not None:
+                series_data = data[station][series_name]
+                
+                # Filter to date range
+                mask = (series_data.index >= start_date) & (series_data.index <= end_date)
+                filtered_data = series_data[mask]
+                
+                total_points = len(filtered_data)
+                missing_points = filtered_data.iloc[:, 0].isna().sum()
+                missing_percentage = (missing_points / total_points * 100) if total_points > 0 else 0
+                
+                station_summary[f'{series_name}_total'] = total_points
+                station_summary[f'{series_name}_missing'] = missing_points
+                station_summary[f'{series_name}_missing_pct'] = missing_percentage
+            else:
+                station_summary[f'{series_name}_total'] = 0
+                station_summary[f'{series_name}_missing'] = 0
+                station_summary[f'{series_name}_missing_pct'] = 100.0
+        
+        summary_data.append(station_summary)
+    
+    summary_df = pd.DataFrame(summary_data)
+    return summary_df
+
+def create_missing_values_heatmap_png(data, start_date, end_date, save_path):
+    """
+    Create a heatmap showing missing values patterns in the VST raw series using matplotlib
+    and save directly as PNG.
+    
+    Args:
+        data: Dictionary containing station data
+        start_date: Start date for the analysis
+        end_date: End date for the analysis
+        save_path: Path where to save the PNG file
+    """
+    # Define the VST series we want to analyze
+    vst_series = ['vst_raw']
+    
+    # Get all stations that have at least one of the VST series
+    stations = list(data.keys())
+    
+    # Create a common time index for the analysis period
+    time_index = pd.date_range(start=start_date, end=end_date, freq='15min')
+    
+    # Create a matrix to store missing value information
+    missing_data = {}
+    
+    for series_name in vst_series:
+        # Initialize matrix for this series (stations x time)
+        series_data = []
+        valid_stations = []
+        
+        for station in stations:
+            if series_name in data[station] and data[station][series_name] is not None:
+                station_data = data[station][series_name].reindex(time_index)
+                # Convert to 1 for missing, 0 for present
+                missing_mask = station_data.iloc[:, 0].isna().astype(int)
+                series_data.append(missing_mask.values)
+                valid_stations.append(station)
+        
+        if series_data:
+            missing_data[series_name] = {
+                'data': np.array(series_data),
+                'stations': valid_stations,
+                'time_index': time_index
+            }
+    
+    # Check if we have any data
+    if not missing_data:
+        print("No VST series data found for heatmap.")
+        return None
+    
+    # Get the data for VST raw
+    series_name = 'vst_raw'
+    series_info = missing_data[series_name]
+    
+    # Sample the data for better visualization (every 4 hours for daily patterns)
+    sample_freq = 16  # Every 4 hours (16 * 15min intervals)
+    sampled_time = series_info['time_index'][::sample_freq]
+    sampled_data = series_info['data'][:, ::sample_freq]
+    
+    # Create the matplotlib figure
+    fig, ax = plt.subplots(figsize=(20, max(6, len(series_info['stations']) * 0.3)))
+    
+    # Create custom colormap: darkgreen for 0 (present), darkred for 1 (missing)
+    colors = ['darkgreen', 'darkred']
+    cmap = plt.matplotlib.colors.ListedColormap(colors)
+    
+    # Create the heatmap
+    im = ax.imshow(sampled_data, cmap=cmap, aspect='auto', interpolation='nearest')
+    
+    # Set the ticks and labels
+    ax.set_yticks(range(len(series_info['stations'])))
+    ax.set_yticklabels(series_info['stations'], fontsize=18)
+    
+    # Format x-axis with dates
+    # Sample x-ticks to avoid overcrowding
+    n_ticks = 10
+    tick_indices = np.linspace(0, len(sampled_time)-1, n_ticks, dtype=int)
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels([sampled_time[i].strftime('%Y') for i in tick_indices], 
+                       rotation=45, fontsize=18)
+    
+    # Labels
+    ax.set_xlabel('Date', fontsize=22)
+    ax.set_ylabel('Station ID', fontsize=22)
+    
+    # Remove top and right spine
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    
+    # Add grid lines between stations
+    for i in range(len(series_info['stations']) - 1):
+        ax.axhline(y=i + 0.5, color='white', linewidth=2)
+    
+    # Tight layout to prevent cutoff
+    plt.tight_layout()
+    
+    # Save as PNG
+    plt.savefig(save_path, format='png', dpi=300, bbox_inches='tight', facecolor='white', 
+                edgecolor='none')
+    print(f"Missing values heatmap saved as PNG to {save_path}")
+    
+    # Close the figure to free memory
+    plt.close()
+    
+    return fig
+
 if __name__ == "__main__":
     processed_data, original_data, frost_periods = preprocess_data()
+    
+    # Define the same date range used in preprocessing
+    start_date = pd.Timestamp('2010-01-04')
+    end_date = pd.Timestamp('2025-01-07')
+    
+    # Create missing values heatmap
+    print("\nCreating missing values heatmap...")
+    missing_values_heatmap = create_missing_values_heatmap(processed_data, start_date, end_date)
+    
+    if missing_values_heatmap:
+        # Show the heatmap
+        missing_values_heatmap.show()
+        
+        # Save the heatmap as HTML
+        save_path = Path(__file__).parent.parent / "data_utils" / "Sample data"
+        missing_values_heatmap.write_html(save_path / "missing_values_heatmap.html")
+        print(f"Missing values heatmap saved to {save_path / 'missing_values_heatmap.html'}")
+        
+        # Alternative: Save as SVG (vector format, no kaleido needed)
+        missing_values_heatmap.write_html(save_path / "missing_values_heatmap_static.html", 
+                                         config={'displayModeBar': False, 'staticPlot': True})
+        print(f"Static version saved to {save_path / 'missing_values_heatmap_static.html'}")
+    
+    # Create and save PNG version using matplotlib (no kaleido needed)
+    print("\nCreating PNG version using matplotlib...")
+    save_path = Path(__file__).parent.parent / "data_utils" / "Sample data"
+    create_missing_values_heatmap_png(processed_data, start_date, end_date, 
+                                     save_path / "missing_values_heatmap.png")
+    
+    # Create and display missing values summary
+    print("\nCreating missing values summary...")
+    missing_summary = create_missing_values_summary(processed_data, start_date, end_date)
+    
+    print(f"\nMissing Values Summary for VST Raw Series ({start_date.date()} to {end_date.date()})")
+    print("=" * 80)
+    
+    # Print summary table
+    for _, row in missing_summary.iterrows():
+        print(f"\nStation: {row['Station']}")
+        print(f"  VST Raw:  {row['vst_raw_missing']:,} / {row['vst_raw_total']:,} missing ({row['vst_raw_missing_pct']:.1f}%)")
+    
+    # Save summary to CSV
+    missing_summary.to_csv(save_path / "missing_values_summary.csv", index=False)
+    print(f"\nMissing values summary saved to {save_path / 'missing_values_summary.csv'}")
+    
     station_id = '21006847'  # You can change this to any station ID
     
     # Create interactive plot showing processed and original vst_raw data with frost periods
