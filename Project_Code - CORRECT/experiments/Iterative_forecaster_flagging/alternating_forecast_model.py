@@ -48,6 +48,14 @@ class AlternatingForecastModel(nn.Module):
         # Store anomaly flag column name
         self.anomaly_flag_column = config.get('anomaly_flag_column', 'anomaly_flag') if config else 'anomaly_flag'
         self.anomaly_flag_idx = None  # Will be set during forward pass
+        
+        # ===============================
+        # EXPERIMENT 8: SLIDING WINDOW MEMORY
+        # ===============================
+        # Instead of single last_good_cell_state, keep buffer of recent good states
+        self.memory_window_size = config.get('memory_window_size', 10) if config else 10
+        self.good_memory_buffer = []  # Will store recent good cell states
+        self.use_sliding_window = config.get('use_sliding_window', True) if config else True
     
     def forward(self, x, hidden_state=None, cell_state=None, use_predictions=False, 
                 weekly_mask=None, alternating_weeks=True, feature_names=None):
@@ -97,11 +105,18 @@ class AlternatingForecastModel(nn.Module):
         # ===============================
         # MEMORY PROTECTION INITIALIZATION
         # ===============================
-        # Store a backup of "clean" memory state - this is our safety net
-        last_good_cell_state = cell_state.clone()
+        # EXPERIMENT 8: Initialize sliding window memory buffer
+        if self.use_sliding_window:
+            # Reset buffer for new sequence
+            self.good_memory_buffer = []
+            # Add initial cell state as first good memory
+            self.good_memory_buffer.append(cell_state.clone())
+        else:
+            # Original approach: Store a backup of "clean" memory state
+            last_good_cell_state = cell_state.clone()
         
-        # memory_decay = 0.1 means: during anomalies, accept only 10% new info, keep 90% old good memory
-        memory_decay = 0.3 
+        # memory_decay = 0.3 means: during anomalies, accept only 30% new info, keep 70% old good memory
+        memory_decay = 0.3
         
         # Find which column contains the anomaly flags (0=normal, 1=anomaly)
         if feature_names is not None and self.anomaly_flag_idx is None:
@@ -146,23 +161,50 @@ class AlternatingForecastModel(nn.Module):
             # -----------------------------------------------
             # STEP 4: MEMORY PROTECTION DECISION
             # -----------------------------------------------
-            # -----------------------------------------------
             if is_anomalous.any():
-                # ANOMALY DETECTED: Protect memory by blending
-                # Keep 70% of old good memory + 30% of new (potentially corrupted) memory
-                new_cell_blend = last_good_cell_state * (1 - memory_decay) + new_cell_state * memory_decay
+                # ANOMALY DETECTED: Use sliding window memory protection
+                if self.use_sliding_window and len(self.good_memory_buffer) > 0:
+                    # Calculate weighted average of recent good states
+                    # Weight recent states more heavily (exponential decay)
+                    weights = torch.softmax(torch.arange(len(self.good_memory_buffer), device=device).float(), dim=0)
+                    
+                    # Weighted combination of good memory states
+                    weighted_good_state = torch.zeros_like(cell_state)
+                    for i, good_state in enumerate(self.good_memory_buffer):
+                        weighted_good_state += weights[i] * good_state
+                    
+                    # Blend with new state: 70% weighted good memory + 30% new info
+                    new_cell_blend = weighted_good_state * (1 - memory_decay) + new_cell_state * memory_decay
+                    
+                    # Add exponential smoothing for gradual transitions
+                    smoothing_factor = 0.1
+                    cell_state = cell_state * (1 - smoothing_factor) + new_cell_blend * smoothing_factor
+                else:
+                    # Fallback to original method if buffer empty
+                    if 'last_good_cell_state' in locals():
+                        new_cell_blend = last_good_cell_state * (1 - memory_decay) + new_cell_state * memory_decay
+                        smoothing_factor = 0.1
+                        cell_state = cell_state * (1 - smoothing_factor) + new_cell_blend * smoothing_factor
+                    else:
+                        cell_state = new_cell_state
                 
-                # Add exponential smoothing to make transitions more gradual
-                smoothing_factor = 0.1
-                cell_state = cell_state * (1 - smoothing_factor) + new_cell_blend * smoothing_factor
-                
-                # Update hidden state normally (it's less critical than cell state for long-term memory)
+                # Update hidden state normally (less critical for long-term memory)
                 hidden_state = new_hidden_state
             else:
-                # NORMAL OPERATION: Update everything and save this as new "good" backup
+                # NORMAL OPERATION: Update everything and save as new "good" backup
                 hidden_state = new_hidden_state
                 cell_state = new_cell_state
-                last_good_cell_state = cell_state.clone()  # Save this as our new backup
+                
+                if self.use_sliding_window:
+                    # Add current good state to sliding window buffer
+                    self.good_memory_buffer.append(cell_state.clone())
+                    
+                    # Maintain buffer size limit
+                    if len(self.good_memory_buffer) > self.memory_window_size:
+                        self.good_memory_buffer.pop(0)  # Remove oldest
+                else:
+                    # Original approach: update single backup
+                    last_good_cell_state = cell_state.clone()
             
             # -----------------------------------------------
             # STEP 5: Generate prediction
@@ -180,15 +222,172 @@ class AlternatingForecastModel(nn.Module):
     
     def anomaly_aware_loss(self, predictions, targets, anomaly_flags, base_criterion):
         """
+        Improved anomaly-aware loss function that helps model learn what data SHOULD 
+        look like during anomalous periods.
+        
+        Components:
+        1. Weighted base loss: Reduced weight during anomalies (corrupted targets)
+        2. Recovery guidance: Use post-anomaly data to guide predictions
+        3. Pattern consistency: Maintain normal rates of change during anomalies
+        4. Statistical consistency: Keep predictions within normal bounds
+        
+        Args:
+            predictions: Model predictions [seq_len, 1]
+            targets: Ground truth (corrupted during anomalies) [seq_len, 1]
+            anomaly_flags: Binary flags (1=anomaly, 0=normal) [seq_len]
+            base_criterion: Base loss function
+        
+        Returns:
+            Combined loss encouraging realistic predictions during anomalies
+        """
+        if not self.use_weighted_loss:
+            return base_criterion(predictions, targets)
+        
+        device = predictions.device
+        seq_len = predictions.shape[0]
+        
+        # ===============================
+        # 1. WEIGHTED BASE LOSS
+        # ===============================
+        pointwise_loss = torch.abs(predictions - targets)
+        
+        # Check for NaN in basic loss first
+        if torch.isnan(pointwise_loss).any():
+            return base_criterion(predictions, targets)
+        
+        # Reduce weight during anomalies (don't trust corrupted targets)
+        weights = torch.where(anomaly_flags.bool(), 
+                            torch.tensor(self.anomaly_weight, device=device),  # 0.3 for anomalies
+                            torch.tensor(1.0, device=device))                 # 1.0 for normal
+        
+        weighted_base_loss = torch.mean(weights * pointwise_loss)
+        
+        # ===============================
+        # 2. RECOVERY GUIDANCE
+        # ===============================
+        recovery_loss = torch.tensor(0.0, device=device)
+        
+        if seq_len > 12:  # Only if sequence is long enough
+            try:
+                # Find where anomalies end (transition from 1 to 0)
+                anomaly_diff = torch.diff(anomaly_flags.float())
+                anomaly_ends = torch.where(anomaly_diff < 0)[0] + 1
+                
+                if len(anomaly_ends) > 0:
+                    recovery_window = min(12, seq_len - anomaly_ends.max().item())
+                    recovery_losses = []
+                    
+                    for end_idx in anomaly_ends:
+                        if end_idx + recovery_window <= seq_len:
+                            recovery_target = targets[end_idx:end_idx + recovery_window]
+                            recovery_pred = predictions[end_idx:end_idx + recovery_window]
+                            
+                            # Check for valid data
+                            if not torch.isnan(recovery_target).any() and not torch.isnan(recovery_pred).any():
+                                recovery_losses.append(torch.mean(torch.abs(recovery_pred - recovery_target)))
+                    
+                    if recovery_losses:
+                        recovery_loss = torch.mean(torch.stack(recovery_losses))
+            except:
+                recovery_loss = torch.tensor(0.0, device=device)
+        
+        # ===============================
+        # 3. PATTERN CONSISTENCY
+        # ===============================
+        pattern_loss = torch.tensor(0.0, device=device)
+        
+        if seq_len > 2:  # Need at least 3 points for meaningful differences
+            try:
+                # Calculate normal patterns (rate of change during normal periods)
+                normal_mask = ~anomaly_flags.bool()[:-1]  # Exclude last element for diff
+                
+                if normal_mask.sum() > 1:  # Need at least 2 normal differences
+                    normal_diffs = torch.diff(targets.squeeze())[normal_mask]
+                    
+                    # Check for valid normal differences
+                    if not torch.isnan(normal_diffs).any() and len(normal_diffs) > 0:
+                        normal_mean_change = torch.mean(normal_diffs)
+                        normal_std_change = torch.std(normal_diffs)
+                        
+                        # Only proceed if we have meaningful variance
+                        if normal_std_change > 1e-6:
+                            # During anomalies, encourage predictions to follow normal patterns
+                            anomaly_mask = anomaly_flags.bool()[:-1]
+                            
+                            if anomaly_mask.sum() > 0:  # Have anomalous differences
+                                pred_diffs = torch.diff(predictions.squeeze())[anomaly_mask]
+                                
+                                if not torch.isnan(pred_diffs).any() and len(pred_diffs) > 0:
+                                    # Penalize deviations beyond 2 standard deviations from normal
+                                    deviation = torch.abs(pred_diffs - normal_mean_change)
+                                    pattern_loss = torch.mean(torch.relu(deviation - 2 * normal_std_change))
+            except:
+                pattern_loss = torch.tensor(0.0, device=device)
+        
+        # ===============================
+        # 4. STATISTICAL CONSISTENCY
+        # ===============================
+        stats_loss = torch.tensor(0.0, device=device)
+        
+        try:
+            normal_data = targets[~anomaly_flags.bool()]
+            anomaly_predictions = predictions[anomaly_flags.bool()]
+            
+            # Need sufficient data for meaningful statistics
+            if len(normal_data) > 2 and len(anomaly_predictions) > 1:
+                # Check for valid data
+                if not torch.isnan(normal_data).any() and not torch.isnan(anomaly_predictions).any():
+                    normal_mean = torch.mean(normal_data)
+                    normal_std = torch.std(normal_data)
+                    
+                    pred_mean = torch.mean(anomaly_predictions)
+                    pred_std = torch.std(anomaly_predictions)
+                    
+                    # Only proceed if we have meaningful variance
+                    if normal_std > 1e-6:
+                        # Normalize differences by normal std to make scale-invariant
+                        mean_diff = torch.abs(pred_mean - normal_mean) / (normal_std + 1e-6)
+                        std_diff = torch.abs(pred_std - normal_std) / (normal_std + 1e-6)
+                        
+                        stats_loss = mean_diff + std_diff
+        except:
+            stats_loss = torch.tensor(0.0, device=device)
+        
+        # ===============================
+        # 5. COMBINE ALL COMPONENTS
+        # ===============================
+        # Check all components for NaN before combining
+        if torch.isnan(weighted_base_loss):
+            weighted_base_loss = torch.tensor(1.0, device=device)
+        if torch.isnan(recovery_loss):
+            recovery_loss = torch.tensor(0.0, device=device)
+        if torch.isnan(pattern_loss):
+            pattern_loss = torch.tensor(0.0, device=device)
+        if torch.isnan(stats_loss):
+            stats_loss = torch.tensor(0.0, device=device)
+        
+        total_loss = weighted_base_loss + \
+                    0.3 * recovery_loss + \
+                    0.3 * pattern_loss + \
+                    0.2 * stats_loss
+        
+        # Final NaN check - fallback to base criterion
+        if torch.isnan(total_loss):
+            return base_criterion(predictions, targets)
+        
+        return total_loss 
+
+    def anomaly_aware_loss_simple(self, predictions, targets, anomaly_flags, base_criterion):
+        """
         Anomaly-aware loss function with two key components:
         
         1. WEIGHTED LOSS: Pay less attention to errors during anomalous periods
-           - Normal periods: weight = 1.0 (learn fully from errors)
-           - Anomalous periods: weight = 0.3 (learn less, targets might be wrong)
+            - Normal periods: weight = 1.0 (learn fully from errors)
+            - Anomalous periods: weight = 0.3 (learn less, targets might be wrong)
         
         2. PATTERN PENALTY: Punish the model if it copies anomalous patterns
-           - If corrupted data spikes up and model follows → penalty
-           - Encourages model to maintain reasonable predictions during anomalies
+            - If corrupted data spikes up and model follows → penalty
+            - Encourages model to maintain reasonable predictions during anomalies
         
         Args:
             predictions: Model predictions

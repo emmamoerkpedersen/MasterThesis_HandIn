@@ -13,14 +13,14 @@ project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
 # Import local modules
-from experiments.iterative_forecaster.alternating_config import ALTERNATING_CONFIG
-from experiments.iterative_forecaster.simple_anomaly_detector import SimpleAnomalyDetector
+from alternating_config import ALTERNATING_CONFIG
+from simple_anomaly_detector import SimpleAnomalyDetector
 from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
 from _3_lstm_model.model_plots import create_full_plot, plot_convergence
 from _4_anomaly_detection.z_score import calculate_z_scores_mad
 from _4_anomaly_detection.anomaly_visualization import plot_water_level_anomalies
-from experiments.iterative_forecaster.alternating_trainer import AlternatingTrainer
-from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
+from alternating_trainer import AlternatingTrainer
+from alternating_forecast_model import AlternatingForecastModel
 
 def set_random_seeds(seed):
     """Set random seeds for reproducible results."""
