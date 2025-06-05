@@ -277,28 +277,59 @@ def run_alternating_model(args):
             output_dir=exp_dirs['visualizations']
         )
     
+    # Create zoom comparison plots with proper data handling
+    # If errors were injected, show original data as actual and corrupted data as corrupted
+    if args.error_multiplier is not None and args.error_type in ['both', 'validation']:
+        # Errors were injected, show both original and corrupted data
+        plot_zoom_comparison(
+            actual_data=original_val_data['vst_raw'],  # Clean original data (blue line)
+            predictions=val_pred_df['vst_raw'],
+            output_dir=exp_dirs['visualizations'],
+            station_id=args.station_id,
+            corrupted_data=val_data['vst_raw'],  # Data with synthetic errors (red stippled line)
+            zoom_start=pd.Timestamp('2022-03-01'),
+            zoom_end=pd.Timestamp('2022-08-01'),
+            title_suffix="Validation Predictions - 2022",
+            show_alternating_periods=True,
+        )
 
-    plot_zoom_comparison(
-        actual_data=val_data['vst_raw'],
-        predictions=val_pred_df['vst_raw'],
-        output_dir=exp_dirs['visualizations'],
-        station_id=args.station_id,
-        corrupted_data=None,
-        zoom_start=pd.Timestamp('2022-03-01'),
-        zoom_end=pd.Timestamp('2022-05-30'),
-        title_suffix="Validation Predictions - 2022",
-    )
+        plot_zoom_comparison(
+            actual_data=original_val_data['vst_raw'],  # Clean original data (blue line)
+            predictions=val_pred_df['vst_raw'],
+            output_dir=exp_dirs['visualizations'],
+            station_id=args.station_id,
+            corrupted_data=val_data['vst_raw'],  # Data with synthetic errors (red stippled line)
+            zoom_start=pd.Timestamp('2023-05-01'),
+            zoom_end=pd.Timestamp('2023-06-30'),
+            title_suffix="Validation Predictions - 2023",
+            show_alternating_periods=True,
+        )
+    else:
+        # No errors injected, only show original data and predictions
+        plot_zoom_comparison(
+            actual_data=original_val_data['vst_raw'],  # Original clean data (blue line)
+            predictions=val_pred_df['vst_raw'],
+            output_dir=exp_dirs['visualizations'],
+            station_id=args.station_id,
+            corrupted_data=None,  # No corrupted data to show
+            zoom_start=pd.Timestamp('2022-03-01'),
+            zoom_end=pd.Timestamp('2022-08-01'),
+            title_suffix="Validation Predictions - 2022",
+            show_alternating_periods=True,
+        )
 
-    plot_zoom_comparison(
-        actual_data=val_data['vst_raw'],
-        predictions=val_pred_df['vst_raw'],
-        output_dir=exp_dirs['visualizations'],
-        station_id=args.station_id,
-        corrupted_data=None,
-        zoom_start=pd.Timestamp('2023-04-01'),
-        zoom_end=pd.Timestamp('2023-05-30'),
-        title_suffix="Validation Predictions -2023",
-    )
+        plot_zoom_comparison(
+            actual_data=original_val_data['vst_raw'],  # Original clean data (blue line)
+            predictions=val_pred_df['vst_raw'],
+            output_dir=exp_dirs['visualizations'],
+            station_id=args.station_id,
+            corrupted_data=None,  # No corrupted data to show
+            zoom_start=pd.Timestamp('2023-05-01'),
+            zoom_end=pd.Timestamp('2023-06-30'),
+            title_suffix="Validation Predictions - 2023",
+            show_alternating_periods=True,
+        )
+
     # Calculate anomalies for the validation set
     print("\nGenerating anomaly detection analysis...")
     
@@ -476,7 +507,7 @@ def run_alternating_model(args):
                 for metric, value in corrupted_metrics.items():
                     print(f"  {metric}: {value:.6f}")
                 
-                '''  
+                
                 print("\nError Correction Analysis:")
                 
                 # Original vs Corrupted (how bad are the errors)
@@ -505,7 +536,7 @@ def run_alternating_model(args):
             except Exception as e:
                 print(f"\nError during error correction analysis: {str(e)}")
                 print("Continuing with model evaluation...")
-            '''
+            
     else:
         print("\nNot enough valid data points to calculate metrics")
         metrics = {"mse": float('nan'), "rmse": float('nan'), "mae": float('nan')}
