@@ -987,9 +987,9 @@ def plot_zoom_comparison(actual_data, predictions, output_dir=None, station_id='
     
     # Plot the data series with updated colors
     ax.plot(actual_zoom.index, actual_zoom.values, 'b-', label='Actual Data', 
-            linewidth=0.8, alpha=0.8)
+            linewidth=0.9, alpha=0.8)
     ax.plot(predictions_zoom.index, predictions_zoom.values, 'g-', label='Predictions', 
-            linewidth=0.8, alpha=0.8)
+            linewidth=0.9, alpha=0.8)
     
     # Plot corrupted data if available - red stippled line
     if corrupted_zoom is not None and len(corrupted_zoom) > 0:
@@ -1055,18 +1055,18 @@ def plot_zoom_comparison(actual_data, predictions, output_dir=None, station_id='
         title += f' {title_suffix}'
     title += f'\nZoom Period: {zoom_start.strftime("%Y-%m-%d")} to {zoom_end.strftime("%Y-%m-%d")}'
     
-    ax.set_title(title, fontweight='bold')
-    ax.set_xlabel('Time', fontweight='bold')
-    ax.set_ylabel('Water Level [mm]', fontweight='bold')
+    ax.set_title(title, fontweight='bold', fontsize=16)
+    ax.set_xlabel('Time', fontweight='bold', fontsize=18)
+    ax.set_ylabel('Water Level [mm]', fontweight='bold', fontsize=18)
     
     # Format x-axis to show only year and month
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right', fontsize=16)
+    plt.setp(ax.yaxis.get_majorticklabels(), fontsize=16)
     
-    # Add grid and legend
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc='best')
+    # Add legend with larger font, remove grid
+    ax.legend(loc='best', fontsize=16)
     
     # Tight layout
     plt.tight_layout()
