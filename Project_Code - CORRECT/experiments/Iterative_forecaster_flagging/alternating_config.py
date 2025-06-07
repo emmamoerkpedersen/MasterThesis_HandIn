@@ -10,9 +10,9 @@ ALTERNATING_CONFIG = {
     'dropout': 0.25,
     
     # Training parameters
-    'batch_size': (5*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
+    'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
     'epochs': 45,              # TEMPORARILY REDUCED for quick testing (was 50)
-    'patience': 5,
+    'patience': 10,
     'learning_rate': 0.0003,
     # Forecasting parameters
     'warmup_length': 672,
@@ -40,7 +40,7 @@ ALTERNATING_CONFIG = {
     # Feature engineering settings
     'use_time_features': True,        # ENABLED: month_sin, month_cos, day_of_year_sin, day_of_year_cos
     'use_cumulative_features': True, # Enable cumulative rainfall features
-    'use_lagged_features': True,     # ENABLED: Test with lagged features to compare performance
+    'use_lagged_features': False,    # DISABLED: Experiment 2 - test anomaly loss + memory protection
     'lag_hours': [24, 48, 72, 168, 336, 672],  # Actual hours: 1d, 2d, 3d, 1w, 2w, 4w (to escape anomalies)
     
     # Data configuration
@@ -48,7 +48,7 @@ ALTERNATING_CONFIG = {
     
     # NEW: Anomaly flagging approach
     'use_anomaly_flags': True,          # Enable anomaly flagging as input feature
-    'use_weighted_loss': True,          # Enable weighted loss based on anomaly flags
+    'use_weighted_loss': True,          # ENABLED: Anomaly aware loss (Experiment 2)
     'use_simple_loss': False,           # When True, use anomaly_aware_loss_simple() instead of complex version
     'anomaly_weight': 0.3,              # Weight for anomalous periods (30% vs 100% for normal)
     'anomaly_detection_threshold': 3.0, # Z-score threshold for automatic detection
@@ -57,6 +57,7 @@ ALTERNATING_CONFIG = {
     
     # Memory protection settings
     'use_sliding_window': False,        # DISABLED: Test without Experiment 8 sliding window memory
+    'use_memory_protection': True,      # ENABLED: Experiment 2 - test anomaly loss + memory protection
     'memory_window_size': 10,           # Buffer size for sliding window (when enabled)
     
     # Flag column name

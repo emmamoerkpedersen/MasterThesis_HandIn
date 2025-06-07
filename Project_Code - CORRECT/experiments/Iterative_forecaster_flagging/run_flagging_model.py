@@ -23,7 +23,8 @@ from _4_anomaly_detection.mad_outlier import mad_outlier_flags
 from _4_anomaly_detection.anomaly_visualization import (
     plot_water_level_anomalies, 
     calculate_anomaly_confidence, 
-    create_anomaly_zoom_plots
+    create_anomaly_zoom_plots,
+    create_simple_anomaly_zoom_plots
 )
 from alternating_trainer import AlternatingTrainer
 from alternating_forecast_model import AlternatingForecastModel
@@ -406,6 +407,17 @@ def run_flagging_model(args):
         config=config,
         output_dir=exp_dirs['anomaly_detection'],
         original_val_data=original_val_data  # Pass original validation data
+    )
+    
+    # Create simplified zoom plots (without detection markers)
+    print("\nCreating simplified zoom plots for model behavior analysis...")
+    create_simple_anomaly_zoom_plots(
+        val_data=val_data_flagged,
+        predictions=val_pred_df['vst_raw'].values,
+        error_generator=val_error_generator,
+        station_id=args.station_id,
+        output_dir=exp_dirs['anomaly_detection'],
+        original_val_data=original_val_data
     )
     
     # Generate residual plots and other diagnostics

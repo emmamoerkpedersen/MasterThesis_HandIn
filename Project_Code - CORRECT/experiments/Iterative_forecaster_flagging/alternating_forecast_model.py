@@ -49,6 +49,9 @@ class AlternatingForecastModel(nn.Module):
         self.anomaly_flag_column = config.get('anomaly_flag_column', 'anomaly_flag') if config else 'anomaly_flag'
         self.anomaly_flag_idx = None  # Will be set during forward pass
         
+        # Memory protection settings
+        self.use_memory_protection = config.get('use_memory_protection', True) if config else True
+        
         # ===============================
         # EXPERIMENT 8: SLIDING WINDOW MEMORY
         # ===============================
@@ -161,7 +164,7 @@ class AlternatingForecastModel(nn.Module):
             # -----------------------------------------------
             # STEP 4: MEMORY PROTECTION DECISION
             # -----------------------------------------------
-            if is_anomalous.any():
+            if self.use_memory_protection and is_anomalous.any():
                 # ANOMALY DETECTED: Use sliding window memory protection
                 if self.use_sliding_window and len(self.good_memory_buffer) > 0:
                     # Calculate weighted average of recent good states
@@ -191,20 +194,21 @@ class AlternatingForecastModel(nn.Module):
                 # Update hidden state normally (less critical for long-term memory)
                 hidden_state = new_hidden_state
             else:
-                # NORMAL OPERATION: Update everything and save as new "good" backup
+                # NORMAL OPERATION OR MEMORY PROTECTION DISABLED: Update everything and save as new "good" backup
                 hidden_state = new_hidden_state
                 cell_state = new_cell_state
                 
-                if self.use_sliding_window:
-                    # Add current good state to sliding window buffer
-                    self.good_memory_buffer.append(cell_state.clone())
-                    
-                    # Maintain buffer size limit
-                    if len(self.good_memory_buffer) > self.memory_window_size:
-                        self.good_memory_buffer.pop(0)  # Remove oldest
-                else:
-                    # Original approach: update single backup
-                    last_good_cell_state = cell_state.clone()
+                if self.use_memory_protection:  # Only save backup if memory protection is enabled
+                    if self.use_sliding_window:
+                        # Add current good state to sliding window buffer
+                        self.good_memory_buffer.append(cell_state.clone())
+                        
+                        # Maintain buffer size limit
+                        if len(self.good_memory_buffer) > self.memory_window_size:
+                            self.good_memory_buffer.pop(0)  # Remove oldest
+                    else:
+                        # Original approach: update single backup
+                        last_good_cell_state = cell_state.clone()
             
             # -----------------------------------------------
             # STEP 5: Generate prediction
@@ -220,7 +224,7 @@ class AlternatingForecastModel(nn.Module):
         cell_state = torch.zeros(batch_size, self.hidden_size, device=device)
         return hidden_state, cell_state
     
-    def anomaly_aware_loss(self, predictions, targets, anomaly_flags, base_criterion):
+    def anomaly_aware_loss2(self, predictions, targets, anomaly_flags, base_criterion):
         """
         Improved anomaly-aware loss function that helps model learn what data SHOULD 
         look like during anomalous periods.
@@ -377,7 +381,7 @@ class AlternatingForecastModel(nn.Module):
         
         return total_loss 
 
-    def anomaly_aware_loss_simple(self, predictions, targets, anomaly_flags, base_criterion):
+    def anomaly_aware_loss(self, predictions, targets, anomaly_flags, base_criterion):
         """
         Anomaly-aware loss function with two key components:
         
