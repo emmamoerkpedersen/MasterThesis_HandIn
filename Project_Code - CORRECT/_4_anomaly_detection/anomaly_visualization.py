@@ -170,6 +170,135 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
             traceback.print_exc()
             continue
 
+
+def create_simple_anomaly_zoom_plots(val_data, predictions, error_generator, station_id, output_dir, original_val_data=None):
+    """
+    Create simplified zoom plots for each type of injected error showing only:
+    - Original data (if available)
+    - Modified data (with injected errors) 
+    - Model predictions
+    - Error period boundaries
+    
+    No z-scores, detection markers, or confidence levels - just pure model behavior analysis.
+    
+    Args:
+        val_data: Validation data with synthetic errors
+        predictions: Model predictions
+        error_generator: SyntheticErrorGenerator instance with error_periods
+        station_id: Station identifier
+        output_dir: Output directory for plots
+        original_val_data: Original validation data before error injection
+    """
+    if not hasattr(error_generator, 'error_periods') or not error_generator.error_periods:
+        print("No error periods found for simple zoom plots")
+        return
+    
+    print(f"\nCreating simple zoom plots for {len(error_generator.error_periods)} injected errors...")
+    
+    # Group error periods by type
+    error_types = {}
+    for period in error_generator.error_periods:
+        error_type = period.error_type
+        if error_type not in error_types:
+            error_types[error_type] = []
+        error_types[error_type].append(period)
+    
+    # Create zoom plots for each error type (take first occurrence of each type)
+    for error_type, periods in error_types.items():
+        try:
+            period = periods[0]  # Take first period of this error type
+            
+            print(f"Creating simple zoom plot for {error_type} error...")
+            
+            # Calculate buffer (6 hours before and after for more context)
+            buffer_hours = 22  # Increased from 2 to 6 hours
+            buffer_steps = buffer_hours * 4  # 15-min intervals
+            
+            # Find the period in the validation data
+            start_time = period.start_time
+            end_time = period.end_time
+            
+            # Get indices for the error period
+            period_mask = (val_data.index >= start_time) & (val_data.index <= end_time)
+            if not period_mask.any():
+                print(f"ERROR: Error period not found in validation data for {error_type}")
+                continue
+                
+            # Find start and end indices with buffer
+            period_indices = np.where(period_mask)[0]
+            start_idx = max(0, period_indices[0] - buffer_steps)
+            end_idx = min(len(val_data), period_indices[-1] + buffer_steps)
+            
+            # Create zoom data
+            zoom_data = val_data.iloc[start_idx:end_idx].copy()
+            zoom_predictions = predictions[start_idx:end_idx] if len(predictions) > end_idx else predictions[start_idx:]
+            
+            # Extract original data if available
+            zoom_original_data = None
+            if original_val_data is not None:
+                zoom_original_data = original_val_data.iloc[start_idx:end_idx].copy()
+            
+            # Create the plot with clean thesis-friendly style
+            plt.style.use('default')  # Use clean default style
+            plt.rcParams['font.size'] = 16          # Larger base font
+            plt.rcParams['axes.labelsize'] = 18     # Larger axis labels
+            plt.rcParams['xtick.labelsize'] = 14    # Larger tick labels
+            plt.rcParams['ytick.labelsize'] = 14    # Larger tick labels
+            plt.rcParams['legend.fontsize'] = 16    # Larger legend
+            plt.rcParams['lines.linewidth'] = 2.5   # Thicker lines
+            
+            fig, ax = plt.subplots(figsize=(16, 10))  # Larger figure
+            
+            # Plot original data (if available)
+            if zoom_original_data is not None:
+                ax.plot(zoom_original_data.index, zoom_original_data['vst_raw'], 
+                       'b-', label='Original Data', linewidth=2.5, alpha=0.8)
+            
+            # Plot modified data (with synthetic errors)
+            ax.plot(zoom_data.index, zoom_data['vst_raw'], 
+                   'r-', label='Modified Data', linewidth=2.5, alpha=0.8)
+            
+            # Plot model predictions
+            ax.plot(zoom_data.index, zoom_predictions, 
+                   'g-', label='Model Predictions', linewidth=3.0, alpha=0.9)
+            
+            # NO colored background for anomaly period - removed axvspan
+            
+            # NO title - removed set_title
+            
+            # Clean formatting
+            ax.set_xlabel('Date', fontweight='bold', fontsize=18)
+            ax.set_ylabel('Water Level [mm]', fontweight='bold', fontsize=18)
+            ax.legend(loc='best', frameon=True, fancybox=True, shadow=True)
+            ax.grid(False)  # NO grid lines
+            
+            # Clean axis styling
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_linewidth(1.5)
+            ax.spines['bottom'].set_linewidth(1.5)
+            
+            # Format x-axis with clean time labels
+          #  ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+           #ax.xaxis.set_major_locator(mdates.DayLocator(interval=3))  # Every day
+           # ax.xaxis.set_minor_locator(mdates.HourLocator(interval=6))  # Minor ticks every 12 hours
+          #  plt.setp(ax.xaxis.get_majorticklabels(), rotation=0, ha='center')
+            
+            # Save the plot
+            plt.tight_layout()
+            
+            output_path = Path(output_dir) / f"simple_zoom_{error_type}_{station_id}.png"
+            plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+            plt.close()
+            
+            print(f"  Simple zoom plot for {error_type} saved to: {output_path}")
+            
+        except Exception as e:
+            print(f"Error creating simple zoom plot for {error_type}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            continue 
+
 def plot_water_level_anomalies(
     test_data,
     predictions,
@@ -328,9 +457,10 @@ def plot_water_level_anomalies(
         
         # Format date axis
         for ax in axes:
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d, %Y'))
-            ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+            ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))  # Every day
+            ax.xaxis.set_minor_locator(mdates.HourLocator(interval=12))  # Minor ticks every 12 hours
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=0, ha='center')
         
         plt.tight_layout()
         
