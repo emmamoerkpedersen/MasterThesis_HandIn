@@ -25,6 +25,11 @@ from _4_anomaly_detection.anomaly_visualization import (
 from experiments.iterative_forecaster.alternating_visualization import plot_zoom_comparison
 from experiments.iterative_forecaster.alternating_trainer import AlternatingTrainer
 from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
+from experiments.iterative_forecaster.Iterative_anomaly_model import AlternatingForecastModel as IterativeAnomalyModel
+from experiments.iterative_forecaster.anomaly_detection_visualization import (
+    plot_anomaly_detection_timeline,
+    plot_anomaly_detection_heatmap
+)
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -37,6 +42,8 @@ def parse_arguments():
                       help='Which datasets to inject errors into (both, train, validation, or none)')
     parser.add_argument('--experiment', type=str, default='baseline', help='Experiment number/name for organizing results (e.g., 0, 1, baseline, etc.)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducible results (default: 42)')
+    parser.add_argument('--model_type', type=str, default='alternating', choices=['alternating', 'iterative_anomaly'],
+                      help='Model type to use: alternating (original model) or iterative_anomaly (z-score anomaly detection model)')
     return parser.parse_args()
 
 def setup_experiment_directories(project_dir, experiment_name):
@@ -130,9 +137,17 @@ def run_alternating_model(args):
     print(f"\nInitializing trainer...")
     trainer = AlternatingTrainer(config, preprocessor)
     
+    # Select model class based on argument
+    if args.model_type == 'iterative_anomaly':
+        model_class = IterativeAnomalyModel
+        print(f"Using Iterative Anomaly Model (Z-Score Anomaly Detection)")
+    else:
+        model_class = AlternatingForecastModel
+        print(f"Using Original Alternating Model")
+    
     # Use our custom data loading method instead of the preprocessor's method
     print(f"\nLoading data for station {args.station_id}...")
-    train_data, val_data, test_data = trainer.load_data(project_dir, args.station_id)
+    train_data, val_data, test_data = trainer.load_data(project_dir, args.station_id, model_class=model_class)
     
     # Store original data for visualization
     original_train_data = train_data.copy()
@@ -196,9 +211,17 @@ def run_alternating_model(args):
     trainer.model.week_steps = config['week_steps']
     
     print("\nTraining model...")
-    history, val_predictions, val_targets = trainer.train(
-        train_data, val_data, config['epochs'], config['batch_size']
-    )
+    if args.model_type == 'iterative_anomaly':
+        # Iterative anomaly model returns anomaly_info
+        history, val_predictions, val_targets, val_anomaly_info = trainer.train(
+            train_data, val_data, config['epochs'], config['batch_size']
+        )
+    else:
+        # Original alternating model doesn't return anomaly_info
+        history, val_predictions, val_targets = trainer.train(
+            train_data, val_data, config['epochs'], config['batch_size']
+        )
+        val_anomaly_info = None  # No anomaly info for original model
     
     # Skip test predictions and focus only on validation results
     print("\nSkipping test predictions, focusing on validation results only...")
@@ -472,6 +495,34 @@ def run_alternating_model(args):
         )
     else:
         print("\nNo synthetic errors injected - skipping synthetic error zoom plots")
+
+    # GENERATE ANOMALY DETECTION TIMELINE VISUALIZATIONS
+    if args.model_type == 'iterative_anomaly' and val_anomaly_info is not None:
+        print("\nGenerating anomaly detection timeline visualizations...")
+        
+        # Timeline plot showing z-scores, usage decisions, and statistics
+        timeline_path = plot_anomaly_detection_timeline(
+            val_data=val_data,
+            predictions=val_pred_df['vst_raw'].values,
+            anomaly_info=val_anomaly_info,
+            station_id=args.station_id,
+            output_dir=exp_dirs['visualizations'],
+            original_val_data=original_val_data if args.error_multiplier is not None else None
+        )
+        
+        # Heatmap showing patterns over time
+        heatmap_path = plot_anomaly_detection_heatmap(
+            val_data=val_data,
+            anomaly_info=val_anomaly_info,
+            station_id=args.station_id,
+            output_dir=exp_dirs['visualizations']
+        )
+        
+        print(f"Anomaly detection visualizations completed!")
+        print(f"  - Timeline: {timeline_path}")
+        print(f"  - Heatmap: {heatmap_path}")
+    else:
+        print(f"\nSkipping anomaly detection visualizations (using {args.model_type} model)")
 
     # Calculate metrics on validation data instead of test data
     from utils.pipeline_utils import calculate_performance_metrics
