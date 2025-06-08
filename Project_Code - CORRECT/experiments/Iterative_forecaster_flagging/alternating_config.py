@@ -40,7 +40,7 @@ ALTERNATING_CONFIG = {
     # Feature engineering settings
     'use_time_features': True,        # ENABLED: month_sin, month_cos, day_of_year_sin, day_of_year_cos
     'use_cumulative_features': True, # Enable cumulative rainfall features
-    'use_lagged_features': False,    # DISABLED: Experiment 2 - test anomaly loss + memory protection
+    'use_lagged_features': True,    # DISABLED: Experiment 2 - test anomaly loss + memory protection
     'lag_hours': [24, 48, 72, 168, 336, 672],  # Actual hours: 1d, 2d, 3d, 1w, 2w, 4w (to escape anomalies)
     
     # Data configuration
@@ -54,12 +54,7 @@ ALTERNATING_CONFIG = {
     'anomaly_detection_threshold': 3.0, # Z-score threshold for automatic detection
     'anomaly_detection_window': 100,   # Window size for MAD calculation
     'use_perfect_flags': True,          # Use perfect flags from known error locations
-    
-    # Memory protection settings
-    'use_sliding_window': False,        # DISABLED: Test without Experiment 8 sliding window memory
-    'use_memory_protection': True,      # ENABLED: Experiment 2 - test anomaly loss + memory protection
-    'memory_window_size': 10,           # Buffer size for sliding window (when enabled)
-    
+
     # Flag column name
     'anomaly_flag_column': 'anomaly_flag',
 }
