@@ -14,7 +14,7 @@ project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
 from config import LSTM_CONFIG
-from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
+from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
 
 def mad_outlier_flags(train_series, val_series=None, threshold=3.0, window_size=16):
     """

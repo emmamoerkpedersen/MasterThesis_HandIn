@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.objective_functions import get_objective_function
-from _3_lstm_model.model import LSTMModel
+from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
+from models.lstm_traditional.objective_functions import get_objective_function
+from models.lstm_traditional.model import LSTMModel
 from tqdm import tqdm
 
 

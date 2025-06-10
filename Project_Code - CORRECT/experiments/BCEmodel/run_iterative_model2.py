@@ -15,19 +15,19 @@ sys.path.append(str(project_dir))
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 # Import local modules
-from experiments.iterative_forecaster.alternating_config import ALTERNATING_CONFIG
-from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from experiments.iterative_forecaster.iterative_trainer2 import AlternatingTrainer
-from _3_lstm_model.model_diagnostics import generate_all_diagnostics
+from models.lstm_flagging.alternating_config import ALTERNATING_CONFIG
+from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
+from experiments.BCEmodel.iterative_trainer2 import AlternatingTrainer
+from shared.diagnostics.model_diagnostics import generate_all_diagnostics
 
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence, create_synthetic_error_zoom_plots
-from _4_anomaly_detection.anomaly_visualization import (
+from shared.diagnostics.model_plots import create_full_plot, plot_convergence, create_synthetic_error_zoom_plots
+from shared.anomaly_detection.anomaly_visualization import (
     plot_water_level_anomalies, 
     calculate_anomaly_confidence, 
     create_anomaly_zoom_plots
 )
-from _4_anomaly_detection.z_score import calculate_z_scores_mad
-from _4_anomaly_detection.mad_outlier import mad_outlier_flags
+from shared.anomaly_detection.z_score import calculate_z_scores_mad
+from shared.anomaly_detection.mad_outlier import mad_outlier_flags
 
 
 def parse_arguments():
@@ -166,8 +166,8 @@ def run_alternating_model(args):
     # --- Inject synthetic errors BEFORE calculating anomaly flags ---
     saved_error_generator = None  # Store error generator for later use
     if args.error_multiplier is not None and args.error_type != 'none':
-        from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-        from utils.error_utils import configure_error_params, inject_errors_into_dataset
+        from shared.synthetic.synthetic_errors import SyntheticErrorGenerator
+        from shared.utils.error_utils import configure_error_params, inject_errors_into_dataset
         from config import SYNTHETIC_ERROR_PARAMS
         print(f"\nInjecting synthetic errors with multiplier {args.error_multiplier:.1f}x...")
         print(f"Error injection mode: {args.error_type}")
@@ -404,7 +404,7 @@ def run_alternating_model(args):
         print("\nNo error generator available for synthetic error zoom plots")
 
     # Calculate metrics on validation data instead of test data
-    from utils.pipeline_utils import calculate_performance_metrics
+    from shared.utils.pipeline_utils import calculate_performance_metrics
     valid_mask = ~np.isnan(original_val_data['vst_raw'].values)
     pred_mask = ~np.isnan(val_predictions_original)
     combined_mask = valid_mask[:len(pred_mask)] & pred_mask

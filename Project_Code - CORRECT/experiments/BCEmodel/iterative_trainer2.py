@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
-from _4_anomaly_detection.z_score import calculate_z_scores_mad
+from shared.anomaly_detection.z_score import calculate_z_scores_mad
 import torch.nn.functional as F
 
 # Add the project root to the path
@@ -15,8 +15,8 @@ current_dir = Path(__file__).resolve().parent
 project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
-from _3_lstm_model.objective_functions import get_objective_function
-from experiments.iterative_forecaster.iterative_forecast_model2 import AlternatingForecastModel
+from models.lstm_traditional.objective_functions import get_objective_function
+from experiments.BCEmodel.iterative_forecast_model2 import AlternatingForecastModel
 
 class AlternatingTrainer:
     """

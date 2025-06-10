@@ -20,7 +20,7 @@ sys.path.append(str(Path(__file__).parent))
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
 
 # Pipeline utilities
-from utils.pipeline_utils import (
+from shared.utils.pipeline_utils import (
     calculate_nse, prepare_prediction_dataframe, 
     calculate_performance_metrics, save_comparison_metrics,
     print_metrics_table, print_comparison_table, prepare_features_df,
@@ -28,33 +28,33 @@ from utils.pipeline_utils import (
 )
 
 # Error handling utilities
-from utils.error_utils import (
+from shared.utils.error_utils import (
     configure_error_params, print_error_frequencies,
     inject_errors_into_dataset, identify_water_level_columns
 )
 
 # Diagnostic utilities
-from utils.diagnostics_utils import (
+from shared.utils.diagnostics_utils import (
     run_preprocessing_diagnostics, run_synthetic_diagnostics,
     setup_basic_diagnostics, run_advanced_diagnostics
 )
 
 # Model utilities
-from utils.model_utils import (
+from shared.utils.model_utils import (
     create_lstm_model, print_model_params, train_model,
     save_model, process_val_predictions, process_test_predictions
 )
 
 # Model infrastructure
-from _3_lstm_model.preprocessing_LSTM import DataPreprocessor
-from _3_lstm_model.model_plots import create_full_plot, plot_convergence, plot_feature_importance, create_individual_feature_plots, plot_feature_correlation
-from _3_lstm_model.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
+from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
+from shared.diagnostics.model_plots import create_full_plot, plot_convergence, plot_feature_importance, create_individual_feature_plots, plot_feature_correlation
+from shared.diagnostics.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
 
 # Experiment modules
 from experiments.error_frequency import run_error_frequency_experiments
 
-from _3_lstm_model.train_model import LSTM_Trainer
-from _3_lstm_model.model import LSTMModel
+from models.lstm_traditional.train_model import LSTM_Trainer
+from models.lstm_traditional.model import LSTMModel
 
 # # EMMA HUSK AT BRUGE GAMLE MODEL OG TRÆNIN GOGSÅ!!!
 # from experiments.Improved_model_structure.train_model import LSTM_Trainer
@@ -128,7 +128,7 @@ def run_pipeline(
     #########################################################
     print("\nStep 2: Generating synthetic errors...")
     stations_results = {}
-    from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
+    from shared.synthetic.synthetic_errors import SyntheticErrorGenerator
     error_generator = SyntheticErrorGenerator(SYNTHETIC_ERROR_PARAMS)
     
     train_data_with_errors = None

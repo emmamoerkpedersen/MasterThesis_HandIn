@@ -8,7 +8,7 @@ current_dir = Path(__file__).resolve().parent
 project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
-from _4_anomaly_detection.z_score import calculate_z_scores_mad
+from shared.anomaly_detection.z_score import calculate_z_scores_mad
 
 class SimpleAnomalyDetector:
     """

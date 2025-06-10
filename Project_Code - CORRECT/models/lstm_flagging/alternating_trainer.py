@@ -11,11 +11,11 @@ import os
 
 # Add the project root to the path
 current_dir = Path(__file__).resolve().parent
-project_dir = current_dir.parent.parent
+project_dir = current_dir.parent.parent  # models/lstm_flagging -> models -> Project_Code - CORRECT
 sys.path.append(str(project_dir))
 
-from _3_lstm_model.objective_functions import get_objective_function
-from alternating_forecast_model import AlternatingForecastModel
+from models.lstm_traditional.objective_functions import get_objective_function
+from .alternating_forecast_model import AlternatingForecastModel
 
 class AlternatingTrainer:
     """

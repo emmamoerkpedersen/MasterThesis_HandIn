@@ -13,7 +13,7 @@ current_dir = Path(__file__).resolve().parent
 project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
-from _3_lstm_model.objective_functions import get_objective_function
+from models.lstm_traditional.objective_functions import get_objective_function
 from experiments.iterative_forecaster.alternating_forecast_model import AlternatingForecastModel
 
 class AlternatingTrainer:

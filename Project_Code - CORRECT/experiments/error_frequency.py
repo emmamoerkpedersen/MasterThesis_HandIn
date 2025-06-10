@@ -10,7 +10,7 @@ import torch
 from datetime import datetime
 
 # Import plot functions from model_plots module
-from _3_lstm_model.model_plots import create_water_level_plot_png
+from shared.diagnostics.model_plots import create_water_level_plot_png
 
 def run_error_frequency_experiments(run_pipeline, error_multipliers=None):
     """
