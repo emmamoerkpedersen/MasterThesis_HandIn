@@ -187,7 +187,7 @@ def run_advanced_diagnostics(test_data, predictions, station_id, output_path, is
         
         # Run the appropriate diagnostics based on whether this is comparative
         if is_comparative:
-            from _3_lstm_model.model_diagnostics import generate_comparative_diagnostics
+            from shared.diagnostics.model_diagnostics import generate_comparative_diagnostics
             
             # For comparative diagnostics, predictions should be a dictionary
             # with model names as keys and prediction Series as values
@@ -200,7 +200,7 @@ def run_advanced_diagnostics(test_data, predictions, station_id, output_path, is
                 features_df=features_df
             )
         else:
-            from _3_lstm_model.model_diagnostics import (
+            from shared.diagnostics.model_diagnostics import (
                 analyze_individual_residuals, 
                 create_actual_vs_predicted_plot,
                 create_feature_importance_plot,
