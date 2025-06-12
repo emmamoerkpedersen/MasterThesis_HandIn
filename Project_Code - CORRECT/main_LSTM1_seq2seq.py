@@ -434,6 +434,7 @@ def run_pipeline(
             str(station_id), 
             model_config, 
             best_val_loss, 
+            create_html=False,  # Disable HTML creation
             title_suffix=val_plot_title,
             synthetic_data=synthetic_data,
             vinge_data=vinge_data
