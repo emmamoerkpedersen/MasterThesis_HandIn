@@ -58,6 +58,10 @@ class LSTM_Trainer:
 
         with torch.set_grad_enabled(training):
             for batch_X, batch_y in tqdm(data_loader, desc="Training" if training else "Validating", leave=False):
+                # Ensure batch tensors are on the correct device
+                batch_X = batch_X.to(self.device)
+                batch_y = batch_y.to(self.device)
+                
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_X)
 
@@ -105,21 +109,25 @@ class LSTM_Trainer:
         print(f"Validation data length: {len(val_data)}")
         X_train, y_train = self.preprocessor.prepare_data(train_data, is_training=True)
         X_val, y_val = self.preprocessor.prepare_data(val_data, is_training=False)
+        
+        # Ensure all tensors are on CPU since we're using CPU-only training
+        X_train = X_train.cpu()
+        y_train = y_train.cpu()
+        X_val = X_val.cpu()
+        y_val = y_val.cpu()
 
         # Create data loaders with num_workers for parallel data loading
         train_loader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(X_train, y_train), 
             batch_size=batch_size, 
             shuffle=True,  # Enable shuffling for better training
-            num_workers=4,  # Parallel data loading
-            pin_memory=True  # Faster data transfer to GPU
+            num_workers=4  # Parallel data loading
         )
         val_loader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(X_val, y_val), 
             batch_size=batch_size, 
             shuffle=False,
-            num_workers=4,
-            pin_memory=True
+            num_workers=4
         )
 
         # Initialize early stopping
@@ -172,6 +180,10 @@ class LSTM_Trainer:
         """
         self.model.eval()
         X, y = self.preprocessor.prepare_data(data, is_training=False)
+        
+        # Ensure tensors are on the correct device
+        X = X.to(self.device)
+        y = y.to(self.device)
         
         with torch.no_grad():
             # Make predictions in smaller chunks if needed
