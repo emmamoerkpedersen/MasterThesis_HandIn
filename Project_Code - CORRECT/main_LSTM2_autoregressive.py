@@ -8,16 +8,19 @@ import torch
 import random
 from scipy.signal import savgol_filter
 
-# Add the project root to the path (we're already in the project root now)
+# Add the project root to the path
 current_dir = Path(__file__).resolve().parent
-project_dir = current_dir
+project_dir = current_dir  # Point to Project_Code - CORRECT instead of parent.parent
 sys.path.append(str(project_dir))
 
-# Import local modules - updated paths for new structure
+# Import local modules
 from models.lstm_flagging.alternating_config import ALTERNATING_CONFIG
 from models.lstm_flagging.simple_anomaly_detector import SimpleAnomalyDetector
 from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
 from shared.diagnostics.model_plots import create_full_plot, plot_convergence
+from shared.anomaly_detection.comprehensive_evaluation import (
+    run_single_threshold_anomaly_detection
+)
 from shared.anomaly_detection.z_score import calculate_z_scores_mad
 from shared.anomaly_detection.mad_outlier import mad_outlier_flags
 from shared.anomaly_detection.anomaly_visualization import (
@@ -26,6 +29,8 @@ from shared.anomaly_detection.anomaly_visualization import (
     create_anomaly_zoom_plots,
     create_simple_anomaly_zoom_plots
 )
+
+from shared.anomaly_detection.mad_outlier import mad_outlier_flags
 from models.lstm_flagging.alternating_trainer import AlternatingTrainer
 from models.lstm_flagging.alternating_forecast_model import AlternatingForecastModel
 
@@ -93,7 +98,6 @@ def run_flagging_model(args):
         'anomaly_weight': args.anomaly_weight,
         'use_weighted_loss': True,
         'use_anomaly_flags': True,
-        'epochs': 2,  # Reduced for initial test with enhanced features
         'experiment': args.experiment,  # Store experiment name in config
     })
      
@@ -168,7 +172,7 @@ def run_flagging_model(args):
     # Create anomaly detector
     detector = SimpleAnomalyDetector(
         threshold=config.get('anomaly_detection_threshold', 3.0),
-        window_size=config.get('anomaly_detection_window', 1500)
+        window_size=config.get('anomaly_detection_window', 16)
     )
     
     # Add anomaly flags to data based on chosen method
@@ -351,8 +355,7 @@ def run_flagging_model(args):
         synthetic_data=synthetic_data, 
         output_dir=exp_dirs['visualizations']
     )
-    
-    # Anomaly detection analysis
+        # Anomaly detection analysis
     print("\nGenerating anomaly detection analysis...")
     
     z_scores, anomalies = calculate_z_scores_mad(
@@ -419,6 +422,107 @@ def run_flagging_model(args):
         output_dir=exp_dirs['anomaly_detection'],
         original_val_data=original_val_data
     )
+
+    # Comprehensive Anomaly Detection Framework
+    print("\n" + "="*60)
+    print("COMPREHENSIVE ANOMALY DETECTION")
+    print("="*60)
+    print("🎯 Evaluating supervised model's anomaly detection capability")
+    
+    # Convert error reports to stations_results format for ground truth
+    print("Converting error reports to ground truth format...")
+    stations_results = {}
+    
+    # Convert validation error report to proper format
+    for key, report_data in val_error_report.items():
+        if 'vst_raw' in key:  # Target variable
+            stations_results[key] = {
+                'modified_data': val_data_with_errors,  # Data with synthetic errors
+                'ground_truth': report_data.get('ground_truth'),  # Add missing ground_truth field
+                'error_periods': report_data.get('error_periods', []),
+                'original_data': original_val_data
+            }
+    
+    # Use unscaled predictions for anomaly detection
+    val_predictions_unscaled = val_predictions_smoothed  # Already unscaled
+    
+    print(f"📊 Anomaly detection configuration:")
+    print(f"   Threshold: {config['threshold']}")
+    print(f"   Window size: {config['window_size']}")
+    print(f"   Using unscaled predictions: shape {val_predictions_unscaled.shape}")
+    print(f"   Prediction range: {np.nanmin(val_predictions_unscaled):.1f} to {np.nanmax(val_predictions_unscaled):.1f} mm")
+    
+    # Ensure predictions match validation data length
+    if len(val_predictions_unscaled) != len(original_val_data):
+        print(f"⚠️  Length mismatch: predictions={len(val_predictions_unscaled)}, data={len(original_val_data)}")
+        if len(val_predictions_unscaled) > len(original_val_data):
+            val_predictions_unscaled = val_predictions_unscaled[:len(original_val_data)]
+            print(f"   Truncated predictions to {len(val_predictions_unscaled)}")
+        else:
+            padding = np.full(len(original_val_data) - len(val_predictions_unscaled), np.nan)
+            val_predictions_unscaled = np.concatenate([val_predictions_unscaled, padding])
+            print(f"   Padded predictions to {len(val_predictions_unscaled)}")
+    
+    # DEBUG: Print detailed validation set information for supervised model
+    print(f"\n🔍 SUPERVISED MODEL VALIDATION SET DEBUG INFO:")
+    print(f"   Validation data length: {len(original_val_data)}")
+    print(f"   Validation data period: {original_val_data.index[0]} to {original_val_data.index[-1]}")
+    print(f"   Predictions length: {len(val_predictions_unscaled)}")
+    print(f"   Non-NaN predictions: {np.sum(~np.isnan(val_predictions_unscaled))}")
+    
+    # Show time span
+    time_span = original_val_data.index[-1] - original_val_data.index[0]
+    print(f"   Time span: {time_span}")
+    if len(original_val_data) > 0:
+        points_per_day = len(original_val_data) / time_span.days if time_span.days > 0 else 0
+        print(f"   Approximate points per day: {points_per_day:.1f}")
+    
+    # Check if we have ground truth data
+    if not stations_results:
+        print("❌ No ground truth data available for anomaly detection.")
+        anomaly_results = {'error': 'No ground truth data available'}
+    else:
+        # Run comprehensive anomaly detection
+        anomaly_results = run_single_threshold_anomaly_detection(
+            val_data=val_data_with_errors,  # Use data with synthetic errors
+            predictions=val_predictions_unscaled,  # Use unscaled predictions
+            stations_results=stations_results,  # Contains ground truth
+            station_id=args.station_id,
+            config={
+                'threshold': config['threshold'],
+                'window_size': config['window_size'],
+                'model_type': 'predictions'  # Time series predictions
+            },
+            output_dir=exp_dirs['anomaly_detection'],  # Use anomaly detection directory
+            original_val_data=original_val_data,
+            filename_prefix=f"supervised_anomaly_detection_{args.flag_method}_"
+        )
+        
+
+
+        # Check if anomaly detection succeeded
+        if 'error' in anomaly_results:
+            print(f"❌ Anomaly detection failed: {anomaly_results['error']}")
+            anomaly_results = {}
+        else:
+            # Add debug information about results
+            print(f"\n🔍 SUPERVISED MODEL ANOMALY DETECTION RESULTS:")
+            if 'confusion_metrics' in anomaly_results:
+                cm = anomaly_results['confusion_metrics']
+                print(f"   F1-Score: {cm['f1_score']:.4f}")
+                print(f"   Precision: {cm['precision']:.4f}")
+                print(f"   Recall: {cm['recall']:.4f}")
+                print(f"   Total anomalies detected: {cm['total_anomalies_pred']}")
+                print(f"   Total ground truth anomalies: {cm['total_anomalies_true']}")
+                print(f"   True Positives: {cm['true_positives']}")
+                print(f"   False Positives: {cm['false_positives']}")
+                print(f"   True Negatives: {cm['true_negatives']}")
+                print(f"   False Negatives: {cm['false_negatives']}")
+                
+                # Check if anomaly rate seems reasonable
+                if cm['total_anomalies_pred'] > len(original_val_data) * 0.1:  # More than 10%
+                    print(f"   ⚠️ WARNING: Detection rate seems very high ({cm['total_anomalies_pred']/len(original_val_data)*100:.2f}%)")
+                    print(f"   This might indicate overly sensitive detection or high error injection")
     
     # Generate residual plots and other diagnostics
     print("\nGenerating diagnostic plots...")
@@ -469,6 +573,10 @@ def run_flagging_model(args):
         for metric, value in corrupted_metrics.items():
             print(f"  {metric}: {value:.6f}")
         
+        # Add anomaly detection metrics to results if available
+        if anomaly_results and 'confusion_metrics' in anomaly_results:
+            metrics['anomaly_detection'] = anomaly_results['confusion_metrics']
+        
         return metrics
     else:
         print("Not enough valid data for metrics")
@@ -482,7 +590,9 @@ if __name__ == "__main__":
     print(f"🏷️ FLAGGING MODEL EXPERIMENT {args.experiment} COMPLETED!")
     print(f"{'='*70}")
     print(f"Flag method: {args.flag_method}")
-
+    if args.flag_method == 'mad':
+        print(f"MAD threshold: {config['mad_threshold']}")
+        print(f"MAD window: {config['mad_window']}")
     print(f"Anomaly weight: {args.anomaly_weight}")
     print(f"Perfect flags: {args.use_perfect_flags}")
     print(f"Results saved to experiment_{args.experiment}")

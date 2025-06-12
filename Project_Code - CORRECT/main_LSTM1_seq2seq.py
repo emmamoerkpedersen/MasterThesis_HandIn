@@ -17,7 +17,7 @@ sys.path.append(str(Path(__file__).parent))
 
 # Local imports
 # Configuration
-from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
+from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG, ANOMALY_DETECTION_CONFIG
 
 # Pipeline utilities
 from shared.utils.pipeline_utils import (
@@ -60,6 +60,16 @@ from models.lstm_traditional.model import LSTMModel
 # from experiments.Improved_model_structure.train_model import LSTM_Trainer
 #from experiments.Improved_model_structure.improved_model import LSTMModel
 
+# Anomaly detection utilities
+from shared.anomaly_detection.z_score import calculate_z_scores_mad
+from shared.anomaly_detection.anomaly_visualization import (
+    calculate_anomaly_confidence, plot_water_level_anomalies
+)
+from shared.anomaly_detection.comprehensive_evaluation import (
+    run_single_threshold_anomaly_detection
+)
+
+
 def run_pipeline(
     project_root: Path,
     data_path: str, 
@@ -69,6 +79,7 @@ def run_pipeline(
     inject_synthetic_errors: bool = False,
     model_diagnostics: bool = False,
     advanced_diagnostics: bool = False,
+    run_anomaly_detection: bool = False,
     error_multiplier: float = 1.0,
 ) -> dict:
     """
@@ -83,10 +94,11 @@ def run_pipeline(
         inject_synthetic_errors (bool): Whether to inject synthetic errors
         model_diagnostics (bool): Whether to generate basic model plots (prediction plots)
         advanced_diagnostics (bool): Whether to generate advanced model diagnostics
+        run_anomaly_detection (bool): Whether to run anomaly detection using z_score_MAD
         error_multiplier (float): Multiplier for error counts per year (1.0 = base counts)
     
     Returns:
-        dict: Dictionary containing performance metrics
+        dict: Dictionary containing performance metrics and anomaly detection results
     """
     # Initialize configuration and preprocessor
     model_config = LSTM_CONFIG.copy()
@@ -104,20 +116,14 @@ def run_pipeline(
     original_val_data = val_data.copy()
     original_test_data = test_data.copy()
     
-    # Create correlation plot
-    # print("\nGenerating correlation plot...")
-    # correlation_plot_path = plot_feature_correlation(original_train_data)
-    # print(f"Correlation plot saved to: {correlation_plot_path}")
-    
-    # # Create feature plots
-    # print("\nGenerating feature plots...")
-    # feature_plots = create_individual_feature_plots(original_train_data)
-    # print(f"Feature plots saved to: {list(feature_plots.values())}")
-    
     # Generate diagnostics if enabled
     if model_diagnostics:
         setup_basic_diagnostics(original_train_data, preprocessor.feature_cols, output_path, years_to_show=10)
-    
+        # Create correlation plot
+        # print("\nGenerating correlation plot...")
+        # correlation_plot_path = plot_feature_correlation(original_train_data)
+        # print(f"Correlation plot saved to: {correlation_plot_path}")
+        
     if preprocess_diagnostics:
         run_preprocessing_diagnostics(project_root, output_path, station_id)
     else:
@@ -179,6 +185,35 @@ def run_pipeline(
             import traceback
             traceback.print_exc()
     
+    # Step 2b: Target Variable Error Injection (for anomaly detection)
+    anomaly_stations_results = {}
+    if run_anomaly_detection:
+        print(f"\n🎯 Injecting synthetic errors into TARGET VARIABLE for anomaly detection...")
+        try:
+            # Create separate error generator for anomaly detection with default multiplier
+            anomaly_error_config = configure_error_params(SYNTHETIC_ERROR_PARAMS, 1.0)  # Use base error rates
+            print("📊 Using base error rates for anomaly detection:")
+            print_error_frequencies(anomaly_error_config)
+            anomaly_error_generator = SyntheticErrorGenerator(anomaly_error_config)
+            
+            # Inject errors ONLY into target variable
+            target_cols = ['vst_raw']
+            print(f"Injecting anomaly errors into target column: {target_cols}")
+            
+            # Process validation data only (where we'll detect anomalies)
+            print("\nProcessing VALIDATION data for anomaly detection...")
+            _, anomaly_val_results = inject_errors_into_dataset(
+                original_val_data, anomaly_error_generator, f"{station_id}_anomaly_val", target_cols, "val"
+            )
+            anomaly_stations_results.update(anomaly_val_results)
+            
+            print("\nTarget variable error injection for anomaly detection complete.")
+            
+        except Exception as e:
+            print(f"Error processing anomaly detection errors: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
     # Generate synthetic diagnostics if enabled
     if synthetic_diagnostics:
         split_datasets = {'windows': {'train': {station_id: original_train_data}, 'val': {station_id: original_val_data}}}
@@ -231,6 +266,131 @@ def run_pipeline(
     # Process validation predictions
     val_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
     
+    #########################################################
+    #              Step 4: Anomaly Detection                 #
+    #########################################################
+    anomaly_results = {}
+    if run_anomaly_detection:
+        print("\n" + "="*60)
+        print("Step 4: Anomaly Detection using Z-Score MAD")
+        print("="*60)
+        print("ℹ️  Flow: Model trained on clean/corrupted features → Predictions made → Anomalies detected in TARGET with synthetic errors")
+        
+        # Check if we have anomaly ground truth data
+        if not anomaly_stations_results:
+            print("❌ No anomaly target data available. Run with --anomaly_detection to enable.")
+            anomaly_results = {'error': 'No anomaly target data available'}
+        else:
+            # Use unscaled predictions from the processed validation dataframe
+            val_predictions_unscaled = val_predictions_df['vst_raw'].values
+            
+            print(f"📊 Using unscaled predictions from val_predictions_df: shape {val_predictions_unscaled.shape}")
+            print(f"📊 Original validation data shape: {original_val_data['vst_raw'].values.shape}")
+            print(f"📊 Prediction value range: {np.nanmin(val_predictions_unscaled):.1f} to {np.nanmax(val_predictions_unscaled):.1f} mm")
+            print(f"📊 Original data value range: {np.nanmin(original_val_data['vst_raw'].values):.1f} to {np.nanmax(original_val_data['vst_raw'].values):.1f} mm")
+            
+            # Ensure lengths match
+            if len(val_predictions_unscaled) != len(original_val_data):
+                print(f"⚠️  Length mismatch: predictions={len(val_predictions_unscaled)}, data={len(original_val_data)}")
+                # Truncate or pad predictions to match data length
+                if len(val_predictions_unscaled) > len(original_val_data):
+                    val_predictions_unscaled = val_predictions_unscaled[:len(original_val_data)]
+                    print(f"   Truncated predictions to {len(val_predictions_unscaled)}")
+                else:
+                    # Pad with NaN if predictions are shorter
+                    padding = np.full(len(original_val_data) - len(val_predictions_unscaled), np.nan)
+                    val_predictions_unscaled = np.concatenate([val_predictions_unscaled, padding])
+                    print(f"   Padded predictions to {len(val_predictions_unscaled)}")
+            
+            print(f"✅ Final prediction shape: {val_predictions_unscaled.shape}, data shape: {original_val_data['vst_raw'].values.shape}")
+            
+            # Check for NaN predictions
+            if np.sum(~np.isnan(val_predictions_unscaled)) == 0:
+                print("⚠️  All predictions are NaN! Using moving average fallback for anomaly detection testing...")
+                window = 24  # 6 hours moving average
+                val_predictions_unscaled = pd.Series(original_val_data['vst_raw']).rolling(window=window, center=True).mean().values
+                print(f"   Generated {np.sum(~np.isnan(val_predictions_unscaled))} valid moving average predictions")
+            
+            # Get the target data with synthetic errors for anomaly detection
+            anomaly_target_key = f"{station_id}_anomaly_val_vst_raw"
+            if anomaly_target_key in anomaly_stations_results:
+                anomaly_target_data = anomaly_stations_results[anomaly_target_key]['modified_data']
+                print(f"📍 Using anomaly target data from key: {anomaly_target_key}")
+            else:
+                print(f"⚠️ Anomaly target key {anomaly_target_key} not found. Available keys: {list(anomaly_stations_results.keys())}")
+                anomaly_target_data = original_val_data  # Fallback
+            
+            # Run comprehensive anomaly detection using the new function
+            anomaly_results = run_single_threshold_anomaly_detection(
+                val_data=anomaly_target_data,  # Use TARGET data with synthetic errors for anomaly detection
+                predictions=val_predictions_unscaled,  # Use unscaled predictions
+                stations_results=anomaly_stations_results,  # Contains ground truth from TARGET variable error injection
+                station_id=station_id,
+                config=ANOMALY_DETECTION_CONFIG,
+                output_dir=output_path,  # Use same directory as other model plots
+                original_val_data=original_val_data,
+                error_multiplier=1.0  # Anomaly detection uses base error rates
+            )
+            
+            # Check if anomaly detection succeeded
+            if 'error' in anomaly_results:
+                print(f"❌ Anomaly detection failed: {anomaly_results['error']}")
+                anomaly_results = {}
+            else:
+                # Add debug information about anomaly detection results
+                z_scores = anomaly_results['z_scores']
+                detected_anomalies = anomaly_results['detected_anomalies']
+                confidence = anomaly_results['confidence']
+                ground_truth_flags = anomaly_results['ground_truth']
+                
+                print(f"\n🔍 ANOMALY DETECTION DEBUG INFO:")
+                print(f"   Total data points: {len(z_scores)}")
+                print(f"   Z-scores range: {np.nanmin(z_scores):.3f} to {np.nanmax(z_scores):.3f}")
+                print(f"   Threshold: {ANOMALY_DETECTION_CONFIG['threshold']}")
+                print(f"   Anomalies detected: {np.sum(detected_anomalies)}")
+                print(f"   Ground truth anomalies: {np.sum(ground_truth_flags)}")
+                print(f"   Max absolute z-score: {np.nanmax(np.abs(z_scores)):.3f}")
+                
+                # Generate visualizations (independent of model_diagnostics)
+                print(f"\nGenerating anomaly detection visualizations...")
+                
+                # Create specific directory for anomaly plots
+                anomaly_output_dir = output_path  # Use same directory as other plots
+                anomaly_output_dir.mkdir(parents=True, exist_ok=True)
+                print(f"Saving anomaly plots to: {anomaly_output_dir}")
+                
+                # Count detections by confidence level for title
+                high_conf = np.sum((detected_anomalies) & (confidence == 'High'))
+                med_conf = np.sum((detected_anomalies) & (confidence == 'Medium'))
+                low_conf = np.sum((detected_anomalies) & (confidence == 'Low'))
+                
+                # Create main anomaly detection plot
+                title = f"Anomaly Detection - Station {station_id} (Z-Score MAD)"
+                title += f"\nDetected: {high_conf} High, {med_conf} Medium, {low_conf} Low confidence"
+                
+                png_path, html_path = plot_water_level_anomalies(
+                    test_data=anomaly_target_data,  # Use TARGET data with synthetic errors for visualization
+                    predictions=val_predictions_unscaled,  # Use unscaled predictions
+                    z_scores=z_scores,
+                    anomalies=detected_anomalies,
+                    threshold=ANOMALY_DETECTION_CONFIG['threshold'],
+                    title=title,
+                    output_dir=anomaly_output_dir,
+                    save_png=True,
+                    save_html=True,
+                    show_plot=False,
+                    filename_prefix="anomaly_detection_",
+                    confidence=confidence,
+                    original_data=original_val_data,  # Pass original clean data for comparison
+                    ground_truth_flags=ground_truth_flags
+                )
+                
+                print(f"  Anomaly detection plot saved to: {png_path}")
+                if html_path:
+                    print(f"  Interactive plot saved to: {html_path}")
+    else:
+        print("\nSkipping anomaly detection (not requested)")
+    
     # Set plot titles
     val_plot_title = "Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data"
     #test_plot_title = "Model Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Model Trained on Clean Data"
@@ -239,6 +399,11 @@ def run_pipeline(
     # Calculate metrics on validation set
     metrics = calculate_performance_metrics(original_val_data['vst_raw'].values, val_predictions_df['vst_raw'].values, ~np.isnan(original_val_data['vst_raw'].values))
     metrics['val_loss'] = min(history['val_loss'])
+    
+    # Add anomaly detection metrics to results if available
+    if anomaly_results and 'confusion_metrics' in anomaly_results:
+        metrics['anomaly_detection'] = anomaly_results['confusion_metrics']
+    
     print_metrics_table(metrics)
 
 
@@ -279,17 +444,7 @@ def run_pipeline(
     print("\nMaking predictions on test set...")
     test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
     test_predictions_df = process_test_predictions(test_predictions, original_test_data, model_config)
-    
-    #Plot test results with model config
-    if model_diagnostics:
-        create_full_plot(
-            original_test_data, 
-            test_predictions_df, 
-            str(station_id), 
-            model_config, 
-            title_suffix=None,
-            synthetic_data=None  # No synthetic errors in test data
-        )
+
     
     test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
     
@@ -322,7 +477,35 @@ def run_pipeline(
     else:
         print("Skipping advanced diagnostics visualizations")
     
-    return {'model': metrics}
+    # Prepare final results
+    final_results = {
+        'model_metrics': metrics,
+        'test_metrics': {
+            'test_predictions': test_predictions_reshaped,
+            'test_performance': calculate_performance_metrics(
+                original_test_data['vst_raw'].values, 
+                test_predictions_reshaped, 
+                valid_mask
+            )
+        }
+    }
+    
+    # Add anomaly detection results if available
+    if anomaly_results:
+        final_results['anomaly_detection'] = anomaly_results
+        
+        # Print final summary if anomaly detection was run
+        if 'confusion_metrics' in anomaly_results:
+            print("\n" + "="*60)
+            print("PIPELINE COMPLETION SUMMARY")
+            print("="*60)
+            print(f"Model trained and evaluated successfully")
+            print(f"Anomaly detection completed with F1-score: {anomaly_results['confusion_metrics']['f1_score']:.4f}")
+            print(f"Total anomalies detected: {anomaly_results['confusion_metrics']['total_anomalies_pred']}")
+            print(f"Detection precision: {anomaly_results['confusion_metrics']['precision']:.4f}")
+            print(f"Detection recall: {anomaly_results['confusion_metrics']['recall']:.4f}")
+
+    return final_results
 
 
 if __name__ == "__main__":
@@ -344,7 +527,8 @@ if __name__ == "__main__":
                       help='Generate advanced model diagnostics')
     parser.add_argument('--no_diagnostics', action='store_true',
                       help='Disable all diagnostics plots')
-   
+    parser.add_argument('--anomaly_detection', action='store_true',
+                      help='Enable anomaly detection using Z-Score MAD method')
     
     args = parser.parse_args()
     
@@ -361,6 +545,12 @@ if __name__ == "__main__":
     use_model_diagnostics = not args.no_diagnostics
     use_advanced_diagnostics = args.advanced_diagnostics
     
+    # Configure anomaly detection
+    if args.anomaly_detection:
+        print("Anomaly detection enabled (Z-Score MAD method)")
+    else:
+        print("Anomaly detection disabled (use --anomaly_detection to enable)")
+        
     # Run pipeline
     if args.run_experiments:
         run_error_frequency_experiments(run_pipeline)
@@ -381,7 +571,7 @@ if __name__ == "__main__":
                     print("Advanced diagnostics also enabled")
             else:
                 print("Running with default diagnostic settings")
-        
+            
             # Run main pipeline
             result = run_pipeline(
                 project_root=project_root,
@@ -392,15 +582,25 @@ if __name__ == "__main__":
                 inject_synthetic_errors=args.error_multiplier is not None,
                 model_diagnostics=use_model_diagnostics,
                 advanced_diagnostics=use_advanced_diagnostics,
+                run_anomaly_detection=args.anomaly_detection,
                 error_multiplier=args.error_multiplier if args.error_multiplier is not None else 1.0,
             )
 
             print("\nModel run completed!")
             print(f"Results saved to: {output_path}")
             
+            # Print comprehensive results summary
+            if 'anomaly_detection' in result and 'confusion_metrics' in result['anomaly_detection']:
+                anomaly_metrics = result['anomaly_detection']['confusion_metrics']
+                print(f"\nAnomaly Detection Summary:")
+                print(f"  F1-Score: {anomaly_metrics['f1_score']:.4f}")
+                print(f"  Precision: {anomaly_metrics['precision']:.4f}")
+                print(f"  Recall: {anomaly_metrics['recall']:.4f}")
+                print(f"  Total anomalies detected: {anomaly_metrics['total_anomalies_pred']}")
+                print(f"  Total anomalies in ground truth: {anomaly_metrics['total_anomalies_true']}")
+                print(f"  Correctly detected: {anomaly_metrics['true_positives']}")
+            
         except Exception as e:
             print(f"\nError running pipeline: {e}")
             import traceback
             traceback.print_exc()
-
-

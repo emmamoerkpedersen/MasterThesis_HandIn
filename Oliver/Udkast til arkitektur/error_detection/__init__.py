@@ -1,3 +1,0 @@
-"""
-Error detection package initialization.
-""" 

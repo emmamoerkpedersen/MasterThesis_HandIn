@@ -14,6 +14,248 @@ from .evaluation_metrics import AnomalyEvaluator, DetectionMetrics
 from .z_score import calculate_z_scores_mad
 
 
+def extract_ground_truth_from_stations_results(stations_results, station_id, dataset_type='val'):
+    """
+    Extract ground truth flags from stations_results dictionary.
+    
+    Args:
+        stations_results: Dictionary returned from inject_errors_into_dataset
+        station_id: Station identifier
+        dataset_type: Type of dataset ('train' or 'val')
+        
+    Returns:
+        np.array: Boolean array indicating ground truth anomaly locations
+    """
+    # Try different possible keys for ground truth data
+    possible_keys = [
+        f"{station_id}_anomaly_{dataset_type}_vst_raw",  # New anomaly detection key
+        f"{station_id}_{dataset_type}_vst_raw",          # Main target column
+        f"{station_id}_{dataset_type}",                  # Fallback
+    ]
+    
+    # Also try feature columns that might have been corrupted
+    for key_name in list(stations_results.keys()):
+        if f"{station_id}_{dataset_type}" in key_name or f"{station_id}_anomaly_{dataset_type}" in key_name:
+            possible_keys.append(key_name)
+    
+    print(f"Looking for ground truth in stations_results with keys: {list(stations_results.keys())}")
+    
+    for key in possible_keys:
+        if key in stations_results and 'ground_truth' in stations_results[key]:
+            ground_truth_df = stations_results[key]['ground_truth']
+            if 'error' in ground_truth_df.columns:
+                ground_truth_flags = ground_truth_df['error'].values.astype(bool)
+                print(f"✅ Extracted {np.sum(ground_truth_flags)} ground truth flags from key: {key}")
+                return ground_truth_flags
+    
+    print(f"⚠️ No ground truth found for {station_id}_{dataset_type}")
+    return None
+
+
+def calculate_confusion_matrix_metrics(y_true, y_pred):
+    """
+    Calculate confusion matrix and related metrics for anomaly detection.
+    
+    Args:
+        y_true: Ground truth binary labels (1 for anomaly, 0 for normal)
+        y_pred: Predicted binary labels (1 for anomaly, 0 for normal)
+        
+    Returns:
+        dict: Dictionary containing confusion matrix and metrics
+    """
+    # Convert to numpy arrays and handle NaN values
+    y_true = np.array(y_true, dtype=bool)
+    y_pred = np.array(y_pred, dtype=bool)
+    
+    # Remove NaN entries if any exist
+    valid_mask = ~(np.isnan(y_true.astype(float)) | np.isnan(y_pred.astype(float)))
+    y_true = y_true[valid_mask]
+    y_pred = y_pred[valid_mask]
+    
+    # Calculate confusion matrix components
+    true_positives = np.sum((y_true == True) & (y_pred == True))
+    false_positives = np.sum((y_true == False) & (y_pred == True))
+    true_negatives = np.sum((y_true == False) & (y_pred == False))
+    false_negatives = np.sum((y_true == True) & (y_pred == False))
+    
+    # Calculate metrics
+    precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0.0
+    recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0.0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    accuracy = (true_positives + true_negatives) / len(y_true) if len(y_true) > 0 else 0.0
+    
+    # Create confusion matrix
+    confusion_matrix = np.array([[true_negatives, false_positives],
+                                [false_negatives, true_positives]])
+    
+    metrics = {
+        'confusion_matrix': confusion_matrix,
+        'true_positives': true_positives,
+        'false_positives': false_positives,
+        'true_negatives': true_negatives,
+        'false_negatives': false_negatives,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1_score,
+        'accuracy': accuracy,
+        'total_predictions': len(y_true),
+        'total_anomalies_true': np.sum(y_true),
+        'total_anomalies_pred': np.sum(y_pred)
+    }
+    
+    return metrics
+
+
+def print_anomaly_detection_results(metrics, threshold):
+    """
+    Print comprehensive anomaly detection results.
+    
+    Args:
+        metrics: Dictionary containing confusion matrix and metrics
+        threshold: Z-score threshold used for detection
+    """
+    print(f"\n{'='*60}")
+    print(f"ANOMALY DETECTION RESULTS (Threshold: {threshold})")
+    print(f"{'='*60}")
+    
+    print(f"\nConfusion Matrix:")
+    print(f"                    Predicted")
+    print(f"                Normal  Anomaly")
+    print(f"Actual Normal     {metrics['true_negatives']:6d}   {metrics['false_positives']:6d}")
+    print(f"Actual Anomaly    {metrics['false_negatives']:6d}   {metrics['true_positives']:6d}")
+    
+    print(f"\nDetection Metrics:")
+    print(f"  Precision:  {metrics['precision']:.4f}")
+    print(f"  Recall:     {metrics['recall']:.4f}")
+    print(f"  F1-Score:   {metrics['f1_score']:.4f}")
+    print(f"  Accuracy:   {metrics['accuracy']:.4f}")
+    
+    print(f"\nDetection Summary:")
+    print(f"  Total data points:     {metrics['total_predictions']:,}")
+    print(f"  True anomalies:        {metrics['total_anomalies_true']:,} ({metrics['total_anomalies_true']/metrics['total_predictions']*100:.2f}%)")
+    print(f"  Predicted anomalies:   {metrics['total_anomalies_pred']:,} ({metrics['total_anomalies_pred']/metrics['total_predictions']*100:.2f}%)")
+    print(f"  Correctly detected:    {metrics['true_positives']:,}")
+    print(f"  False alarms:          {metrics['false_positives']:,}")
+    print(f"  Missed anomalies:      {metrics['false_negatives']:,}")
+
+
+def run_single_threshold_anomaly_detection(
+    val_data: pd.DataFrame,
+    predictions: np.ndarray,
+    stations_results: Dict,
+    station_id: str,
+    config: Dict,
+    output_dir: Path,
+    original_val_data: pd.DataFrame = None,
+    error_multiplier: float = None,
+    filename_prefix: str = ""
+) -> Dict:
+    """
+    Run anomaly detection using a single threshold from configuration.
+    
+    Args:
+        val_data: Validation data with potential synthetic errors
+        predictions: Model predictions
+        stations_results: Results from inject_errors_into_dataset containing ground truth
+        station_id: Station ID for labeling
+        config: Anomaly detection configuration (needs 'window_size', 'threshold')
+        output_dir: Directory to save results and plots
+        original_val_data: Original validation data before error injection
+        error_multiplier: Error multiplier used (for labeling)
+        filename_prefix: Prefix for the filename of the generated plot
+        
+    Returns:
+        Dictionary with anomaly detection results
+    """
+    print("\n" + "="*60)
+    print("ANOMALY DETECTION using Z-Score MAD")
+    print("="*60)
+    
+    # Ensure output directory exists
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Extract configuration
+    threshold = config['threshold']
+    window_size = config['window_size']
+    
+    print(f"Configuration:")
+    print(f"  Method: Z-Score MAD")
+    print(f"  Window size: {window_size} points")
+    print(f"  Threshold: {threshold}")
+    
+    # Extract ground truth flags from stations_results
+    ground_truth_flags = extract_ground_truth_from_stations_results(
+        stations_results, station_id, dataset_type='val'
+    )
+    
+    if ground_truth_flags is None:
+        print("❌ Cannot proceed without ground truth flags")
+        return {'error': 'No ground truth available'}
+    
+    # Calculate z-scores and detect anomalies using MAD-based approach
+    print(f"\nCalculating z-scores and detecting anomalies...")
+    z_scores, detected_anomalies = calculate_z_scores_mad(
+        val_data['vst_raw'].values,
+        predictions,
+        window_size=window_size,
+        threshold=threshold
+    )
+    
+    # Calculate confidence levels
+    from .anomaly_visualization import calculate_anomaly_confidence
+    confidence = calculate_anomaly_confidence(z_scores, threshold)
+    
+    # Count detections by confidence level
+    high_conf = np.sum((detected_anomalies) & (confidence == 'High'))
+    med_conf = np.sum((detected_anomalies) & (confidence == 'Medium'))
+    low_conf = np.sum((detected_anomalies) & (confidence == 'Low'))
+    total_detected = np.sum(detected_anomalies)
+    
+    print(f"\nDetection Summary:")
+    print(f"  Total anomalies detected: {total_detected}")
+    print(f"  High confidence: {high_conf}")
+    print(f"  Medium confidence: {med_conf}")
+    print(f"  Low confidence: {low_conf}")
+    
+    # Calculate confusion matrix and metrics
+    confusion_metrics = calculate_confusion_matrix_metrics(ground_truth_flags, detected_anomalies)
+    print_anomaly_detection_results(confusion_metrics, threshold)
+    
+    # Store results
+    anomaly_results = {
+        'z_scores': z_scores,
+        'detected_anomalies': detected_anomalies,
+        'confidence': confidence,
+        'ground_truth': ground_truth_flags,
+        'confusion_metrics': confusion_metrics,
+        'config': config
+    }
+    
+    print(f"\n✅ Anomaly detection completed successfully!")
+    
+    # Generate plot
+    from shared.anomaly_detection.anomaly_visualization import plot_water_level_anomalies
+    png_path, _ = plot_water_level_anomalies(
+        test_data=val_data,
+        predictions=predictions,
+        z_scores=z_scores,
+        anomalies=detected_anomalies,
+        threshold=threshold,
+        title=f"Anomaly Detection - Station {station_id} (Threshold: {threshold})",
+        output_dir=output_dir,
+        save_png=True,
+        save_html=False,
+        show_plot=False,
+        filename_prefix=filename_prefix,
+        confidence=confidence,
+        original_data=original_val_data,
+        ground_truth_flags=ground_truth_flags
+    )
+    
+    return anomaly_results
+
+
 def run_comprehensive_evaluation(
     val_data: pd.DataFrame,
     predictions: np.ndarray,
@@ -391,7 +633,7 @@ def _create_threshold_series_plots(
         )
         
         # Calculate confidence levels
-        from _4_anomaly_detection.anomaly_visualization import calculate_anomaly_confidence
+        from shared.anomaly_detection.anomaly_visualization import calculate_anomaly_confidence
         confidence = calculate_anomaly_confidence(z_scores, threshold)
         
         # Count anomalies by confidence
@@ -406,7 +648,7 @@ def _create_threshold_series_plots(
         title += f"\nDetected: {high_conf} High, {med_conf} Medium, {low_conf} Low confidence"
         
         # Generate plot
-        from _4_anomaly_detection.anomaly_visualization import plot_water_level_anomalies
+        from shared.anomaly_detection.anomaly_visualization import plot_water_level_anomalies
         png_path, _ = plot_water_level_anomalies(
             test_data=val_data,
             predictions=predictions,

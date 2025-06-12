@@ -31,7 +31,7 @@ class AlternatingTrainer:
             preprocessor: Instance of DataPreprocessor
         """
         self.config = config
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cpu')  # Use CPU to match main model setup
         self.preprocessor = preprocessor
         
         # Print device information

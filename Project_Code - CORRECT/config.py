@@ -8,7 +8,17 @@ PHYSICAL_LIMITS = {
     'max_value': 3000,  # Maximum reasonable water level
     'max_rate_of_change': 50  # Maximum change per hour
 }
-
+# Anomaly Detection Configuration
+ANOMALY_DETECTION_CONFIG = {
+    'method': 'z_score_mad',  # Use MAD-based z-score for robust detection
+    'window_size': 16,  # 24 hours at 15-min intervals
+    'threshold': 5,  # Z-score threshold for anomaly detection
+    'confidence_levels': {
+        'high_multiplier': 2.0,    # High confidence: > 2x threshold
+        'medium_multiplier': 1.5,  # Medium confidence: 1.5x to 2x threshold
+        'low_multiplier': 1.0      # Low confidence: threshold to 1.5x threshold
+    }
+}
 
 # Synthetic Error Generation Parameters
 SYNTHETIC_ERROR_PARAMS = {
@@ -56,7 +66,7 @@ SYNTHETIC_ERROR_PARAMS = {
 # LSTM Model Configuration
 LSTM_CONFIG = {
     # Model Architecture
-    'hidden_size': 12,
+    'hidden_size': 128,
     'num_layers': 2,
     'dropout': 0.25,
     'sequence_length': 70080,
