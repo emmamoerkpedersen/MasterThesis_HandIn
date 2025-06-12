@@ -19,7 +19,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from shared.synthetic.synthetic_errors import ErrorPeriod
 import seaborn as sns
-from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
+from synthetic_error_config import SYNTHETIC_ERROR_PARAMS
+from models.lstm_traditional.config import LSTM_CONFIG
 import numpy as np
 from data_utils.data_loading import load_all_station_data
 
@@ -819,7 +820,8 @@ if __name__ == "__main__":
     # Add project root to sys.path to allow imports from other modules
     # sys.path.append(str(project_root)) # This is now done at the top of the script
 
-    from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG # config should be found due to top-level sys.path modification
+    from synthetic_error_config import SYNTHETIC_ERROR_PARAMS
+    from models.lstm_traditional.config import LSTM_CONFIG # config should be found due to top-level sys.path modification
     from _2_synthetic.synthetic_errors import SyntheticErrorGenerator, ErrorPeriod # _2_synthetic should be found
     from _3_lstm_model.preprocessing_LSTM import DataPreprocessor # _3_lstm_model should be found
 
