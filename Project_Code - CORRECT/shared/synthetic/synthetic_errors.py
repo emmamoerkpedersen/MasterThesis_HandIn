@@ -60,7 +60,7 @@ class SyntheticErrorGenerator:
         project_root = Path(__file__).parents[1]  # Go up two levels from current file
         sys.path.append(str(project_root))
         
-        from config import SYNTHETIC_ERROR_PARAMS
+        from synthetic_error_config import SYNTHETIC_ERROR_PARAMS
         self.config = config or SYNTHETIC_ERROR_PARAMS
         self.error_periods = []
         self.used_indices = set()  # Track all used indices
