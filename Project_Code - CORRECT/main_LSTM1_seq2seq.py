@@ -17,7 +17,8 @@ sys.path.append(str(Path(__file__).parent))
 
 # Local imports
 # Configuration
-from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG, ANOMALY_DETECTION_CONFIG
+from models.lstm_traditional.config import LSTM_CONFIG
+from synthetic_error_config import SYNTHETIC_ERROR_PARAMS, ANOMALY_DETECTION_CONFIG
 
 # Pipeline utilities
 from shared.utils.pipeline_utils import (

@@ -147,7 +147,7 @@ def run_flagging_model(args):
     print(f"\nInjecting synthetic errors with multiplier {args.error_multiplier}...")
     from shared.synthetic.synthetic_errors import SyntheticErrorGenerator
     from shared.utils.error_utils import configure_error_params, inject_errors_into_dataset
-    from config import SYNTHETIC_ERROR_PARAMS
+    from synthetic_error_config import SYNTHETIC_ERROR_PARAMS
     
     error_config = configure_error_params(SYNTHETIC_ERROR_PARAMS, args.error_multiplier)
     water_level_cols = ['vst_raw', 'vst_raw_feature']

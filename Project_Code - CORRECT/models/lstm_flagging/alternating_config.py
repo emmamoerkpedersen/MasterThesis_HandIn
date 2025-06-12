@@ -40,9 +40,7 @@ ALTERNATING_CONFIG = {
     # Feature engineering settings
     'use_time_features': True,        # ENABLED: month_sin, month_cos, day_of_year_sin, day_of_year_cos
     'use_cumulative_features': True, # Enable cumulative rainfall features
-    'use_lagged_features': False,    # DISABLED: Experiment 2 - test anomaly loss + memory protection
-    'lag_hours': [24, 48, 72, 168, 336, 672],  # Actual hours: 1d, 2d, 3d, 1w, 2w, 4w (to escape anomalies)
-    
+
     # Data configuration
     'full_dataset_mode': False,      # When True, uses all available training data (2010-2022) and full validation year
     
