@@ -89,7 +89,7 @@ def run_preprocessing_diagnostics(project_root, output_path, station_id):
                     station_id=station_id,                          # Pass the current station_id
                     output_dir=Path(output_path)                    # Pass the output directory as a Path object
                 )
-            
+                
                 if detailed_plot_path:
                     print(f"Detailed analysis plot saved to: {detailed_plot_path}")
                 else:

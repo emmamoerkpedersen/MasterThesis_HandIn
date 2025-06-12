@@ -17,7 +17,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from _2_synthetic.synthetic_errors import ErrorPeriod
+from shared.synthetic.synthetic_errors import ErrorPeriod
 import seaborn as sns
 from config import SYNTHETIC_ERROR_PARAMS, LSTM_CONFIG
 import numpy as np
