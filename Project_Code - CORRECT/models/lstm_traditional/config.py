@@ -56,18 +56,18 @@ SYNTHETIC_ERROR_PARAMS = {
 # LSTM Model Configuration
 LSTM_CONFIG = {
     # Model Architecture
-    'hidden_size': 12,
-    'num_layers': 2,
+    'hidden_size': 128,
+    'num_layers': 1,
     'dropout': 0.25,
     'sequence_length': 70080,
     
     # Training Parameters
     'batch_size': 1,
-    'epochs': 5,
+    'epochs': 1,
     'patience': 10,
     'learning_rate': 0.001,
     'warmup_length': 350,
-    'objective_function': 'smoothL1_loss',
+    'objective_function': 'mse_loss',
     
     # Feature Configuration
     'use_time_features': True,

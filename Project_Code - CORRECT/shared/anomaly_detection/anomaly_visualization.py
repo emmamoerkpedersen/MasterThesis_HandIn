@@ -386,11 +386,8 @@ def plot_water_level_anomalies(
 
     # Plot using matplotlib (for PNG)
     if save_png or show_plot:
-        # Set up figure with two subplots
-        fig, axes = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [3, 1]})
-        
-        # Top plot: Water levels and predictions
-        ax1 = axes[0]
+        # Set up figure with single plot (removed z-score subplot)
+        fig, ax1 = plt.subplots(1, 1, figsize=(14, 8))
         
         # Plot original data if available
         if original_values is not None:
@@ -430,37 +427,18 @@ def plot_water_level_anomalies(
                 ax1.scatter(valid_anomaly_indices, modified_values.loc[valid_anomaly_indices], 
                            color='red', s=50, marker='o', label='Detected Anomalies')
         
-        # Format top plot
+        # Format plot
         ax1.set_title(title, fontsize=16)
+        ax1.set_xlabel('Date', fontsize=14)
         ax1.set_ylabel('Water Level [mm]', fontsize=14)
         ax1.legend(loc='upper right')
-        ax1.grid(True, alpha=0.3)
+        ax1.grid(False)  # Remove grid lines
         
-        # Bottom plot: Anomaly scores (z-scores)
-        ax2 = axes[1]
-        
-        # Plot the z-scores
-        ax2.plot(modified_values.index, np.abs(full_z_scores), color='blue', linewidth=1, label='Absolute Z-Score')
-        
-        # Add threshold lines
-        ax2.axhline(y=threshold, color='red', linestyle='--', label=f'Threshold ({threshold})')
-        if confidence is not None:
-            ax2.axhline(y=1.5*threshold, color='orange', linestyle=':', alpha=0.7, label=f'Medium Conf. ({1.5*threshold:.1f})')
-            ax2.axhline(y=2.0*threshold, color='red', linestyle=':', alpha=0.7, label=f'High Conf. ({2.0*threshold:.1f})')
-        
-        # Format bottom plot
-        ax2.set_xlabel('Date', fontsize=14)
-        ax2.set_ylabel('|Z-Score|', fontsize=14)
-        ax2.set_title('Anomaly Z-Scores', fontsize=14)
-        ax2.legend(loc='upper right')
-        ax2.grid(True, alpha=0.3)
-        
-        # Format date axis
-        for ax in axes:
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
-            ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))  # Every day
-            ax.xaxis.set_minor_locator(mdates.HourLocator(interval=12))  # Minor ticks every 12 hours
-            plt.setp(ax.xaxis.get_majorticklabels(), rotation=0, ha='center')
+        # Format date axis to show month-year only
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # Every 3 months
+        ax1.xaxis.set_minor_locator(mdates.MonthLocator())  # Minor ticks every month
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
         
         plt.tight_layout()
         
@@ -484,16 +462,10 @@ def plot_water_level_anomalies(
         if ground_truth_flags is not None:
             print("DEBUG: Number of ground truth anomalies:", np.sum(ground_truth_flags))
             print("DEBUG: Indices of ground truth anomalies:", test_data.index[ground_truth_flags == 1])
-        # Create figure with 2 subplots
-        fig = make_subplots(
-            rows=2, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.1,
-            subplot_titles=('Water Level Forecasting with Anomalies', 'Anomaly Z-Scores'),
-            row_heights=[0.7, 0.3]
-        )
         
-        # Top plot: Water levels and predictions
+        # Create figure with single plot (removed z-score subplot)
+        fig = go.Figure()
+        
         # Original water levels if available
         if original_values is not None:
             fig.add_trace(
@@ -502,8 +474,7 @@ def plot_water_level_anomalies(
                     y=original_values.values,
                     name="Original Water Levels",
                     line=dict(color='lightblue', width=1)
-                ),
-                row=1, col=1
+                )
             )
         
         # EDT reference data if available
@@ -514,8 +485,7 @@ def plot_water_level_anomalies(
                     y=edt_data.values,
                     name="EDT Reference",
                     line=dict(color='purple', width=1.5, dash='dash')
-                ),
-                row=1, col=1
+                )
             )
         
         # Modified water levels
@@ -525,8 +495,7 @@ def plot_water_level_anomalies(
                 y=modified_values.values,
                 name="Modified Water Levels",
                 line=dict(color='blue', width=1)
-            ),
-            row=1, col=1
+            )
         )
         
         # Predictions
@@ -536,11 +505,10 @@ def plot_water_level_anomalies(
                 y=full_predictions.values,
                 name="Model Predictions",
                 line=dict(color='green', width=1)
-            ),
-            row=1, col=1
+            )
         )
         
-        # After the main anomaly scatter plot in the HTML section
+        # Ground truth anomalies if available
         if ground_truth_flags is not None:
             # Plot ground truth anomalies as blue dots
             if hasattr(test_data, 'index'):
@@ -556,11 +524,10 @@ def plot_water_level_anomalies(
                     mode='markers',
                     marker=dict(color='blue', size=7, symbol='diamond'),
                     name='Ground Truth Anomalies',
-                ),
-                row=1, col=1
+                )
             )
         
-        # Add anomalies as scatter points only where predictions exist
+        # Add detected anomalies as scatter points only where predictions exist
         valid_anomaly_indices = modified_values.index[full_anomalies & ~np.isnan(full_predictions)]
         if len(valid_anomaly_indices) > 0:
             fig.add_trace(
@@ -570,37 +537,16 @@ def plot_water_level_anomalies(
                     mode='markers',
                     marker=dict(color='red', size=5, symbol='circle'),
                     name=f"Detected Anomalies ({len(valid_anomaly_indices)})"
-                ),
-                row=1, col=1
+                )
             )
-        
-        # Bottom plot: Z-scores
-        fig.add_trace(
-            go.Scatter(
-                x=modified_values.index,
-                y=np.abs(full_z_scores),
-                name="Absolute Z-Score",
-                line=dict(color='blue', width=1)
-            ),
-            row=2, col=1
-        )
-        
-        # Add threshold line
-        fig.add_trace(
-            go.Scatter(
-                x=[modified_values.index[0], modified_values.index[-1]],
-                y=[threshold, threshold],
-                name=f"Threshold ({threshold})",
-                line=dict(color='red', width=1, dash='dash')
-            ),
-            row=2, col=1
-        )
         
         # Update layout
         fig.update_layout(
             title=title,
-            height=800,
+            height=600,  # Reduced height since only one plot
             width=1200,
+            xaxis_title="Date",
+            yaxis_title="Water Level [mm]",
             showlegend=True,
             legend=dict(
                 orientation="h",
@@ -610,6 +556,10 @@ def plot_water_level_anomalies(
                 x=1
             )
         )
+        
+        # Remove grid lines and format x-axis for month-year
+        fig.update_xaxes(showgrid=False, dtick="M3", tickformat="%b %Y")  # Every 3 months, month-year format
+        fig.update_yaxes(showgrid=False)
         
         # Save HTML file
         html_path = output_dir / f"{base_filename}_{timestamp}.html"

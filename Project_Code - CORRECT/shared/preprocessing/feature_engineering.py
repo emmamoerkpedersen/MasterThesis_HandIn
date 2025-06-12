@@ -1,48 +1,4 @@
-"""
-Feature Engineering Module for Water Level Forecasting
 
-This module provides functionality for creating derived features from raw water level data.
-The system is designed to be modular and extensible, allowing for easy addition of new feature types.
-
-Key components:
-- FeatureEngineer class: Main class for feature engineering
-- add_lagged_features: Adds lag features (values from previous timesteps)
-- add_custom_features: Extensible system for adding custom feature types
-
-Example usage for extending with custom features:
-```python
-# Define custom feature specifications
-custom_features = [
-    # Add a moving average feature for 24-hour window
-    {
-        'type': 'ma',
-        'params': {'hours': 24}
-    },
-    # Add a rate of change feature for 12-hour period
-    {
-        'type': 'roc',
-        'params': {'hours': 12}
-    },
-    # Example of a custom feature type (would need implementation in add_custom_features)
-    {
-        'type': 'wavelet', 
-        'params': {'level': 3, 'wavelet': 'db4'}
-    }
-]
-
-# Add these features to your configuration
-config['custom_features'] = custom_features
-
-# When you want to add a new feature type, extend the add_custom_features method with a new case:
-# elif feature_type == 'new_type':
-#     # Code to generate the new feature
-```
-
-When adding new feature types:
-1. Add a new case to the add_custom_features method
-2. Make sure to consistently name features and update feature_cols
-3. Ensure features are properly handled during error injection
-"""
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -193,42 +149,4 @@ class FeatureEngineer:
         
         return data
 
-    def add_lagged_features(self, data, target_col='vst_raw', lags=[24, 48, 72, 168, 336, 672]):
-        """
-        Add lagged features for water level to help the model predict peaks and valleys.
-        Uses longer lags to escape potential anomalous periods.
-        
-        Args:
-            data: DataFrame containing time series data
-            target_col: Column to create lags for (default: 'vst_raw')
-            lags: List of lag hours to create features for (default: 1d, 2d, 3d, 1w, 2w, 4w)
-            
-        Returns:
-            DataFrame with added lagged features
-        """
-        # Create a copy of the data to avoid SettingWithCopyWarning
-        data = data.copy()
-        
-        # 15-minute intervals: 4 timesteps per hour
-        timesteps_per_hour = 4
-        
-        for lag_hours in lags:
-            lag_timesteps = lag_hours * timesteps_per_hour
-            feature_name = f'{target_col}_lag_{lag_hours}h'
-            
-            # Create lagged feature, using vst_raw_feature as source to avoid look-ahead
-            if 'vst_raw_feature' in data.columns:
-                data.loc[:, feature_name] = data['vst_raw_feature'].shift(lag_timesteps)
-            else:
-                data.loc[:, feature_name] = data[target_col].shift(lag_timesteps)
-            
-            # Fill NaN values at the beginning with forward fill
-            data.loc[:, feature_name] = data[feature_name].ffill()
-            
-            # Add to feature columns list if not already there
-            if feature_name not in self.feature_cols:
-                self.feature_cols.append(feature_name)
-        
-        return data
-
- 
+  

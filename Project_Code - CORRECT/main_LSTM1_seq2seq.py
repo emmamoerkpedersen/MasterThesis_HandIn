@@ -56,7 +56,6 @@ from experiments.error_frequency import run_error_frequency_experiments
 from models.lstm_traditional.train_model import LSTM_Trainer
 from models.lstm_traditional.model import LSTMModel
 
-# # EMMA HUSK AT BRUGE GAMLE MODEL OG TRÆNIN GOGSÅ!!!
 # from experiments.Improved_model_structure.train_model import LSTM_Trainer
 #from experiments.Improved_model_structure.improved_model import LSTMModel
 
