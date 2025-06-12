@@ -46,7 +46,7 @@ from shared.utils.model_utils import (
 )
 
 # Model infrastructure
-from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
+from models.lstm_traditional.preprocessing_LSTM1 import DataPreprocessor
 from shared.diagnostics.model_plots import create_full_plot, plot_convergence, plot_feature_importance, create_individual_feature_plots, plot_feature_correlation
 from shared.diagnostics.model_diagnostics import generate_all_diagnostics, generate_comparative_diagnostics
 
@@ -400,9 +400,14 @@ def run_pipeline(
     metrics = calculate_performance_metrics(original_val_data['vst_raw'].values, val_predictions_df['vst_raw'].values, ~np.isnan(original_val_data['vst_raw'].values))
     metrics['val_loss'] = min(history['val_loss'])
     
-    # Add anomaly detection metrics to results if available
+    # Add specific anomaly detection metrics to results if available (avoid adding nested dictionaries)
     if anomaly_results and 'confusion_metrics' in anomaly_results:
-        metrics['anomaly_detection'] = anomaly_results['confusion_metrics']
+        confusion_metrics = anomaly_results['confusion_metrics']
+        # Add only scalar metrics that can be formatted properly
+        metrics['anomaly_f1_score'] = confusion_metrics.get('f1_score', 0.0)
+        metrics['anomaly_precision'] = confusion_metrics.get('precision', 0.0)
+        metrics['anomaly_recall'] = confusion_metrics.get('recall', 0.0)
+        metrics['anomaly_accuracy'] = confusion_metrics.get('accuracy', 0.0)
     
     print_metrics_table(metrics)
 

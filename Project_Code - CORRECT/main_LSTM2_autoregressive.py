@@ -16,7 +16,7 @@ sys.path.append(str(project_dir))
 # Import local modules
 from models.lstm_flagging.alternating_config import ALTERNATING_CONFIG
 from models.lstm_flagging.simple_anomaly_detector import SimpleAnomalyDetector
-from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
+from models.lstm_flagging.preprocessing_LSTM2 import DataPreprocessor
 from shared.diagnostics.model_plots import create_full_plot, plot_convergence
 from shared.anomaly_detection.comprehensive_evaluation import (
     run_single_threshold_anomaly_detection
