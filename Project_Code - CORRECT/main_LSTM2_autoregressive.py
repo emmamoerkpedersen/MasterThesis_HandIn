@@ -590,9 +590,6 @@ if __name__ == "__main__":
     print(f"🏷️ FLAGGING MODEL EXPERIMENT {args.experiment} COMPLETED!")
     print(f"{'='*70}")
     print(f"Flag method: {args.flag_method}")
-    if args.flag_method == 'mad':
-        print(f"MAD threshold: {config['mad_threshold']}")
-        print(f"MAD window: {config['mad_window']}")
     print(f"Anomaly weight: {args.anomaly_weight}")
     print(f"Perfect flags: {args.use_perfect_flags}")
     print(f"Results saved to experiment_{args.experiment}")
