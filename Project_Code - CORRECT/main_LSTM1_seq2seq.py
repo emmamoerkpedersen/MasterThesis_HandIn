@@ -342,13 +342,9 @@ def run_pipeline(
                 confidence = anomaly_results['confidence']
                 ground_truth_flags = anomaly_results['ground_truth']
                 
-                print(f"\n🔍 ANOMALY DETECTION DEBUG INFO:")
-                print(f"   Total data points: {len(z_scores)}")
-                print(f"   Z-scores range: {np.nanmin(z_scores):.3f} to {np.nanmax(z_scores):.3f}")
-                print(f"   Threshold: {ANOMALY_DETECTION_CONFIG['threshold']}")
+                print(f"\n🔍 ANOMALY DETECTION INFO:")
                 print(f"   Anomalies detected: {np.sum(detected_anomalies)}")
                 print(f"   Ground truth anomalies: {np.sum(ground_truth_flags)}")
-                print(f"   Max absolute z-score: {np.nanmax(np.abs(z_scores)):.3f}")
                 
                 # Generate visualizations (independent of model_diagnostics)
                 print(f"\nGenerating anomaly detection visualizations...")

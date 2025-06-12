@@ -55,9 +55,7 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
         print("No error periods found for zoom plots")
         return
     
-    print(f"\nCreating zoom plots for {len(error_generator.error_periods)} injected errors...")
-    print(f"DEBUG: val_data index range: {val_data.index[0]} to {val_data.index[-1]}")
-    
+
     # Group error periods by type
     error_types = {}
     for period in error_generator.error_periods:
@@ -74,7 +72,6 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
             period = periods[0]
             
             print(f"Creating zoom plot for {error_type} error...")
-            print(f"DEBUG: Error period: {period.start_time} to {period.end_time}")
             
             # Calculate buffer (2 hours before and after)
             buffer_hours = 22
@@ -97,8 +94,7 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
             start_idx = max(0, period_indices[0] - buffer_steps)
             end_idx = min(len(val_data), period_indices[-1] + buffer_steps)
             
-            print(f"DEBUG: Period indices: {period_indices[0]} to {period_indices[-1]}")
-            print(f"DEBUG: Zoom indices (with buffer): {start_idx} to {end_idx}")
+   
             
             # Create zoom data with buffer
             zoom_data = val_data.iloc[start_idx:end_idx].copy()
@@ -119,16 +115,10 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
             if original_val_data is not None:
                 zoom_original_data = original_val_data.iloc[start_idx:end_idx].copy()
             
-            # DEBUG: Check if the data shows the synthetic error
-            print(f"DEBUG: Zoom data range: {zoom_data['vst_raw'].min():.1f} to {zoom_data['vst_raw'].max():.1f} mm")
-            print(f"DEBUG: Original values in error period: {period.original_values.min():.1f} to {period.original_values.max():.1f} mm")
-            print(f"DEBUG: Modified values in error period: {period.modified_values.min():.1f} to {period.modified_values.max():.1f} mm")
-            
+           
             # ADDITIONAL DEBUG: Check specific values at error period indices
             error_period_data = zoom_data.iloc[error_period_start_idx:error_period_end_idx]
-            print(f"DEBUG: Actual zoom data during error period: {error_period_data['vst_raw'].min():.1f} to {error_period_data['vst_raw'].max():.1f} mm")
-            print(f"DEBUG: Expected modified range should be: {period.modified_values.min():.1f} to {period.modified_values.max():.1f} mm")
-            
+           
             # Check if the data matches original or modified values
             if abs(error_period_data['vst_raw'].mean() - np.mean(period.original_values)) < abs(error_period_data['vst_raw'].mean() - np.mean(period.modified_values)):
                 print(f"🚨 BUG DETECTED: Zoom data matches ORIGINAL values, not MODIFIED values!")
@@ -162,7 +152,7 @@ def create_anomaly_zoom_plots(val_data, predictions, z_scores, anomalies, confid
                 original_data=zoom_original_data  # Pass original data for comparison
             )
             
-            print(f"  Zoom plot for {error_type} saved to: {zoom_png}")
+
             
         except Exception as e:
             print(f"Error creating zoom plot for {error_type}: {str(e)}")
@@ -308,7 +298,7 @@ def plot_water_level_anomalies(
     title="Water Level Forecasting with Anomalies",
     output_dir=None,
     save_png=True,
-    save_html=True,
+    save_html=False,  # Changed default to False
     show_plot=True,
     sequence_length=None,
     filename_prefix="",
@@ -331,7 +321,7 @@ def plot_water_level_anomalies(
         title (str): Plot title.
         output_dir (str or Path): Directory to save output files.
         save_png (bool): Whether to save plot as PNG.
-        save_html (bool): Whether to save interactive plot as HTML.
+        save_html (bool): Whether to save interactive plot as HTML (default: False).
         show_plot (bool): Whether to display the plot.
         sequence_length (int or None): Length of the sequence to pad.
         filename_prefix (str): Prefix for output filenames.
@@ -458,11 +448,6 @@ def plot_water_level_anomalies(
     # Create interactive Plotly visualization (for HTML)
     html_path = None
     if save_html:
-        # Debug prints for ground truth flags
-        if ground_truth_flags is not None:
-            print("DEBUG: Number of ground truth anomalies:", np.sum(ground_truth_flags))
-            print("DEBUG: Indices of ground truth anomalies:", test_data.index[ground_truth_flags == 1])
-        
         # Create figure with single plot (removed z-score subplot)
         fig = go.Figure()
         
@@ -564,6 +549,6 @@ def plot_water_level_anomalies(
         # Save HTML file
         html_path = output_dir / f"{base_filename}_{timestamp}.html"
         fig.write_html(str(html_path))
-        print(f"Interactive plot saved as {html_path}")
+     
     
     return png_path, html_path 
