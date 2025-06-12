@@ -1,9 +1,8 @@
 import torch
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from .feature_scaler import FeatureScaler
-from .feature_engineering import FeatureEngineer
+from shared.preprocessing.feature_scaler import FeatureScaler
+from shared.preprocessing.feature_engineering import FeatureEngineer
 
 class DataPreprocessor:
     def __init__(self, config):

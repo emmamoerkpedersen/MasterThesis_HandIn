@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
 from models.lstm_traditional.objective_functions import get_objective_function
 from models.lstm_traditional.model import LSTMModel
 from tqdm import tqdm
@@ -121,13 +120,13 @@ class LSTM_Trainer:
             torch.utils.data.TensorDataset(X_train, y_train), 
             batch_size=batch_size, 
             shuffle=True,  # Enable shuffling for better training
-            num_workers=4  # Parallel data loading
+            num_workers=0  # Set to 0 to avoid multiprocessing import issues
         )
         val_loader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(X_val, y_val), 
             batch_size=batch_size, 
             shuffle=False,
-            num_workers=4
+            num_workers=0  # Set to 0 to avoid multiprocessing import issues
         )
 
         # Initialize early stopping
