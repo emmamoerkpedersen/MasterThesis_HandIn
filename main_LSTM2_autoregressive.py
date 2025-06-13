@@ -48,8 +48,6 @@ def parse_arguments():
     parser.add_argument('--anomaly_weight', type=float, default=0.3, help='Weight for anomalous periods in loss')
     parser.add_argument('--flag_method', type=str, choices=['synthetic', 'mad'], default='synthetic',
                       help='Method for generating true anomaly flags: synthetic (from error injection) or mad (MAD outlier detection)')
-    parser.add_argument('--use_test_data', action='store_true',
-                      help='Use test data for predictions, plots, and metrics (training still uses train/val data)')
     return parser.parse_args()
 
 def setup_experiment_directories(project_dir, experiment_name):
@@ -110,24 +108,12 @@ def run_flagging_model(args):
     print(f"  use_perfect_flags: {config['use_perfect_flags']}")
     print(f"  flag_method: {args.flag_method}")
     if args.flag_method == 'mad':
-        print(f"  mad_threshold: {config.get('mad_threshold', 3.0)}")
-        print(f"  mad_window: {config.get('mad_window', 100)}")
+        print(f"  mad_threshold: {config['mad_threshold']}")
+        print(f"  mad_window: {config['mad_window']}")
     print(f"  quick_mode: {config['quick_mode']}")
     print(f"  full_dataset_mode: {config['full_dataset_mode']}")
+
     print(f"  epochs: {config['epochs']}")
-    
-    print("\n📊 Evaluation Configuration:")
-    print(f"Training data: train + validation sets")
-    if args.use_test_data:
-        print(f"Evaluation data: test set (predictions, plots, metrics)")
-    else:
-        print(f"Evaluation data: validation set (predictions, plots, metrics)")
-    
-    # Print test data usage configuration
-    if args.use_test_data:
-        print(f"  Using TEST data for predictions, plots, and metrics")
-    else:
-        print(f"  Using VALIDATION data for predictions, plots, and metrics")
     
     # Initialize preprocessor and trainer
     preprocessor = DataPreprocessor(config)
@@ -155,7 +141,6 @@ def run_flagging_model(args):
     # Store original data
     original_train_data = train_data.copy()
     original_val_data = val_data.copy()
-    original_test_data = test_data.copy()  # Add original test data
     
     # Inject synthetic errors
     print(f"\nInjecting synthetic errors with multiplier {args.error_multiplier}...")
@@ -178,18 +163,10 @@ def run_flagging_model(args):
         original_val_data, val_error_generator, f"{args.station_id}_val", water_level_cols
     )
     
-    # Process test data for anomaly detection (inject synthetic errors into target variable only)
-    print(f"\nInjecting synthetic errors into TEST data for anomaly detection...")
-    test_error_generator = SyntheticErrorGenerator(error_config)
-    test_data_with_errors, test_error_report = inject_errors_into_dataset(
-        original_test_data, test_error_generator, f"{args.station_id}_anomaly_test", ['vst_raw']  # Only target variable
-    )
-    
     # Add ALL features AFTER error injection so they reflect corrupted data
     print(f"\n🔧 Adding all features to corrupted data...")
     train_data_with_features = trainer.add_all_features(train_data_with_errors)
     val_data_with_features = trainer.add_all_features(val_data_with_errors)
-    test_data_with_features = trainer.add_all_features(test_data_with_errors)  # Add test data features
     
     # Create anomaly detector
     detector = SimpleAnomalyDetector(
@@ -240,8 +217,8 @@ def run_flagging_model(args):
     
     elif args.flag_method == 'mad':
         print(f"\n🔍 Using MAD OUTLIER DETECTION as true anomaly flags")
-        print(f"   MAD threshold: {config.get('mad_threshold', 3.0)}")
-        print(f"   MAD window size: {config.get('mad_window', 100)}")
+        print(f"   MAD threshold: {config['mad_threshold']}")
+        print(f"   MAD window size: {config['mad_window']}")
         
         # For MAD method, we use the original clean data to identify anomalies
         # This simulates a scenario where we have clean reference data
@@ -250,8 +227,8 @@ def run_flagging_model(args):
         train_flags_mad, val_flags_mad, _, _, _, _ = mad_outlier_flags(
             train_series=original_train_data['vst_raw'],
             val_series=original_val_data['vst_raw'],
-            threshold=config.get('mad_threshold', 3.0),
-            window_size=config.get('mad_window', 100)
+            threshold=config['mad_threshold'],
+            window_size=config['mad_window']
         )
         
         # Convert to boolean arrays
@@ -286,75 +263,18 @@ def run_flagging_model(args):
         train_data_flagged, val_data_flagged, config['epochs'], config['batch_size']
     )
     
-    # Determine which dataset to use for evaluation
-    if args.use_test_data:
-        print("\nUsing TEST data for predictions and evaluation...")
-        eval_data = original_test_data
-        eval_data_flagged = test_data_with_features  # Use test data with features but no flags for prediction
-        
-        # For consistent synthetic anomaly approach: use test data WITH synthetic errors for prediction
-        # This ensures the model gets both the corrupted data AND the correct anomaly flags
-        print("Using test data WITH synthetic errors for consistent anomaly flagging...")
-        test_data_for_prediction = trainer.add_all_features(test_data_with_errors)
-        
-        # Use synthetic error locations as perfect anomaly flags
-        if args.flag_method == 'synthetic' and 'test_error_generator' in locals():
-            print("Adding perfect synthetic error flags to test data for prediction")
-            test_flags = detector.create_perfect_flags(
-                test_error_generator, len(test_data_for_prediction), test_data_for_prediction.index
-            )
-            test_data_for_prediction[config['anomaly_flag_column']] = test_flags
-            print(f"Added {np.sum(test_flags)} synthetic anomaly flags to test data")
-        else:
-            # Fallback to MAD detection if synthetic flags not available
-            print("Fallback: Using MAD detection for test anomaly flags")
-            from shared.anomaly_detection.mad_outlier import mad_outlier_flags
-            test_flags, _, _, _, _, _ = mad_outlier_flags(
-                train_series=original_train_data['vst_raw'],
-                val_series=test_data_for_prediction['vst_raw'],
-                threshold=config.get('mad_threshold', 3.0),
-                window_size=config.get('mad_window', 100)
-            )
-            test_data_for_prediction[config['anomaly_flag_column']] = test_flags.astype(bool)
-            print(f"MAD detected {np.sum(test_flags)} anomalies in test data for flagging")
-        
-        eval_predictions, _, _ = trainer.predict(test_data_for_prediction)  # Use test data with synthetic errors and flags
-        dataset_name = "Test Set"
-        eval_plot_title = f"Flagging Model Results on Test Set (Weight: {args.anomaly_weight})"
-    else:
-        print("\nUsing VALIDATION data for predictions and evaluation...")
-        eval_data = original_val_data
-        eval_data_flagged = val_data_flagged
-        eval_predictions = val_predictions
-        dataset_name = "Validation Set"
-        eval_plot_title = f"Flagging Model Results on Validation Set (Weight: {args.anomaly_weight})"
-    
     # Convert predictions back to original scale
     print("\nConverting predictions back to original scale...")
+    val_predictions_np = val_predictions.numpy()
     
-    # eval_predictions is already a numpy array from the predict method, no need to call .numpy()
-    if isinstance(eval_predictions, np.ndarray):
-        val_predictions_np = eval_predictions
-    else:
-        val_predictions_np = eval_predictions.numpy()  # Only if it's a tensor
-    
-    print(f"Predictions shape: {val_predictions_np.shape}")
-    
-     # The predictions are already unscaled from the predict method, so we can use them directly
     if val_predictions_np.ndim == 3:
-        # Shape: [batch_size, seq_len, features] -> flatten to [seq_len]
-        val_predictions_original = val_predictions_np.reshape(val_predictions_np.shape[0] * val_predictions_np.shape[1], -1)
+        val_predictions_np = val_predictions_np.reshape(val_predictions_np.shape[0] * val_predictions_np.shape[1], -1)
     elif val_predictions_np.ndim == 2:
-        # Shape: [seq_len, features] -> flatten to [seq_len]
-        val_predictions_original = val_predictions_np.reshape(-1, 1)
+        val_predictions_np = val_predictions_np.reshape(-1, 1)
     elif val_predictions_np.ndim == 1:
-        # Already 1D
-        val_predictions_original = val_predictions_np.reshape(-1, 1)
-    else:
-        raise ValueError(f"Unexpected prediction shape: {val_predictions_np.shape}")
+        val_predictions_np = val_predictions_np.reshape(-1, 1)
     
-    print(f"Flattened predictions shape: {val_predictions_original.shape}")
-    val_predictions_original = trainer.target_scaler.inverse_transform(val_predictions_original).flatten()
+    val_predictions_original = trainer.target_scaler.inverse_transform(val_predictions_np).flatten()
     
     # EXPERIMENT 3: Postprocessing smoothing to reduce oscillations
     print("Applying postprocessing smoothing filter...")
@@ -404,10 +324,10 @@ def run_flagging_model(args):
     print(f"Smoothed predictions range: {val_predictions_smoothed.min():.2f} to {val_predictions_smoothed.max():.2f}")
     
     # Create prediction DataFrame with both original and smoothed predictions
-    eval_pred_df = pd.DataFrame({
+    val_pred_df = pd.DataFrame({
         'vst_raw': val_predictions_smoothed,  # Use smoothed predictions
         'vst_raw_original': val_predictions_original,  # Keep original for comparison
-    }, index=eval_data.index[:len(val_predictions_original)])
+    }, index=val_data_flagged.index[:len(val_predictions_original)])
     
     # Generate visualizations
     print("\nGenerating visualizations...")
@@ -418,18 +338,19 @@ def run_flagging_model(args):
                      output_dir=exp_dirs['visualizations'])
     
     # Main prediction plot
+    viz_title = f"Flagging Model Results (Weight: {args.anomaly_weight})"
     synthetic_data = {
-        'data': eval_data_flagged.copy(),
+        'data': val_data_flagged.copy(),
         'error_periods': []
     }
     
     create_full_plot(
-        eval_data,  # Original data
-        eval_pred_df,        # Predictions
+        original_val_data,  # Original data
+        val_pred_df,        # Predictions
         str(args.station_id), 
         config, 
         min(history['val_loss']), 
-        title_suffix=eval_plot_title,
+        title_suffix=viz_title,
         synthetic_data=synthetic_data, 
         output_dir=exp_dirs['visualizations']
     )
@@ -437,8 +358,8 @@ def run_flagging_model(args):
     print("\nGenerating anomaly detection analysis...")
     
     z_scores, anomalies = calculate_z_scores_mad(
-        eval_data_flagged['vst_raw'].values,
-        eval_pred_df['vst_raw'].values,
+        val_data_flagged['vst_raw'].values,
+        val_pred_df['vst_raw'].values,
         window_size=config['window_size'],
         threshold=config['threshold']  
     )
@@ -459,8 +380,8 @@ def run_flagging_model(args):
     anomaly_plot_title += f"\nWeight: {args.anomaly_weight}, Detected: {high_conf}H, {med_conf}M, {low_conf}L"
     
     plot_water_level_anomalies(
-        test_data=eval_data_flagged,
-        predictions=eval_pred_df['vst_raw'],
+        test_data=val_data_flagged,
+        predictions=val_pred_df['vst_raw'],
         z_scores=z_scores,
         anomalies=anomalies,
         threshold=config['threshold'],
@@ -471,15 +392,15 @@ def run_flagging_model(args):
         show_plot=False,
         filename_prefix="flagging_anomaly_detection_",
         confidence=confidence,
-        original_data=eval_data,  # Add original clean data
+        original_data=original_val_data,  # Add original clean data
         edt_data=edt_val_data  # Add EDT reference data
     )
     
     # Create zoom plots for each error type
     print("\nCreating zoom plots for individual error types...")
     create_anomaly_zoom_plots(
-        val_data=eval_data_flagged,
-        predictions=eval_pred_df['vst_raw'].values,
+        val_data=val_data_flagged,
+        predictions=val_pred_df['vst_raw'].values,
         z_scores=z_scores,
         anomalies=anomalies,
         confidence=confidence,
@@ -487,72 +408,72 @@ def run_flagging_model(args):
         station_id=args.station_id,
         config=config,
         output_dir=exp_dirs['anomaly_detection'],
-        original_val_data=eval_data  # Pass original validation data
+        original_val_data=original_val_data  # Pass original validation data
     )
     
     # Create simplified zoom plots (without detection markers)
     print("\nCreating simplified zoom plots for model behavior analysis...")
     create_simple_anomaly_zoom_plots(
-        val_data=eval_data_flagged,
-        predictions=eval_pred_df['vst_raw'].values,
+        val_data=val_data_flagged,
+        predictions=val_pred_df['vst_raw'].values,
         error_generator=val_error_generator,
         station_id=args.station_id,
         output_dir=exp_dirs['anomaly_detection'],
-        original_val_data=eval_data
+        original_val_data=original_val_data
     )
 
     # Comprehensive Anomaly Detection Framework
     print("\n" + "="*60)
     print("COMPREHENSIVE ANOMALY DETECTION")
     print("="*60)
-    print("🎯 Evaluating supervised model's anomaly detection capability on TEST data")
+    print("🎯 Evaluating supervised model's anomaly detection capability")
     
     # Convert error reports to stations_results format for ground truth
-    print("Converting test error reports to ground truth format...")
+    print("Converting error reports to ground truth format...")
     stations_results = {}
     
-    # Convert test error report to proper format for anomaly detection
-    for key, report_data in test_error_report.items():
+    # Convert validation error report to proper format
+    for key, report_data in val_error_report.items():
         if 'vst_raw' in key:  # Target variable
             stations_results[key] = {
-                'modified_data': test_data_with_errors,  # Test data with synthetic errors
+                'modified_data': val_data_with_errors,  # Data with synthetic errors
                 'ground_truth': report_data.get('ground_truth'),  # Add missing ground_truth field
                 'error_periods': report_data.get('error_periods', []),
-                'original_data': original_test_data
+                'original_data': original_val_data
             }
     
-    # Use unscaled test predictions for anomaly detection
-    test_predictions_unscaled = val_predictions_smoothed  # Already unscaled
+    # Use unscaled predictions for anomaly detection
+    val_predictions_unscaled = val_predictions_smoothed  # Already unscaled
     
     print(f"📊 Anomaly detection configuration:")
     print(f"   Threshold: {config['threshold']}")
     print(f"   Window size: {config['window_size']}")
-    print(f"   Using unscaled test predictions: shape {test_predictions_unscaled.shape}")
-    print(f"   Prediction range: {np.nanmin(test_predictions_unscaled):.1f} to {np.nanmax(test_predictions_unscaled):.1f} mm")
+    print(f"   Using unscaled predictions: shape {val_predictions_unscaled.shape}")
+    print(f"   Prediction range: {np.nanmin(val_predictions_unscaled):.1f} to {np.nanmax(val_predictions_unscaled):.1f} mm")
     
-    # Ensure predictions match test data length
-    if len(test_predictions_unscaled) != len(eval_data):
-        print(f"⚠️  Length mismatch: predictions={len(test_predictions_unscaled)}, data={len(eval_data)}")
-        if len(test_predictions_unscaled) > len(eval_data):
-            test_predictions_unscaled = test_predictions_unscaled[:len(eval_data)]
-            print(f"   Truncated predictions to {len(test_predictions_unscaled)}")
+    # Ensure predictions match validation data length
+    if len(val_predictions_unscaled) != len(original_val_data):
+        print(f"⚠️  Length mismatch: predictions={len(val_predictions_unscaled)}, data={len(original_val_data)}")
+        if len(val_predictions_unscaled) > len(original_val_data):
+            val_predictions_unscaled = val_predictions_unscaled[:len(original_val_data)]
+            print(f"   Truncated predictions to {len(val_predictions_unscaled)}")
         else:
-            padding = np.full(len(eval_data) - len(test_predictions_unscaled), np.nan)
-            test_predictions_unscaled = np.concatenate([test_predictions_unscaled, padding])
-            print(f"   Padded predictions to {len(test_predictions_unscaled)}")
+            padding = np.full(len(original_val_data) - len(val_predictions_unscaled), np.nan)
+            val_predictions_unscaled = np.concatenate([val_predictions_unscaled, padding])
+            print(f"   Padded predictions to {len(val_predictions_unscaled)}")
     
-    # DEBUG: Print detailed test set information for supervised model
-    print(f"\n🔍 SUPERVISED MODEL TEST SET DEBUG INFO:")
-    print(f"   Test data length: {len(eval_data)}")
-    print(f"   Test data period: {eval_data.index[0]} to {eval_data.index[-1]}")
-    print(f"   Predictions length: {len(test_predictions_unscaled)}")
-    print(f"   Non-NaN predictions: {np.sum(~np.isnan(test_predictions_unscaled))}")
+    # DEBUG: Print detailed validation set information for supervised model
+    print(f"\n🔍 SUPERVISED MODEL VALIDATION SET DEBUG INFO:")
+    print(f"   Validation data length: {len(original_val_data)}")
+    print(f"   Validation data period: {original_val_data.index[0]} to {original_val_data.index[-1]}")
+    print(f"   Predictions length: {len(val_predictions_unscaled)}")
+    print(f"   Non-NaN predictions: {np.sum(~np.isnan(val_predictions_unscaled))}")
     
     # Show time span
-    time_span = eval_data.index[-1] - eval_data.index[0]
+    time_span = original_val_data.index[-1] - original_val_data.index[0]
     print(f"   Time span: {time_span}")
-    if len(eval_data) > 0:
-        points_per_day = len(eval_data) / time_span.days if time_span.days > 0 else 0
+    if len(original_val_data) > 0:
+        points_per_day = len(original_val_data) / time_span.days if time_span.days > 0 else 0
         print(f"   Approximate points per day: {points_per_day:.1f}")
     
     # Check if we have ground truth data
@@ -560,11 +481,11 @@ def run_flagging_model(args):
         print("❌ No ground truth data available for anomaly detection.")
         anomaly_results = {'error': 'No ground truth data available'}
     else:
-        # Run comprehensive anomaly detection on test data
+        # Run comprehensive anomaly detection
         anomaly_results = run_single_threshold_anomaly_detection(
-            val_data=test_data_with_errors,  # Use TEST data with synthetic errors
-            predictions=test_predictions_unscaled,  # Use unscaled test predictions
-            stations_results=stations_results,  # Contains ground truth from test data
+            val_data=val_data_with_errors,  # Use data with synthetic errors
+            predictions=val_predictions_unscaled,  # Use unscaled predictions
+            stations_results=stations_results,  # Contains ground truth
             station_id=args.station_id,
             config={
                 'threshold': config['threshold'],
@@ -572,11 +493,12 @@ def run_flagging_model(args):
                 'model_type': 'predictions'  # Time series predictions
             },
             output_dir=exp_dirs['anomaly_detection'],  # Use anomaly detection directory
-            original_val_data=eval_data,  # Pass original test data for comparison
-            filename_prefix=f"supervised_anomaly_detection_{args.flag_method}_",
-            dataset_type='test'  # Specify that we're using test data
+            original_val_data=original_val_data,
+            filename_prefix=f"supervised_anomaly_detection_{args.flag_method}_"
         )
         
+
+
         # Check if anomaly detection succeeded
         if 'error' in anomaly_results:
             print(f"❌ Anomaly detection failed: {anomaly_results['error']}")
@@ -597,8 +519,8 @@ def run_flagging_model(args):
                 print(f"   False Negatives: {cm['false_negatives']}")
                 
                 # Check if anomaly rate seems reasonable
-                if cm['total_anomalies_pred'] > len(eval_data) * 0.1:  # More than 10%
-                    print(f"   ⚠️ WARNING: Detection rate seems very high ({cm['total_anomalies_pred']/len(eval_data)*100:.2f}%)")
+                if cm['total_anomalies_pred'] > len(original_val_data) * 0.1:  # More than 10%
+                    print(f"   ⚠️ WARNING: Detection rate seems very high ({cm['total_anomalies_pred']/len(original_val_data)*100:.2f}%)")
                     print(f"   This might indicate overly sensitive detection or high error injection")
     
     # Generate residual plots and other diagnostics
@@ -607,14 +529,14 @@ def run_flagging_model(args):
     
     # Create features DataFrame for residual analysis
     features_df = pd.DataFrame({
-        'temperature': eval_data_flagged['temperature'],
-        'rainfall': eval_data_flagged['rainfall']
+        'temperature': val_data_flagged['temperature'],
+        'rainfall': val_data_flagged['rainfall']
     })
     
     # Generate all diagnostic plots
     diagnostic_vis_paths = generate_all_diagnostics(
-        actual=eval_data['vst_raw'],  # Use original test data as reference
-        predictions=eval_pred_df['vst_raw'],
+        actual=original_val_data['vst_raw'],  # Use original clean data as reference
+        predictions=val_pred_df['vst_raw'],
         output_dir=exp_dirs['diagnostics'],
         station_id=args.station_id,
         features_df=features_df
@@ -622,34 +544,34 @@ def run_flagging_model(args):
     
     # Calculate metrics
     from shared.utils.pipeline_utils import calculate_performance_metrics
-    valid_mask = ~np.isnan(eval_data['vst_raw'].values)  # Use test data instead of validation
-    pred_mask = ~np.isnan(val_predictions_original)  # Use test predictions
+    valid_mask = ~np.isnan(original_val_data['vst_raw'].values)
+    pred_mask = ~np.isnan(val_predictions_original)
     combined_mask = valid_mask[:len(pred_mask)] & pred_mask
     
     if np.sum(combined_mask) > 0:
-        # Metrics against original clean test data
+        # Metrics against original clean data
         metrics = calculate_performance_metrics(
-            eval_data['vst_raw'].values[:len(pred_mask)],  # Use test data
-            val_predictions_original,  # Use test predictions
+            original_val_data['vst_raw'].values[:len(pred_mask)], 
+            val_predictions_original, 
             combined_mask
         )
         
-        # Metrics against corrupted test data (for comparison)
-        corrupted_test_metrics = calculate_performance_metrics(
-            eval_data_flagged['vst_raw'].values[:len(pred_mask)] if args.use_test_data else test_data_with_errors['vst_raw'].values[:len(pred_mask)],  # Use appropriate data with errors
-            val_predictions_original,  # Use test predictions
-            combined_mask
-        )
-        
-        print(f"\n{dataset_name} Metrics (vs corrupted data):")  # Updated description
-        for metric, value in corrupted_test_metrics.items():
-            print(f"  {metric}: {value:.6f}")
-            
         print(f"\n📊 FLAGGING MODEL RESULTS:")
-        print(f"{dataset_name} Metrics (vs original clean data):")  # Updated description
+        print(f"Validation Metrics (vs original clean data):")
         for metric, value in metrics.items():
             print(f"  {metric}: {value:.6f}")
             
+        # Metrics against corrupted data (model's training target)
+        corrupted_metrics = calculate_performance_metrics(
+            val_data_flagged['vst_raw'].values[:len(pred_mask)], 
+            val_predictions_original, 
+            combined_mask
+        )
+        
+        print(f"\nValidation Metrics (vs corrupted training data):")
+        for metric, value in corrupted_metrics.items():
+            print(f"  {metric}: {value:.6f}")
+        
         # Add anomaly detection metrics to results if available
         if anomaly_results and 'confusion_metrics' in anomaly_results:
             metrics['anomaly_detection'] = anomaly_results['confusion_metrics']
