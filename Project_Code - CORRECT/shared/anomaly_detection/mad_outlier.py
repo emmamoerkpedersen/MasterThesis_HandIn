@@ -13,8 +13,13 @@ current_dir = Path(__file__).resolve().parent
 project_dir = current_dir.parent.parent
 sys.path.append(str(project_dir))
 
-from config import LSTM_CONFIG
-from shared.preprocessing.preprocessing_LSTM import DataPreprocessor
+#For lstm 2:
+from models.lstm_flagging.alternating_config import ALTERNATING_CONFIG
+from models.lstm_flagging.preprocessing_LSTM2 import DataPreprocessor
+
+#For lstm 1:
+#from models.lstm_traditional.config import LSTM_CONFIG
+#from models.lstm_traditional.preprocessing_LSTM1 import DataPreprocessor
 
 def mad_outlier_flags(train_series, val_series=None, threshold=3.0, window_size=16):
     """
@@ -223,7 +228,11 @@ if __name__ == "__main__":
     parser.add_argument('--error_type', type=str, default='both', choices=['both', 'train', 'validation', 'none'], help='Which datasets to inject errors into (both, train, validation, or none)')
     args = parser.parse_args()
 
-    config = LSTM_CONFIG.copy()
+    #For lstm 2:
+    config = ALTERNATING_CONFIG.copy()
+    #For lstm 1:
+    #config = LSTM_CONFIG.copy()
+
     if 'feature_stations' not in config:
         config['feature_stations'] = []
 
@@ -242,9 +251,9 @@ if __name__ == "__main__":
 
     # --- Inject synthetic errors if requested ---
     if args.error_multiplier is not None and args.error_type != 'none':
-        from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
-        from utils.error_utils import configure_error_params, inject_errors_into_dataset
-        from config import SYNTHETIC_ERROR_PARAMS
+        from shared.synthetic.synthetic_errors import SyntheticErrorGenerator
+        from shared.utils.error_utils import configure_error_params, inject_errors_into_dataset
+        from synthetic_error_config import SYNTHETIC_ERROR_PARAMS
         print(f"\nInjecting synthetic errors with multiplier {args.error_multiplier:.1f}x...")
         print(f"Error injection mode: {args.error_type}")
         error_config = configure_error_params(SYNTHETIC_ERROR_PARAMS, args.error_multiplier)
@@ -295,5 +304,3 @@ if __name__ == "__main__":
         window_size=args.window_size,
         save_dir=zoom_save_dir
     )
-    
-    # Continue with existing plotting code... 
