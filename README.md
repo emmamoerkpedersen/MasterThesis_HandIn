@@ -27,7 +27,7 @@ This project implements two LSTM approaches for water level forecasting with ano
 python main_LSTM1_seq2seq.py
 ```
 
-**With options:**
+**With options (examples):**
 ```bash
 # Train with synthetic errors and anomaly detection
 python main_LSTM1_seq2seq.py --error_multiplier 1.5 --anomaly_detection --model_diagnostics
@@ -50,7 +50,7 @@ python main_LSTM1_seq2seq.py --use_test_data --model_diagnostics
 python main_LSTM2_autoregressive.py
 ```
 
-**Recommended usage:**
+**Recommended usage (examples):**
 ```bash
 # Quick test with synthetic anomaly flags
 python main_LSTM2_autoregressive.py --experiment quick_test --quick_mode
@@ -83,17 +83,6 @@ results/
         └── anomaly_detection/      # Anomaly analysis
 ```
 
-## 💡 Usage Examples
-
-### Compare Both Models
-```bash
-# Run traditional LSTM
-python main_LSTM1_seq2seq.py --model_diagnostics --anomaly_detection
-
-# Run flagging LSTM with same configuration
-python main_LSTM2_autoregressive.py --experiment comparison_test
-```
-
 ### Anomaly Detection Focus
 ```bash
 # Traditional model with synthetic errors
@@ -112,7 +101,59 @@ python main_LSTM1_seq2seq.py --model_diagnostics
 python main_LSTM2_autoregressive.py --quick_mode --experiment quick
 ```
 
-## 🔧 Configuration
+## 🔧 Synthetic Error Framework
+
+This project includes a comprehensive synthetic error injection system to test model robustness against common water level sensor issues.
+
+### Error Types
+
+| Error Type | Description | Example Use Case |
+|------------|-------------|------------------|
+| **Spike** | Single-point anomalies | Sensor glitches, electrical interference |
+| **Offset** | Sudden level shifts | Calibration drift, sensor repositioning |
+| **Drift** | Gradual changes over time | Sensor degradation, environmental factors |
+| **Noise** | Periods of increased variance | Communication issues, environmental interference |
+
+### Configuration
+
+Edit `synthetic_error_config.py` to control error generation:
+
+```python
+SYNTHETIC_ERROR_PARAMS = {
+    'spike': {
+        'count_per_year': 0.5,        # Number of spikes per year
+        'magnitude_range': (0.2, 1.0), # Spike intensity
+    },
+    'offset': {
+        'count_per_year': 0.25,       # Number of offsets per year
+        'magnitude_range': (30, 700),  # Offset size (mm)
+        'duration_range': (24, 1920),  # Duration (15-min intervals)
+    },
+    # ... more error types
+}
+```
+
+### How It Works
+
+1. **Automatic Scaling**: Errors are distributed based on dataset length (years × count_per_year)
+2. **Non-Overlapping**: Built-in collision detection prevents error overlap
+3. **Physical Constraints**: Maintains realistic water level limits (0-3000mm)
+4. **Reproducible**: Configurable random seeds for consistent experiments
+
+### Usage Examples
+
+```bash
+# No synthetic errors (clean data)
+python main_LSTM1_seq2seq.py
+
+# Light error injection (1x base rates)
+python main_LSTM1_seq2seq.py --error_multiplier 1.0
+
+# Heavy error injection (2x base rates)
+python main_LSTM1_seq2seq.py --error_multiplier 2.0
+```
+
+## ⚙️ Configuration Files
 
 - **Traditional LSTM**: Edit `models/lstm_traditional/config.py`
 - **Flagging LSTM**: Edit `models/lstm_flagging/alternating_config.py`
