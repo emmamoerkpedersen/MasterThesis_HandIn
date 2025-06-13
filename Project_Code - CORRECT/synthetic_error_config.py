@@ -11,7 +11,7 @@ PHYSICAL_LIMITS = {
 # Anomaly Detection Configuration
 ANOMALY_DETECTION_CONFIG = {
     'method': 'z_score_mad',  # Use MAD-based z-score for robust detection
-    'window_size': 16,  # 24 hours at 15-min intervals
+    'window_size': 150,  # 24 hours at 15-min intervals
     'threshold': 5,  # Z-score threshold for anomaly detection
     'confidence_levels': {
         'high_multiplier': 2.0,    # High confidence: > 2x threshold

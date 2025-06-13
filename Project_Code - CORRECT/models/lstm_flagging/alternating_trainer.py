@@ -97,6 +97,14 @@ class AlternatingTrainer:
         # Check for NaN/inf values in features before scaling
         print("\nChecking for problematic values before scaling:")
         for col in feature_cols:
+            # First, ensure the column is numeric
+            if not pd.api.types.is_numeric_dtype(features_df[col]):
+                print(f"  WARNING: {col} is non-numeric dtype {features_df[col].dtype}")
+                # Try to convert to numeric, errors='coerce' will turn non-numeric to NaN
+                features_df.loc[:, col] = pd.to_numeric(features_df[col], errors='coerce')
+                print(f"    Converted {col} to numeric, dtype now: {features_df[col].dtype}")
+            
+            # Now check for NaN/inf values (safe since column is numeric)
             nan_count = features_df[col].isna().sum()
             inf_count = np.isinf(features_df[col]).sum()
             if nan_count > 0 or inf_count > 0:
@@ -135,11 +143,12 @@ class AlternatingTrainer:
             self.feature_scalers = {}
             
             # Scale each feature individually, but skip anomaly flags
-            x_scaled = np.zeros_like(features_df.values)
+            # Create proper numeric array instead of using np.zeros_like which preserves object dtype
+            x_scaled = np.zeros((len(features_df), len(feature_cols)), dtype=np.float32)
             for i, feature in enumerate(feature_cols):
                 # Skip scaling for anomaly flag columns - they should remain binary
                 if 'anomaly_flag' in feature:
-                    x_scaled[:, i] = features_df[feature].values  # Keep original binary values
+                    x_scaled[:, i] = features_df[feature].values.astype(np.float32)  # Convert to float
                     print(f"Skipping scaling for anomaly flag: {feature}")
                 else:
                     scaler = StandardScaler()
@@ -160,11 +169,12 @@ class AlternatingTrainer:
                 raise ValueError("Scalers not fitted. Call with is_training=True first.")
             
             # Scale each feature using its fitted scaler, but skip anomaly flags
-            x_scaled = np.zeros_like(features_df.values)
+            # Create proper numeric array instead of using np.zeros_like which preserves object dtype
+            x_scaled = np.zeros((len(features_df), len(feature_cols)), dtype=np.float32)
             for i, feature in enumerate(feature_cols):
                 # Skip scaling for anomaly flag columns - they should remain binary
                 if 'anomaly_flag' in feature:
-                    x_scaled[:, i] = features_df[feature].values  # Keep original binary values
+                    x_scaled[:, i] = features_df[feature].values.astype(np.float32)  # Convert to float
                 else:
                     x_scaled[:, i] = self.feature_scalers[feature].transform(
                         features_df[feature].values.reshape(-1, 1)
@@ -191,10 +201,12 @@ class AlternatingTrainer:
         print("\nNaN values in final tensors:")
         print("--------------------------")
         for i, feature in enumerate(feature_cols):
+            # Now safe to call np.isnan since x_scaled is properly numeric
             nan_count = np.isnan(x_scaled[:, i]).sum()
             if nan_count > 0:
                 print(f"Feature {feature}: {nan_count} NaN values ({nan_count/len(x_scaled)*100:.2f}%)")
         
+        # Safe to check target NaN values too
         nan_count = np.isnan(y_scaled).sum()
         if nan_count > 0:
             print(f"Target: {nan_count} NaN values ({nan_count/len(y_scaled)*100:.2f}%)")
@@ -460,20 +472,44 @@ class AlternatingTrainer:
             # Initialize hidden and cell states
             hidden_state, cell_state = self.model.init_hidden(x_test.shape[0], self.device)
             
-            # Generate predictions
+            # Generate predictions - set alternating_weeks=False for test predictions
             outputs, _, _ = self.model(
                 x_test, 
                 hidden_state, 
                 cell_state,
-                use_predictions=use_predictions
+                use_predictions=use_predictions,
+                alternating_weeks=False  # Disable alternating weeks for predictions
             )
             
             # Convert predictions back to original scale
             predictions_scaled = outputs.cpu().numpy()
             y_test_np = y_test.numpy()
             
+            # Reshape predictions for inverse transformation
+            # predictions_scaled shape is likely [batch_size, seq_len, 1]
+            print(f"Raw predictions shape: {predictions_scaled.shape}")
+            
+            # Reshape to 2D for scaler: [batch_size * seq_len, 1]
+            if predictions_scaled.ndim == 3:
+                original_shape = predictions_scaled.shape
+                predictions_reshaped = predictions_scaled.reshape(-1, predictions_scaled.shape[-1])
+            elif predictions_scaled.ndim == 2:
+                predictions_reshaped = predictions_scaled
+            else:
+                predictions_reshaped = predictions_scaled.reshape(-1, 1)
+            
+            print(f"Reshaped predictions for scaler: {predictions_reshaped.shape}")
+            
             # Inverse transform predictions using our target_scaler
-            predictions = self.target_scaler.inverse_transform(predictions_scaled)
+            predictions_unscaled = self.target_scaler.inverse_transform(predictions_reshaped)
+            
+            # Reshape back to original format if needed
+            if predictions_scaled.ndim == 3:
+                predictions = predictions_unscaled.reshape(original_shape)
+            else:
+                predictions = predictions_unscaled
+            
+            print(f"Final predictions shape: {predictions.shape}")
             
             return predictions, predictions_scaled, y_test_np
     

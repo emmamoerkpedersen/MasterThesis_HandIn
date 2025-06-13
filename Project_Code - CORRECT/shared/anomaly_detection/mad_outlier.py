@@ -7,6 +7,11 @@ import random
 import matplotlib.dates as mdates
 import plotly.graph_objs as go
 import plotly.io as pio
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+import argparse
+from typing import Optional, Dict, Any
+from synthetic_error_config import SYNTHETIC_ERROR_PARAMS
+from models.lstm_traditional.config import LSTM_CONFIG
 
 # Add project root to sys.path for imports
 current_dir = Path(__file__).resolve().parent
@@ -251,9 +256,9 @@ if __name__ == "__main__":
 
     # --- Inject synthetic errors if requested ---
     if args.error_multiplier is not None and args.error_type != 'none':
-        from shared.synthetic.synthetic_errors import SyntheticErrorGenerator
-        from shared.utils.error_utils import configure_error_params, inject_errors_into_dataset
-        from synthetic_error_config import SYNTHETIC_ERROR_PARAMS
+        from _2_synthetic.synthetic_errors import SyntheticErrorGenerator
+        from utils.error_utils import configure_error_params, inject_errors_into_dataset
+        from config import SYNTHETIC_ERROR_PARAMS
         print(f"\nInjecting synthetic errors with multiplier {args.error_multiplier:.1f}x...")
         print(f"Error injection mode: {args.error_type}")
         error_config = configure_error_params(SYNTHETIC_ERROR_PARAMS, args.error_multiplier)

@@ -6,23 +6,23 @@ Configuration for the Alternating Forecast Model.
 # Current: Anomaly Flagging Approach
 ALTERNATING_CONFIG = {
     # Model architecture
-    'hidden_size': 128,
+    'hidden_size': 24,
     'dropout': 0.25,
     
     # Training parameters
     'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 2,              # TEMPORARILY REDUCED for quick testing (was 50)
+    'epochs': 100,              # TEMPORARILY REDUCED for quick testing (was 50)
     'patience': 10,
-    'learning_rate': 0.0003,
+    'learning_rate': 0.001,
     # Forecasting parameters
     'warmup_length': 672,
     # Anomaly detection parameters
     'threshold': 5.0,          # For evaluation/visualization
-    'window_size': 250,        # Window size for MAD calculation
+    'window_size': 150,        # Window size for MAD calculation
     
     'week_steps': 672,
     # Quick mode for faster training with reduced data
-    'quick_mode': False,       # When True, uses only 3 years training, 1 year validation
+    'quick_mode': True,       # When True, uses only 3 years training, 1 year validation
     
     # Loss function
     'objective_function': 'mae_loss',  # Using MAE loss
@@ -47,7 +47,6 @@ ALTERNATING_CONFIG = {
     # NEW: Anomaly flagging approach
     'use_anomaly_flags': True,          # Enable anomaly flagging as input feature
     'use_weighted_loss': True,          # ENABLED: Anomaly aware loss (Experiment 2)
-    'use_simple_loss': False,           # When True, use anomaly_aware_loss_simple() instead of complex version
     'anomaly_weight': 0.3,              # Weight for anomalous periods (30% vs 100% for normal)
     'anomaly_detection_threshold': 3.0, # Z-score threshold for automatic detection
     'anomaly_detection_window': 100,   # Window size for MAD calculation
