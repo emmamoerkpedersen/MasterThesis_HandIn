@@ -340,20 +340,21 @@ def run_flagging_model(args):
     
     print(f"Predictions shape: {val_predictions_np.shape}")
     
-    # The predictions are already unscaled from the predict method, so we can use them directly
+     # The predictions are already unscaled from the predict method, so we can use them directly
     if val_predictions_np.ndim == 3:
         # Shape: [batch_size, seq_len, features] -> flatten to [seq_len]
-        val_predictions_original = val_predictions_np.reshape(-1)
+        val_predictions_original = val_predictions_np.reshape(val_predictions_np.shape[0] * val_predictions_np.shape[1], -1)
     elif val_predictions_np.ndim == 2:
         # Shape: [seq_len, features] -> flatten to [seq_len]
-        val_predictions_original = val_predictions_np.flatten()
+        val_predictions_original = val_predictions_np.reshape(-1, 1)
     elif val_predictions_np.ndim == 1:
         # Already 1D
-        val_predictions_original = val_predictions_np
+        val_predictions_original = val_predictions_np.reshape(-1, 1)
     else:
         raise ValueError(f"Unexpected prediction shape: {val_predictions_np.shape}")
     
     print(f"Flattened predictions shape: {val_predictions_original.shape}")
+    val_predictions_original = trainer.target_scaler.inverse_transform(val_predictions_original).flatten()
     
     # EXPERIMENT 3: Postprocessing smoothing to reduce oscillations
     print("Applying postprocessing smoothing filter...")

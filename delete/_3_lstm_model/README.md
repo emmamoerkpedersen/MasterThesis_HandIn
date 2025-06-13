@@ -6,6 +6,7 @@ This repository implements a modular pipeline for unsupervised anomaly detection
 
 ## Table of Contents
 - [Overview](#overview)
+- [Data Prerequisites](#data-prerequisites)
 - [Project Structure](#project-structure)
 - [Pipeline Flow](#pipeline-flow)
 - [Key Components](#key-components)
@@ -32,6 +33,16 @@ This project implements an end-to-end pipeline that:
 - **Tunes hyperparameters** using Optuna, allowing adjustments to the model architecture, training dynamics, and thresholds.
 
 ---
+
+## Data Prerequisites
+
+**⚠️ IMPORTANT:** Run the preprocessing script first to generate required data files.
+
+**Steps:**
+1. `cd data_preprocessing`
+2. `python Processing_data.py`
+
+This creates `data_utils/Sample data/preprocessed_data.pkl` needed by the LSTM models.
 
 ---
 
