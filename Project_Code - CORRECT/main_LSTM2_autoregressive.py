@@ -112,8 +112,6 @@ def run_flagging_model(args):
         print(f"  mad_window: {config['mad_window']}")
     print(f"  quick_mode: {config['quick_mode']}")
     print(f"  full_dataset_mode: {config['full_dataset_mode']}")
-    print(f"  use_lagged_features: {config['use_lagged_features']}")
-    print(f"  lag_hours: {config['lag_hours']}")
     print(f"  epochs: {config['epochs']}")
     
     # Initialize preprocessor and trainer
