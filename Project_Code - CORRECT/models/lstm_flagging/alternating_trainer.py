@@ -602,7 +602,7 @@ class AlternatingTrainer:
         print("----------------------\n")
 
         # Set date range
-        start_date = pd.Timestamp('2016-01-01')
+        start_date = pd.Timestamp('2018-01-01')
         end_date = pd.Timestamp('2025-01-07')
         
         # Cut dataframe to date range
