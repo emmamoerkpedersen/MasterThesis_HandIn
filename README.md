@@ -9,7 +9,7 @@ This project implements two LSTM approaches for water level forecasting with ano
 - Required packages: `torch`, `pandas`, `numpy`, `matplotlib`, `scipy`
 
 ### Available Water Level Stations
-- `21006845`, `21006846` (default), `21006847`
+- `21006845 (feature station for LSTM1)`, `21006846` (target), `21006847 (feature station for LSTM1)`
 
 ## 📖 Model Overview
 
