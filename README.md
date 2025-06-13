@@ -1,91 +1,149 @@
 # Water Level Forecasting with LSTM Models
 
-This project implements two different LSTM approaches for water level forecasting with anomaly detection capabilities.
+This project implements two LSTM approaches for water level forecasting with anomaly detection capabilities.
 
-## Models Overview
+## 🚀 Quick Start
 
-### 1. Traditional LSTM Model (`main_LSTM1_seq2seq.py`)
-- **Type**: Standard sequence-to-sequence LSTM
-- **Architecture**: Multi-layer LSTM with traditional training approach
-- **Config**: `config.py` → `LSTM_CONFIG`
-- **Location**: `models/lstm_traditional/`
-- **Features**: Basic LSTM forecasting with configurable layers and hidden units
+### Prerequisites
+- Python 3.7+
+- Required packages: `torch`, `pandas`, `numpy`, `matplotlib`, `scipy`
 
-### 2. Flagging LSTM Model (`main_LSTM2_autoregressive.py`)
-- **Type**: Alternating autoregressive LSTM with memory protection
-- **Architecture**: LSTM with anomaly-aware training and memory protection mechanism
-- **Config**: `models/lstm_flagging/alternating_config.py` → `ALTERNATING_CONFIG`
-- **Location**: `models/lstm_flagging/`
-- **Features**: Anomaly flags, weighted loss, memory protection during anomalous periods
+### Available Water Level Stations
+- `21006845`, `21006846` (default), `21006847`
 
-## Running the Models
+## 📖 Model Overview
 
-### Traditional LSTM
+| Model | Type | Key Features |
+|-------|------|--------------|
+| **Traditional LSTM** | Standard seq2seq | Multi-layer LSTM, basic anomaly detection |
+| **Flagging LSTM** | Anomaly-aware | Memory protection, weighted loss, anomaly flags |
+
+## 🏃 Running the Models
+
+### 1. Traditional LSTM Model
+
+**Basic usage:**
 ```bash
-python main_LSTM1_seq2seq.py --station_id 21006846 --experiment my_experiment
+python main_LSTM1_seq2seq.py
 ```
 
-### Flagging LSTM
+**With options:**
 ```bash
-python main_LSTM2_autoregressive.py --station_id 21006846 --experiment flagging_test --flag_method synthetic --anomaly_weight 0.3
+# Train with synthetic errors and anomaly detection
+python main_LSTM1_seq2seq.py --error_multiplier 1.5 --anomaly_detection --model_diagnostics
+
+# Use test data for evaluation
+python main_LSTM1_seq2seq.py --use_test_data --model_diagnostics
 ```
 
 **Key Arguments:**
-- `--station_id`: Water level monitoring station (21006845, 21006846, 21006847)
-- `--experiment`: Experiment name for results folder
-- `--flag_method`: `synthetic` (from error injection) or `mad` (MAD outlier detection)
-- `--anomaly_weight`: Weight for anomalous periods in loss function (0.1-1.0)
+- `--error_multiplier FLOAT`: Scale factor for synthetic errors (default: 1.0, use `None` for no errors)
+- `--anomaly_detection`: Enable anomaly detection analysis
+- `--model_diagnostics`: Generate prediction plots and visualizations
+- `--use_test_data`: Use test set for evaluation (default: validation set)
+- `--advanced_diagnostics`: Generate detailed residual analysis
+
+### 2. Flagging LSTM Model (Anomaly-Aware)
+
+**Basic usage:**
+```bash
+python main_LSTM2_autoregressive.py
+```
+
+**Recommended usage:**
+```bash
+# Quick test with synthetic anomaly flags
+python main_LSTM2_autoregressive.py --experiment quick_test --quick_mode
+
+# Full experiment with custom anomaly weight
+python main_LSTM2_autoregressive.py --experiment custom_weight --anomaly_weight 0.5 --station_id 21006846
+
+# Use MAD-based anomaly detection
+python main_LSTM2_autoregressive.py --flag_method mad --experiment mad_test
+```
+
+**Key Arguments:**
+- `--station_id STR`: Station ID (default: '21006846')
+- `--experiment STR`: Experiment name for results folder (default: 'flagging_test')
+- `--flag_method STR`: Anomaly detection method - `synthetic` or `mad` (default: 'synthetic')
+- `--anomaly_weight FLOAT`: Weight for anomalous periods in loss (0.1-1.0, default: 0.3)
 - `--quick_mode`: Use reduced dataset for faster testing
-- `--error_multiplier`: Scale factor for synthetic error injection
+- `--use_test_data`: Use test set for evaluation
 
-## Project Structure
+## 📊 Output Structure
 
-### Core Model Files
-- `models/lstm_traditional/` - Traditional LSTM implementation
-  - `model.py` - LSTMModel class
-  - `train_model.py` - LSTM_Trainer class
-- `models/lstm_flagging/` - Flagging LSTM implementation
-  - `alternating_forecast_model.py` - AlternatingForecastModel class
-  - `alternating_trainer.py` - AlternatingTrainer class
-  - `alternating_config.py` - Model configuration
-  - `simple_anomaly_detector.py` - Anomaly detection utilities
+Results are automatically saved to:
+```
+results/
+├── lstm/                           # Traditional LSTM results
+└── Iterative model results/        # Flagging LSTM results
+    └── experiment_{name}/
+        ├── diagnostics/            # Performance metrics
+        ├── visualizations/         # Time series plots
+        └── anomaly_detection/      # Anomaly analysis
+```
 
-### Shared Components
-- `shared/preprocessing/` - Data preprocessing and feature engineering
-- `shared/diagnostics/` - Model evaluation and plotting utilities
-- `shared/anomaly_detection/` - Anomaly detection algorithms (z-score, MAD)
-- `shared/synthetic/` - Synthetic error generation for testing
-- `shared/utils/` - General utilities and helper functions
+## 💡 Usage Examples
 
-### Data and Results
-- `data_utils/Sample data/` - Preprocessed water level data
-- `results/` - Model outputs and experiment results
-  - `grid_search/` - Hyperparameter optimization results
-  - `Iterative model results/` - Flagging model experiment results
-  - `lstm/` - Traditional LSTM results
+### Compare Both Models
+```bash
+# Run traditional LSTM
+python main_LSTM1_seq2seq.py --model_diagnostics --anomaly_detection
 
-### Configuration
-- `config.py` - Main configuration file with model parameters
-- `models/lstm_flagging/alternating_config.py` - Flagging model specific config
+# Run flagging LSTM with same configuration
+python main_LSTM2_autoregressive.py --experiment comparison_test
+```
 
-## Key Features
+### Anomaly Detection Focus
+```bash
+# Traditional model with synthetic errors
+python main_LSTM1_seq2seq.py --error_multiplier 2.0 --anomaly_detection
+
+# Flagging model with high anomaly awareness
+python main_LSTM2_autoregressive.py --anomaly_weight 0.8 --experiment high_weight
+```
+
+### Quick Testing
+```bash
+# Fast traditional model run
+python main_LSTM1_seq2seq.py --model_diagnostics
+
+# Fast flagging model run
+python main_LSTM2_autoregressive.py --quick_mode --experiment quick
+```
+
+## 🔧 Configuration
+
+- **Traditional LSTM**: Edit `models/lstm_traditional/config.py`
+- **Flagging LSTM**: Edit `models/lstm_flagging/alternating_config.py`
+- **Synthetic Errors**: Edit `synthetic_error_config.py`
+
+## 📁 Project Structure
+
+```
+├── main_LSTM1_seq2seq.py          # Traditional LSTM model
+├── main_LSTM2_autoregressive.py   # Flagging LSTM model
+├── models/
+│   ├── lstm_traditional/          # Traditional LSTM implementation
+│   └── lstm_flagging/             # Flagging LSTM implementation
+├── shared/                        # Shared utilities
+│   ├── anomaly_detection/         # Anomaly detection algorithms
+│   ├── diagnostics/              # Model evaluation tools
+│   └── synthetic/                # Synthetic error generation
+├── data_utils/Sample data/        # Preprocessed data
+└── results/                      # Model outputs
+```
+
+## 🎯 Key Features
 
 ### Traditional LSTM
-- Multi-layer LSTM architecture
-- Configurable sequence length and hidden units
-- Standard backpropagation training
-- Basic anomaly detection post-processing
+- Standard sequence-to-sequence architecture
+- Optional synthetic error injection
+- Post-training anomaly detection
+- Comprehensive diagnostic plots
 
 ### Flagging LSTM
-- **Memory Protection**: Protects LSTM memory during anomalous periods
-- **Weighted Loss**: Reduces learning from corrupted data
-- **Anomaly Flags**: Binary inputs indicating data quality
-- **Alternating Training**: Switches between ground truth and predictions
-- **Synthetic Error Injection**: Offset, drift, spike, and noise errors
-
-## Output Structure
-
-Results are saved under `results/` with experiment-specific folders containing:
-- `diagnostics/` - Model performance metrics and residual analysis
-- `visualizations/` - Time series plots and model behavior analysis
-- `anomaly_detection/` - Anomaly detection results and confidence analysis 
+- **Memory Protection**: LSTM state protection during anomalies
+- **Weighted Loss**: Reduced learning from corrupted data
+- **Anomaly Flags**: Binary indicators for data quality
+- **Dual Detection**: Synthetic errors + MAD outlier detection 
