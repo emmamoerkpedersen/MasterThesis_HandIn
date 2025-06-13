@@ -11,7 +11,7 @@ ALTERNATING_CONFIG = {
     
     # Training parameters
     'batch_size': (10*672)+672,# Batch size should always be at least 2 weeks, to allow for the periods
-    'epochs': 100,              # TEMPORARILY REDUCED for quick testing (was 50)
+    'epochs': 45,              # TEMPORARILY REDUCED for quick testing (was 50)
     'patience': 10,
     'learning_rate': 0.001,
     # Forecasting parameters
