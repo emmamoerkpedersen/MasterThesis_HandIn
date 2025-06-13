@@ -80,6 +80,7 @@ def run_pipeline(
     advanced_diagnostics: bool = False,
     run_anomaly_detection: bool = False,
     error_multiplier: float = 1.0,
+    use_test_data: bool = False,
 ) -> dict:
     """
     Run the complete error detection and imputation pipeline using yearly windows.
@@ -95,6 +96,7 @@ def run_pipeline(
         advanced_diagnostics (bool): Whether to generate advanced model diagnostics
         run_anomaly_detection (bool): Whether to run anomaly detection using z_score_MAD
         error_multiplier (float): Multiplier for error counts per year (1.0 = base counts)
+        use_test_data (bool): Whether to use test data for predictions, plots, and metrics
     
     Returns:
         dict: Dictionary containing performance metrics and anomaly detection results
@@ -102,6 +104,9 @@ def run_pipeline(
     # Initialize configuration and preprocessor
     model_config = LSTM_CONFIG.copy()
     preprocessor = DataPreprocessor(model_config)
+    
+    # Initialize anomaly results variable
+    anomaly_results = {}
     
     #########################################################
     #                Step 1: Data Preparation                #
@@ -171,7 +176,14 @@ def run_pipeline(
                 original_val_data, error_generator, f"{station_id}_val", water_level_cols, "val"
             )
             stations_results.update(val_results)
-        
+            
+            # Process test data if needed for synthetic errors
+            if use_test_data:
+                print("\nProcessing TEST data...")
+                test_data_with_errors_raw, test_results = inject_errors_into_dataset(
+                    original_test_data, error_generator, f"{station_id}_test", water_level_cols, "test"
+                )
+                stations_results.update(test_results)
 
             train_data_with_errors = train_data_with_errors_raw
             val_data_with_errors = val_data_with_errors_raw
@@ -199,12 +211,12 @@ def run_pipeline(
             target_cols = ['vst_raw']
             print(f"Injecting anomaly errors into target column: {target_cols}")
             
-            # Process validation data only (where we'll detect anomalies)
-            print("\nProcessing VALIDATION data for anomaly detection...")
-            _, anomaly_val_results = inject_errors_into_dataset(
-                original_val_data, anomaly_error_generator, f"{station_id}_anomaly_val", target_cols, "val"
+            # Process test data for anomaly detection (changed from validation to test)
+            print("\nProcessing TEST data for anomaly detection...")
+            _, anomaly_test_results = inject_errors_into_dataset(
+                original_test_data, anomaly_error_generator, f"{station_id}_anomaly_test", target_cols, "test"
             )
-            anomaly_stations_results.update(anomaly_val_results)
+            anomaly_stations_results.update(anomaly_test_results)
             
             print("\nTarget variable error injection for anomaly detection complete.")
             
@@ -248,87 +260,167 @@ def run_pipeline(
     history, val_predictions, val_targets = train_model(trainer, training_data, validation_data, model_config)
     save_model(model, 'final_model.pth')
     
- #   # Calculate and plot feature importance
- #   print("\nCalculating feature importance...")
- #   try:
- #       feature_names, importance_scores = calculate_feature_importance(model, validation_data, preprocessor)
- #       plot_feature_importance(
- #           feature_names=feature_names,
-  #          importance_scores=importance_scores,
-  #          station_id=station_id,
-  #          title_suffix="SHAP Values"
-  #      )
-  #      print("Feature importance plot created successfully.")
-  #  except Exception as e:
-  #      print(f"Warning: Could not calculate feature importance: {str(e)}")
+    # Determine which dataset to use for evaluation
+    if use_test_data:
+        print("\nUsing TEST data for predictions and evaluation...")
+        eval_data = original_test_data
+        eval_data_with_errors = test_data_with_errors_raw if inject_synthetic_errors and 'test_data_with_errors_raw' in locals() else original_test_data
+        eval_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
+        eval_predictions_df = process_test_predictions(eval_predictions, original_test_data, model_config)
+        eval_plot_title = "Test Set - " + ("Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data")
+        dataset_name = "test"
+    else:
+        print("\nUsing VALIDATION data for predictions and evaluation...")
+        eval_data = original_val_data
+        eval_data_with_errors = val_data_with_errors if inject_synthetic_errors else original_val_data
+        eval_predictions = val_predictions
+        eval_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
+        eval_plot_title = "Validation Set - " + ("Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data")
+        dataset_name = "validation"
     
-    # Process validation predictions
-    val_predictions_df = process_val_predictions(val_predictions, preprocessor, original_val_data, model_config)
+    # Calculate metrics on evaluation set
+    metrics = calculate_performance_metrics(eval_data['vst_raw'].values, eval_predictions_df['vst_raw'].values, ~np.isnan(eval_data['vst_raw'].values))
+    metrics['val_loss'] = min(history['val_loss'])
+    print_metrics_table(metrics)
     
+    # Generate evaluation plots
+    if model_diagnostics:
+        # If synthetic errors were injected, build a dictionary with both the modified data and error periods for the main water level column
+        if inject_synthetic_errors:
+            # Use the first water level column for visualization
+            main_col = water_level_cols[0] if water_level_cols else None
+            eval_key = f"{station_id}_{dataset_name}_{main_col}" if main_col else None
+            # Fallback: try just f"{station_id}_{dataset_name}" if above not found
+            if eval_key not in stations_results and main_col:
+                eval_key = f"{station_id}_{dataset_name}"
+            # Extract error periods and modified data for the main column
+            if eval_key in stations_results:
+                synthetic_data = {
+                    'data': stations_results[eval_key]['modified_data'],
+                    'error_periods': stations_results[eval_key]['error_periods']
+                }
+            else:
+                synthetic_data = None
+        else:
+            synthetic_data = None
+        create_full_plot(
+            eval_data, 
+            eval_predictions_df, 
+            str(station_id), 
+            model_config, 
+            metrics['val_loss'], 
+            create_html=False,  # Disable HTML creation
+            title_suffix=eval_plot_title,
+            synthetic_data=synthetic_data,
+            vinge_data=vinge_data
+        )
+        plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
+    
+    # Generate advanced diagnostics if enabled
+    if advanced_diagnostics:
+        print("\nGenerating advanced diagnostic visualizations...")
+        predictions_series = pd.Series(
+            eval_predictions_df['vst_raw'].values, 
+            index=eval_data.index[:len(eval_predictions_df)]
+        )
+        all_visualization_paths = run_advanced_diagnostics(
+            eval_data, predictions_series, station_id, output_path, is_comparative=False
+        )
+    else:
+        print("Skipping advanced diagnostics visualizations")
+    
+    # Prepare final results
+    final_results = {
+        'model_metrics': metrics,
+        'test_metrics': {
+            'test_predictions': eval_predictions_df['vst_raw'].values,
+            'test_performance': calculate_performance_metrics(
+                eval_data['vst_raw'].values, 
+                eval_predictions_df['vst_raw'].values, 
+                ~np.isnan(eval_data['vst_raw'].values)
+            )
+        }
+    }
+    
+    # Add anomaly detection results if available
+    if anomaly_results:
+        final_results['anomaly_detection'] = anomaly_results
+        
+        # Print final summary if anomaly detection was run
+        if 'confusion_metrics' in anomaly_results:
+            print("\n" + "="*60)
+            print("PIPELINE COMPLETION SUMMARY")
+            print("="*60)
+            print(f"Model trained and evaluated successfully")
+            print(f"Anomaly detection completed with F1-score: {anomaly_results['confusion_metrics']['f1_score']:.4f}")
+            print(f"Total anomalies detected: {anomaly_results['confusion_metrics']['total_anomalies_pred']}")
+            print(f"Detection precision: {anomaly_results['confusion_metrics']['precision']:.4f}")
+            print(f"Detection recall: {anomaly_results['confusion_metrics']['recall']:.4f}")
+
     #########################################################
     #              Step 4: Anomaly Detection                 #
     #########################################################
-    anomaly_results = {}
     if run_anomaly_detection:
         print("\n" + "="*60)
         print("Step 4: Anomaly Detection using Z-Score MAD")
         print("="*60)
-        print("ℹ️  Flow: Model trained on clean/corrupted features → Predictions made → Anomalies detected in TARGET with synthetic errors")
+        print("ℹ️  Flow: Model trained on clean/corrupted features → Predictions made on test data → Anomalies detected in TARGET with synthetic errors")
         
         # Check if we have anomaly ground truth data
         if not anomaly_stations_results:
             print("❌ No anomaly target data available. Run with --anomaly_detection to enable.")
             anomaly_results = {'error': 'No anomaly target data available'}
         else:
-            # Use unscaled predictions from the processed validation dataframe
-            val_predictions_unscaled = val_predictions_df['vst_raw'].values
+            # Use unscaled predictions from the processed test dataframe
+            test_predictions_unscaled = eval_predictions_df['vst_raw'].values
             
-            print(f"📊 Using unscaled predictions from val_predictions_df: shape {val_predictions_unscaled.shape}")
-            print(f"📊 Original validation data shape: {original_val_data['vst_raw'].values.shape}")
-            print(f"📊 Prediction value range: {np.nanmin(val_predictions_unscaled):.1f} to {np.nanmax(val_predictions_unscaled):.1f} mm")
-            print(f"📊 Original data value range: {np.nanmin(original_val_data['vst_raw'].values):.1f} to {np.nanmax(original_val_data['vst_raw'].values):.1f} mm")
+            print(f"📊 Using unscaled predictions from test_predictions_df: shape {test_predictions_unscaled.shape}")
+            print(f"📊 Original test data shape: {eval_data['vst_raw'].values.shape}")
+            print(f"📊 Prediction value range: {np.nanmin(test_predictions_unscaled):.1f} to {np.nanmax(test_predictions_unscaled):.1f} mm")
+            print(f"📊 Original data value range: {np.nanmin(eval_data['vst_raw'].values):.1f} to {np.nanmax(eval_data['vst_raw'].values):.1f} mm")
             
             # Ensure lengths match
-            if len(val_predictions_unscaled) != len(original_val_data):
-                print(f"⚠️  Length mismatch: predictions={len(val_predictions_unscaled)}, data={len(original_val_data)}")
+            if len(test_predictions_unscaled) != len(eval_data):
+                print(f"⚠️  Length mismatch: predictions={len(test_predictions_unscaled)}, data={len(eval_data)}")
                 # Truncate or pad predictions to match data length
-                if len(val_predictions_unscaled) > len(original_val_data):
-                    val_predictions_unscaled = val_predictions_unscaled[:len(original_val_data)]
-                    print(f"   Truncated predictions to {len(val_predictions_unscaled)}")
+                if len(test_predictions_unscaled) > len(eval_data):
+                    test_predictions_unscaled = test_predictions_unscaled[:len(eval_data)]
+                    print(f"   Truncated predictions to {len(test_predictions_unscaled)}")
                 else:
                     # Pad with NaN if predictions are shorter
-                    padding = np.full(len(original_val_data) - len(val_predictions_unscaled), np.nan)
-                    val_predictions_unscaled = np.concatenate([val_predictions_unscaled, padding])
-                    print(f"   Padded predictions to {len(val_predictions_unscaled)}")
+                    padding = np.full(len(eval_data) - len(test_predictions_unscaled), np.nan)
+                    test_predictions_unscaled = np.concatenate([test_predictions_unscaled, padding])
+                    print(f"   Padded predictions to {len(test_predictions_unscaled)}")
             
-            print(f"✅ Final prediction shape: {val_predictions_unscaled.shape}, data shape: {original_val_data['vst_raw'].values.shape}")
+            print(f"✅ Final prediction shape: {test_predictions_unscaled.shape}, data shape: {eval_data['vst_raw'].values.shape}")
             
             # Check for NaN predictions
-            if np.sum(~np.isnan(val_predictions_unscaled)) == 0:
+            if np.sum(~np.isnan(test_predictions_unscaled)) == 0:
                 print("⚠️  All predictions are NaN! Using moving average fallback for anomaly detection testing...")
                 window = 24  # 6 hours moving average
-                val_predictions_unscaled = pd.Series(original_val_data['vst_raw']).rolling(window=window, center=True).mean().values
-                print(f"   Generated {np.sum(~np.isnan(val_predictions_unscaled))} valid moving average predictions")
+                test_predictions_unscaled = pd.Series(eval_data['vst_raw']).rolling(window=window, center=True).mean().values
+                print(f"   Generated {np.sum(~np.isnan(test_predictions_unscaled))} valid moving average predictions")
             
             # Get the target data with synthetic errors for anomaly detection
-            anomaly_target_key = f"{station_id}_anomaly_val_vst_raw"
+            anomaly_target_key = f"{station_id}_anomaly_test_vst_raw"
             if anomaly_target_key in anomaly_stations_results:
                 anomaly_target_data = anomaly_stations_results[anomaly_target_key]['modified_data']
                 print(f"📍 Using anomaly target data from key: {anomaly_target_key}")
             else:
                 print(f"⚠️ Anomaly target key {anomaly_target_key} not found. Available keys: {list(anomaly_stations_results.keys())}")
-                anomaly_target_data = original_val_data  # Fallback
+                anomaly_target_data = eval_data  # Fallback
             
             # Run comprehensive anomaly detection using the new function
             anomaly_results = run_single_threshold_anomaly_detection(
-                val_data=anomaly_target_data,  # Use TARGET data with synthetic errors for anomaly detection
-                predictions=val_predictions_unscaled,  # Use unscaled predictions
+                val_data=anomaly_target_data,  # Use TEST data with synthetic errors for anomaly detection
+                predictions=test_predictions_unscaled,  # Use unscaled test predictions
                 stations_results=anomaly_stations_results,  # Contains ground truth from TARGET variable error injection
                 station_id=station_id,
                 config=ANOMALY_DETECTION_CONFIG,
                 output_dir=output_path,  # Use same directory as other model plots
-                original_val_data=original_val_data,
-                error_multiplier=1.0  # Anomaly detection uses base error rates
+                original_val_data=eval_data,  # Pass original test data for comparison
+                error_multiplier=1.0,  # Anomaly detection uses base error rates
+                dataset_type='test'  # Specify that we're using test data
             )
             
             # Check if anomaly detection succeeded
@@ -364,148 +456,26 @@ def run_pipeline(
                 title += f"\nDetected: {high_conf} High, {med_conf} Medium, {low_conf} Low confidence"
                 
                 png_path, html_path = plot_water_level_anomalies(
-                    test_data=anomaly_target_data,  # Use TARGET data with synthetic errors for visualization
-                    predictions=val_predictions_unscaled,  # Use unscaled predictions
+                    test_data=anomaly_target_data,  # Use TEST data with synthetic errors for visualization
+                    predictions=test_predictions_unscaled,  # Use unscaled test predictions
                     z_scores=z_scores,
                     anomalies=detected_anomalies,
                     threshold=ANOMALY_DETECTION_CONFIG['threshold'],
                     title=title,
                     output_dir=anomaly_output_dir,
                     save_png=True,
-                    save_html=True,
+                    save_html=False,
                     show_plot=False,
                     filename_prefix="anomaly_detection_",
                     confidence=confidence,
-                    original_data=original_val_data,  # Pass original clean data for comparison
+                    original_data=eval_data,  # Pass original clean test data for comparison
                     ground_truth_flags=ground_truth_flags
                 )
                 
                 print(f"  Anomaly detection plot saved to: {png_path}")
-                if html_path:
-                    print(f"  Interactive plot saved to: {html_path}")
     else:
         print("\nSkipping anomaly detection (not requested)")
     
-    # Set plot titles
-    val_plot_title = "Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Trained on Clean Data"
-    #test_plot_title = "Model Trained on Data with Synthetic Errors" if inject_synthetic_errors else "Model Trained on Clean Data"
-    best_val_loss = min(history['val_loss'])
-    
-    # Calculate metrics on validation set
-    metrics = calculate_performance_metrics(original_val_data['vst_raw'].values, val_predictions_df['vst_raw'].values, ~np.isnan(original_val_data['vst_raw'].values))
-    metrics['val_loss'] = min(history['val_loss'])
-    
-    # Add specific anomaly detection metrics to results if available (avoid adding nested dictionaries)
-    if anomaly_results and 'confusion_metrics' in anomaly_results:
-        confusion_metrics = anomaly_results['confusion_metrics']
-        # Add only scalar metrics that can be formatted properly
-        metrics['anomaly_f1_score'] = confusion_metrics.get('f1_score', 0.0)
-        metrics['anomaly_precision'] = confusion_metrics.get('precision', 0.0)
-        metrics['anomaly_recall'] = confusion_metrics.get('recall', 0.0)
-        metrics['anomaly_accuracy'] = confusion_metrics.get('accuracy', 0.0)
-    
-    print_metrics_table(metrics)
-
-
-    
-    # Generate validation plots
-    if model_diagnostics:
-        # If synthetic errors were injected, build a dictionary with both the modified data and error periods for the main water level column
-        if inject_synthetic_errors:
-            # Use the first water level column for visualization
-            main_col = water_level_cols[0] if water_level_cols else None
-            val_key = f"{station_id}_val_{main_col}" if main_col else None
-            # Fallback: try just f"{station_id}_val" if above not found
-            if val_key not in stations_results and main_col:
-                val_key = f"{station_id}_val"
-            # Extract error periods and modified data for the main column
-            if val_key in stations_results:
-                synthetic_data = {
-                    'data': stations_results[val_key]['modified_data'],
-                    'error_periods': stations_results[val_key]['error_periods']
-                }
-            else:
-                synthetic_data = None
-        else:
-            synthetic_data = None
-        create_full_plot(
-            original_val_data, 
-            val_predictions_df, 
-            str(station_id), 
-            model_config, 
-            best_val_loss, 
-            create_html=False,  # Disable HTML creation
-            title_suffix=val_plot_title,
-            synthetic_data=synthetic_data,
-            vinge_data=vinge_data
-        )
-        plot_convergence(history, str(station_id), title=f"Training and Validation Loss - Station {station_id}")
-    
-    # Generate test predictions
-    print("\nMaking predictions on test set...")
-    test_predictions, predictions_scaled, target_scaled = trainer.predict(test_data)
-    test_predictions_df = process_test_predictions(test_predictions, original_test_data, model_config)
-
-    
-    test_data_nan_mask = ~np.isnan(test_data['vst_raw']).values
-    
-    # Ensure predictions are properly shaped
-    test_predictions_reshaped = np.array(test_predictions).flatten()
-    if len(test_predictions_reshaped) != len(original_test_data):
-        if len(test_predictions_reshaped) > len(original_test_data):
-            test_predictions_reshaped = test_predictions_reshaped[:len(original_test_data)]
-        else:
-            padding = np.full(len(original_test_data) - len(test_predictions_reshaped), np.nan)
-            test_predictions_reshaped = np.concatenate([test_predictions_reshaped, padding])
-    
-    #Calculate final metrics
-    predictions_nan_mask = ~np.isnan(test_predictions_reshaped)
-    valid_mask = test_data_nan_mask & predictions_nan_mask
-    metrics = calculate_performance_metrics(original_test_data['vst_raw'].values, test_predictions_reshaped, valid_mask)
-    metrics['val_loss'] = min(history['val_loss'])
-    print_metrics_table(metrics)
-    
-    # Generate advanced diagnostics if enabled
-    if advanced_diagnostics:
-        print("\nGenerating advanced diagnostic visualizations...")
-        predictions_series = pd.Series(
-            test_predictions_reshaped, 
-            index=original_test_data.index[:len(test_predictions_reshaped)]
-        )
-        all_visualization_paths = run_advanced_diagnostics(
-            original_test_data, predictions_series, station_id, output_path, is_comparative=False
-        )
-    else:
-        print("Skipping advanced diagnostics visualizations")
-    
-    # Prepare final results
-    final_results = {
-        'model_metrics': metrics,
-        'test_metrics': {
-            'test_predictions': test_predictions_reshaped,
-            'test_performance': calculate_performance_metrics(
-                original_test_data['vst_raw'].values, 
-                test_predictions_reshaped, 
-                valid_mask
-            )
-        }
-    }
-    
-    # Add anomaly detection results if available
-    if anomaly_results:
-        final_results['anomaly_detection'] = anomaly_results
-        
-        # Print final summary if anomaly detection was run
-        if 'confusion_metrics' in anomaly_results:
-            print("\n" + "="*60)
-            print("PIPELINE COMPLETION SUMMARY")
-            print("="*60)
-            print(f"Model trained and evaluated successfully")
-            print(f"Anomaly detection completed with F1-score: {anomaly_results['confusion_metrics']['f1_score']:.4f}")
-            print(f"Total anomalies detected: {anomaly_results['confusion_metrics']['total_anomalies_pred']}")
-            print(f"Detection precision: {anomaly_results['confusion_metrics']['precision']:.4f}")
-            print(f"Detection recall: {anomaly_results['confusion_metrics']['recall']:.4f}")
-
     return final_results
 
 
@@ -530,6 +500,8 @@ if __name__ == "__main__":
                       help='Disable all diagnostics plots')
     parser.add_argument('--anomaly_detection', action='store_true',
                       help='Enable anomaly detection using Z-Score MAD method')
+    parser.add_argument('--use_test_data', action='store_true',
+                      help='Use test data for predictions, plots, and metrics (training still uses train/val data)')
     
     args = parser.parse_args()
     
@@ -552,6 +524,12 @@ if __name__ == "__main__":
     else:
         print("Anomaly detection disabled (use --anomaly_detection to enable)")
         
+    # Configure test data usage
+    if args.use_test_data:
+        print("Using TEST data for predictions, plots, and metrics")
+    else:
+        print("Using VALIDATION data for predictions, plots, and metrics")
+    
     # Run pipeline
     if args.run_experiments:
         run_error_frequency_experiments(run_pipeline)
@@ -562,6 +540,13 @@ if __name__ == "__main__":
             if args.error_multiplier is not None:
                 print(f"Using error multiplier: {args.error_multiplier:.1f}x")
                 print(f"(This multiplies the base error counts per year defined in config.py)")
+            
+            print("\n📊 Evaluation Configuration:")
+            print(f"Training data: train + validation sets")
+            if args.use_test_data:
+                print(f"Evaluation data: test set (predictions, plots, metrics)")
+            else:
+                print(f"Evaluation data: validation set (predictions, plots, metrics)")
             
             # Configure diagnostics output
             if args.no_diagnostics:
@@ -585,6 +570,7 @@ if __name__ == "__main__":
                 advanced_diagnostics=use_advanced_diagnostics,
                 run_anomaly_detection=args.anomaly_detection,
                 error_multiplier=args.error_multiplier if args.error_multiplier is not None else 1.0,
+                use_test_data=args.use_test_data,
             )
 
             print("\nModel run completed!")

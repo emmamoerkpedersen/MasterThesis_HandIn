@@ -9,7 +9,7 @@ LSTM_CONFIG = {
     
     # Training Parameters
     'batch_size': 1,
-    'epochs': 50,
+    'epochs': 1,
     'patience': 10,
     'learning_rate': 0.001,
     'warmup_length': 350,

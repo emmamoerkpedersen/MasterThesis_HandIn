@@ -148,7 +148,8 @@ def run_single_threshold_anomaly_detection(
     output_dir: Path,
     original_val_data: pd.DataFrame = None,
     error_multiplier: float = None,
-    filename_prefix: str = ""
+    filename_prefix: str = "",
+    dataset_type: str = "val"
 ) -> Dict:
     """
     Run anomaly detection using a single threshold from configuration.
@@ -163,6 +164,7 @@ def run_single_threshold_anomaly_detection(
         original_val_data: Original validation data before error injection
         error_multiplier: Error multiplier used (for labeling)
         filename_prefix: Prefix for the filename of the generated plot
+        dataset_type: Type of dataset ('val' or 'test') for ground truth extraction
         
     Returns:
         Dictionary with anomaly detection results
@@ -186,7 +188,7 @@ def run_single_threshold_anomaly_detection(
     
     # Extract ground truth flags from stations_results
     ground_truth_flags = extract_ground_truth_from_stations_results(
-        stations_results, station_id, dataset_type='val'
+        stations_results, station_id, dataset_type=dataset_type
     )
     
     if ground_truth_flags is None:
